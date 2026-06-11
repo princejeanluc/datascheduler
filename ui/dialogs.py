@@ -661,6 +661,12 @@ class PipelineDialog(QDialog):
                   ("| (pipe)", "|"), ("\\t (tabulation)", "\t")]
     ENCODINGS  = [("UTF-8", "utf-8"), ("UTF-8 BOM (Excel)", "utf-8-sig"),
                   ("Latin-1", "latin-1"), ("CP1252 (Windows)", "cp1252")]
+    QUOTINGS   = [
+        ("Chaines & dates seulement (défaut)", "QUOTE_NONNUMERIC"),
+        ("Minimal — uniquement si nécessaire",  "QUOTE_MINIMAL"),
+        ("Tout entre guillemets",               "QUOTE_ALL"),
+        ("Aucun guillemet",                     "QUOTE_NONE"),
+    ]
 
     def __init__(self, parent=None, pipeline=None):
         super().__init__(parent)
@@ -754,6 +760,10 @@ class PipelineDialog(QDialog):
         self.inp_chunk_size.setRange(1_000, 1_000_000); self.inp_chunk_size.setValue(50_000)
         self.inp_chunk_size.setSingleStep(10_000); self.inp_chunk_size.setStyleSheet(self._input_style())
 
+        self.cb_quoting = QComboBox(); self.cb_quoting.setStyleSheet(self._combo_style())
+        for label, val in self.QUOTINGS:
+            self.cb_quoting.addItem(label, val)
+
         self._load_ftp_profiles()
         for label, val in self.SEPARATORS:
             self.cb_separator.addItem(label, val)
@@ -764,6 +774,15 @@ class PipelineDialog(QDialog):
         lbl_tokens = QLabel("{yyyy} {yy} {MM} {dd} {HH} {mm} {yyyyMMdd}")
         lbl_tokens.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
 
+        lbl_quoting_hint = QLabel(
+            "«Minimal» : pas de guillemets autour des chaines/dates sauf si nécessaire. "
+            "«Aucun» : risqué si le séparateur peut apparaître dans les données."
+        )
+        lbl_quoting_hint.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;"
+        )
+        lbl_quoting_hint.setWordWrap(True)
+
         f3.addRow(self._label("Profil FTP *"),       self.cb_ftp)
         f3.addRow(self._label("Dossier distant *"),  self.inp_remote_path)
         f3.addRow(self._label("Nom de fichier *"),   self.inp_filename)
@@ -771,6 +790,8 @@ class PipelineDialog(QDialog):
         f3.addRow(self._label("Séparateur CSV"),     self.cb_separator)
         f3.addRow(self._label("Encodage"),           self.cb_encoding)
         f3.addRow(self._label("Chunk (lignes)"),     self.inp_chunk_size)
+        f3.addRow(self._label("Guillemets CSV"),     self.cb_quoting)
+        f3.addRow("",                                lbl_quoting_hint)
         root.addLayout(f3)
 
         root.addWidget(self._sep())
@@ -881,6 +902,7 @@ class PipelineDialog(QDialog):
         separator   = self.cb_separator.currentData()
         encoding    = self.cb_encoding.currentData()
         chunk_size  = self.inp_chunk_size.value()
+        quoting     = self.cb_quoting.currentData()
         freq        = self.cb_freq.currentData()
         sched_time  = self.inp_time.text().strip()
         sched_day   = None
@@ -907,6 +929,7 @@ class PipelineDialog(QDialog):
                 p.csv_separator     = separator
                 p.csv_encoding      = encoding
                 p.csv_chunk_size    = chunk_size
+                p.csv_quoting       = quoting
                 p.frequency         = freq
                 p.scheduled_time    = sched_time
                 p.scheduled_day     = sched_day
@@ -918,7 +941,7 @@ class PipelineDialog(QDialog):
                 ftp_profile_id=ftp_id,
                 remote_path_tpl=remote_path, filename_tpl=filename,
                 csv_separator=separator, csv_encoding=encoding,
-                csv_chunk_size=chunk_size,
+                csv_chunk_size=chunk_size, csv_quoting=quoting,
                 frequency=freq, scheduled_time=sched_time,
                 scheduled_day=sched_day, cron_expression=cron_expr,
             )
@@ -953,6 +976,7 @@ class PipelineDialog(QDialog):
         _set_combo_data(self.cb_separator, p.csv_separator)
         _set_combo_data(self.cb_encoding, p.csv_encoding)
         self.inp_chunk_size.setValue(p.csv_chunk_size or 50_000)
+        _set_combo_data(self.cb_quoting, getattr(p, "csv_quoting", None) or "QUOTE_NONNUMERIC")
         freq = _status_str(p.frequency) if p.frequency else "DAILY"
         _set_combo_data(self.cb_freq, freq)
         self.inp_time.setText(p.scheduled_time or "06:00")
