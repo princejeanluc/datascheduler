@@ -1,0 +1,63 @@
+# ── Environnements virtuels ────────────────────
+envfs/
+venv/
+.venv/
+env/
+
+# ── Python ─────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.spec.bak
+
+# ── Base de données locale ─────────────────────
+# La base SQLite est stockée dans %APPDATA%/DataScheduler/
+# Ne jamais committer une base locale ou de test
+*.db
+*.sqlite
+*.sqlite3
+
+# ── Fichiers de configuration locaux ──────────
+.env
+.env.*
+config.local.*
+
+# ── Logs et fichiers temporaires ───────────────
+*.log
+*.tmp
+*.temp
+logs/
+tmp/
+
+# ── Fichiers CSV exportés (données métier) ─────
+exports/
+*.csv
+
+# ── IDE / éditeurs ─────────────────────────────
+.vscode/
+.idea/
+*.suo
+*.user
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+Thumbs.db
+
+# ── PyInstaller ────────────────────────────────
+# dist/ et build/ sont regénérés par pyinstaller
+dist/
+build/
+*.spec.orig
+
+# ── Coverage / tests ───────────────────────────
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# ── Jupyter (si utilisé pour prototypage) ──────
+.ipynb_checkpoints/
