@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QWidget, QSizePolicy, QTextEdit, QPlainTextEdit,
     QScrollArea, QProgressBar,
 )
-from PySide6.QtCore import Qt, QThread, Signal, QRegularExpression
+from PySide6.QtCore import Qt, QThread, Signal, QRegularExpression, QTimer
 from PySide6.QtGui import QIntValidator, QFont, QSyntaxHighlighter, QTextCharFormat, QColor
 
 from ui.styles import COLORS, DIALOG_STYLE
@@ -27,14 +27,13 @@ class OracleTestThread(QThread):
         self.config = config
 
     def run(self):
-        from core.oracle import OracleConnector
-        connector = OracleConnector(self.config)
-        r = connector.test_connection()
-        self.result_ready.emit(
-            r.success,
-            r.message,
-            r.db_version or "",
-        )
+        try:
+            from core.oracle import OracleConnector
+            connector = OracleConnector(self.config)
+            r = connector.test_connection()
+            self.result_ready.emit(r.success, r.message, r.db_version or "")
+        except Exception as e:
+            self.result_ready.emit(False, f"Erreur inattendue : {e}", "")
 
 
 # ──────────────────────────────────────────────
@@ -220,9 +219,22 @@ class OracleDialog(QDialog):
 
         self._test_thread = OracleTestThread(config)
         self._test_thread.result_ready.connect(self._on_test_result)
+
+        self._test_timeout = QTimer(self)
+        self._test_timeout.setSingleShot(True)
+        self._test_timeout.timeout.connect(self._on_test_timeout)
+        self._test_timeout.start(30_000)   # 30 secondes max
+
         self._test_thread.start()
 
+    def _on_test_timeout(self):
+        if self._test_thread and self._test_thread.isRunning():
+            self._test_thread.terminate()
+        self._on_test_result(False, "Délai dépassé (30s) — vérifiez l'hôte et le port.", "")
+
     def _on_test_result(self, success: bool, message: str, version: str):
+        if hasattr(self, "_test_timeout"):
+            self._test_timeout.stop()
         self.btn_test.setEnabled(True)
         if success:
             txt = f"✅  Connexion réussie — Oracle {version}"

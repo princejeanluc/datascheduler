@@ -35,6 +35,20 @@ a = Analysis(
 
         # ── oracledb (thin mode — pas de client Oracle requis) ──
         *oracledb_hidden,
+        'oracledb.impl',
+        'oracledb.impl.python',
+        *collect_submodules('oracledb'),
+
+        # ── SSL / crypto (requis par oracledb thin mode) ──
+        'ssl',
+        '_ssl',
+        'hashlib',
+        'hmac',
+
+        # ── qtawesome + qtpy (icônes UI) ──
+        'qtawesome',
+        'qtpy',
+        *collect_submodules('qtawesome'),
 
         # ── SQLAlchemy ──
         'sqlalchemy.dialects.sqlite',
