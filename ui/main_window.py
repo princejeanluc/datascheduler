@@ -494,7 +494,7 @@ class PipelinesView(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout(); title_col.setSpacing(2)
         title_col.addWidget(_make_title("Pipelines"))
-        title_col.addWidget(_make_subtitle("Orchestration Oracle → CSV → FTP"))
+        title_col.addWidget(_make_subtitle("Orchestration flexible par étapes"))
         header.addLayout(title_col); header.addStretch()
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
@@ -505,9 +505,9 @@ class PipelinesView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Nom", "Statut", "Profil Oracle", "Profil FTP", "Planification", "Prochaine exéc.", "Actions"])
+            ["Nom", "Statut", "Étapes", "Planification", "Prochaine exéc.", "Actions"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -519,18 +519,23 @@ class PipelinesView(QWidget):
 
     def refresh(self):
         from database import db_manager as db
+        from ui.step_editor import STEP_META
         pipelines = db.get_pipelines()
         self.table.setRowCount(len(pipelines))
         for r_idx, p in enumerate(pipelines):
-            st          = _status_str(p.last_status)
-            freq        = _status_str(p.frequency)
-            plan        = f"{freq} {p.scheduled_time or ''}".strip()
-            next_run    = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
-            oracle_name = p.oracle_profile.name if p.oracle_profile else "—"
-            ftp_name    = p.ftp_profile.name    if p.ftp_profile    else "—"
+            st       = _status_str(p.last_status)
+            freq     = _status_str(p.frequency)
+            plan     = f"{freq} {p.scheduled_time or ''}".strip()
+            next_run = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
+
+            # Résumé des étapes
+            step_types = [str(s.step_type).replace("StepType.", "") for s in (p.steps or [])]
+            steps_str  = " → ".join(
+                STEP_META.get(t, {}).get("label", t) for t in step_types
+            ) or "—"
 
             text_color = COLORS["text_dim"] if not p.is_active else COLORS["text_main"]
-            cells = [p.name, st, oracle_name, ftp_name, plan, next_run]
+            cells = [p.name, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
                     badge_st   = "INACTIF" if not p.is_active else st
@@ -568,20 +573,19 @@ class PipelinesView(QWidget):
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             al.addWidget(btn_run); al.addWidget(btn_toggle)
             al.addWidget(btn_edit); al.addWidget(btn_del); al.addStretch()
-            self.table.setCellWidget(r_idx, 6, aw)
+            self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
 
     def _on_new_pipeline(self):
-        from ui.dialogs import PipelineDialog
-        dlg = PipelineDialog(self)
-        if dlg.exec():
+        from ui.step_editor import PipelineEditorDialog
+        if PipelineEditorDialog(self).exec():
             self.refresh()
 
     def _on_edit_pipeline(self, pipeline_id: int):
         from database import db_manager as db
-        from ui.dialogs import PipelineDialog
+        from ui.step_editor import PipelineEditorDialog
         p = db.get_pipeline(pipeline_id)
-        if p and PipelineDialog(self, pipeline=p).exec():
+        if p and PipelineEditorDialog(self, pipeline=p).exec():
             self.refresh()
 
     def _on_run_pipeline(self, pipeline_id: int):

@@ -37,6 +37,13 @@ class CronFrequency(str, enum.Enum):
     CUSTOM  = "CUSTOM"   # syntaxe cron brute
 
 
+class StepType(str, enum.Enum):
+    ORACLE_EXTRACT = "ORACLE_EXTRACT"  # Oracle → CSV temporaire
+    FTP_UPLOAD     = "FTP_UPLOAD"      # Upload vers serveur FTP/SFTP
+    LOCAL_COPY     = "LOCAL_COPY"      # Copie locale avec tokens datetime
+    PYTHON_SCRIPT  = "PYTHON_SCRIPT"   # Exécution d'un script .py
+
+
 # ──────────────────────────────────────────────
 #  PROFIL ORACLE
 # ──────────────────────────────────────────────
@@ -159,9 +166,32 @@ class Pipeline(Base):
     runs           = relationship("PipelineRun",   back_populates="pipeline",
                                   cascade="all, delete-orphan",
                                   order_by="PipelineRun.started_at.desc()")
+    steps          = relationship("PipelineStep",  back_populates="pipeline",
+                                  cascade="all, delete-orphan",
+                                  order_by="PipelineStep.step_order")
 
     def __repr__(self):
         return f"<Pipeline name={self.name} active={self.is_active}>"
+
+
+# ──────────────────────────────────────────────
+#  ÉTAPE DE PIPELINE
+# ──────────────────────────────────────────────
+
+class PipelineStep(Base):
+    __tablename__ = "pipeline_steps"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    step_order  = Column(Integer, nullable=False, default=0)
+    step_type   = Column(Enum(StepType), nullable=False)
+    label       = Column(String(100), nullable=True)   # libellé optionnel
+    config_json = Column(Text, nullable=False, default="{}")
+
+    pipeline = relationship("Pipeline", back_populates="steps")
+
+    def __repr__(self):
+        return f"<PipelineStep pipeline_id={self.pipeline_id} order={self.step_order} type={self.step_type}>"
 
 
 # ──────────────────────────────────────────────
