@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
-from .models import Base, OracleProfile, FtpProfile, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
 
 
 # ──────────────────────────────────────────────
@@ -74,6 +74,69 @@ def _migrate(engine) -> None:
                     config_json TEXT NOT NULL DEFAULT '{}'
                 )
             """))
+            conn.commit()
+
+        # Création de la table smtp_profiles si absente
+        if "smtp_profiles" not in tables:
+            conn.execute(text("""
+                CREATE TABLE smtp_profiles (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name         VARCHAR(100) NOT NULL UNIQUE,
+                    host         VARCHAR(255) NOT NULL,
+                    port         INTEGER NOT NULL DEFAULT 587,
+                    username     VARCHAR(100),
+                    password     VARCHAR(255),
+                    use_tls      BOOLEAN NOT NULL DEFAULT 1,
+                    from_address VARCHAR(255) NOT NULL,
+                    created_at   DATETIME,
+                    updated_at   DATETIME
+                )
+            """))
+            conn.commit()
+
+        # Rendre oracle_profile_id / sql_query_id / ftp_profile_id / remote_path_tpl / filename_tpl
+        # nullable (requis par l'architecture flexible à base d'étapes).
+        # SQLite ne supporte pas ALTER COLUMN : on reconstruit la table si nécessaire.
+        pipeline_info = {r[1]: r[3] for r in conn.execute(
+            text("PRAGMA table_info(pipelines)")
+        ).fetchall()}  # {col_name: notnull}
+        needs_rebuild = any(
+            pipeline_info.get(col, 0) == 1
+            for col in ("oracle_profile_id", "sql_query_id", "ftp_profile_id",
+                        "remote_path_tpl", "filename_tpl")
+        )
+        if needs_rebuild:
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+            conn.execute(text("""
+                CREATE TABLE pipelines_new (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name              VARCHAR(100) NOT NULL UNIQUE,
+                    description       TEXT,
+                    oracle_profile_id INTEGER REFERENCES oracle_profiles(id),
+                    sql_query_id      INTEGER REFERENCES sql_queries(id),
+                    csv_separator     VARCHAR(5)  NOT NULL DEFAULT ';',
+                    csv_encoding      VARCHAR(20) NOT NULL DEFAULT 'utf-8',
+                    csv_chunk_size    INTEGER     NOT NULL DEFAULT 50000,
+                    csv_quoting       VARCHAR(20) NOT NULL DEFAULT 'QUOTE_NONNUMERIC',
+                    ftp_profile_id    INTEGER REFERENCES ftp_profiles(id),
+                    remote_path_tpl   VARCHAR(500),
+                    filename_tpl      VARCHAR(255),
+                    frequency         VARCHAR(20) NOT NULL DEFAULT 'DAILY',
+                    cron_expression   VARCHAR(100),
+                    scheduled_time    VARCHAR(10),
+                    scheduled_day     INTEGER,
+                    is_active         BOOLEAN     NOT NULL DEFAULT 1,
+                    last_status       VARCHAR(20) DEFAULT 'IDLE',
+                    last_run_at       DATETIME,
+                    next_run_at       DATETIME,
+                    created_at        DATETIME,
+                    updated_at        DATETIME
+                )
+            """))
+            conn.execute(text("INSERT INTO pipelines_new SELECT * FROM pipelines"))
+            conn.execute(text("DROP TABLE pipelines"))
+            conn.execute(text("ALTER TABLE pipelines_new RENAME TO pipelines"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
             conn.commit()
 
 
@@ -174,6 +237,41 @@ def get_ftp_profile(profile_id: int) -> FtpProfile | None:
 def delete_ftp_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(FtpProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────
+#  HELPERS SMTP PROFILE
+# ──────────────────────────────────────────────
+
+def create_smtp_profile(name, host, port, from_address,
+                         username=None, password=None, use_tls=True) -> SmtpProfile:
+    with get_session() as s:
+        profile = SmtpProfile(
+            name=name, host=host, port=port,
+            username=username, password=password,
+            use_tls=use_tls, from_address=from_address,
+        )
+        s.add(profile)
+    return profile
+
+
+def get_smtp_profiles() -> list[SmtpProfile]:
+    with get_session() as s:
+        return s.query(SmtpProfile).order_by(SmtpProfile.name).all()
+
+
+def get_smtp_profile(profile_id: int) -> SmtpProfile | None:
+    with get_session() as s:
+        return s.get(SmtpProfile, profile_id)
+
+
+def delete_smtp_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(SmtpProfile, profile_id)
         if obj:
             s.delete(obj)
             return True

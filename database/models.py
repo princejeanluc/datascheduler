@@ -42,6 +42,11 @@ class StepType(str, enum.Enum):
     FTP_UPLOAD     = "FTP_UPLOAD"      # Upload vers serveur FTP/SFTP
     LOCAL_COPY     = "LOCAL_COPY"      # Copie locale avec tokens datetime
     PYTHON_SCRIPT  = "PYTHON_SCRIPT"   # Exécution d'un script .py
+    ORACLE_EXECUTE = "ORACLE_EXECUTE"  # Exécution SQL/PLSQL (DML/DDL/procédure) sans extraction
+    FTP_DOWNLOAD   = "FTP_DOWNLOAD"    # Téléchargement FTP/FTPS/SFTP (source de pipeline)
+    ORACLE_LOAD    = "ORACLE_LOAD"     # Chargement d'un CSV vers une table Oracle
+    EMAIL_NOTIFY   = "EMAIL_NOTIFY"    # Envoi d'un email (avec pièce jointe optionnelle)
+    HTTP_REQUEST   = "HTTP_REQUEST"    # Appel HTTP (API REST / webhook)
 
 
 # ──────────────────────────────────────────────
@@ -96,6 +101,28 @@ class FtpProfile(Base):
 
 
 # ──────────────────────────────────────────────
+#  PROFIL SMTP
+# ──────────────────────────────────────────────
+
+class SmtpProfile(Base):
+    __tablename__ = "smtp_profiles"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    name         = Column(String(100), unique=True, nullable=False)
+    host         = Column(String(255), nullable=False)
+    port         = Column(Integer, default=587, nullable=False)
+    username     = Column(String(100), nullable=True)
+    password     = Column(String(255), nullable=True)  # chiffré en prod (étape 2)
+    use_tls      = Column(Boolean, default=True, nullable=False)
+    from_address = Column(String(255), nullable=False)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SmtpProfile name={self.name} host={self.host}:{self.port}>"
+
+
+# ──────────────────────────────────────────────
 #  REQUÊTE SQL RÉUTILISABLE
 # ──────────────────────────────────────────────
 
@@ -129,9 +156,9 @@ class Pipeline(Base):
     name              = Column(String(100), unique=True, nullable=False)
     description       = Column(Text, nullable=True)
 
-    # Source
-    oracle_profile_id = Column(Integer, ForeignKey("oracle_profiles.id"), nullable=False)
-    sql_query_id      = Column(Integer, ForeignKey("sql_queries.id"),     nullable=False)
+    # Source (nullable — défini via les étapes du pipeline)
+    oracle_profile_id = Column(Integer, ForeignKey("oracle_profiles.id"), nullable=True)
+    sql_query_id      = Column(Integer, ForeignKey("sql_queries.id"),     nullable=True)
 
     # Export CSV
     csv_separator     = Column(String(5),   default=";",                 nullable=False)
@@ -139,10 +166,10 @@ class Pipeline(Base):
     csv_chunk_size    = Column(Integer,     default=50000,               nullable=False)
     csv_quoting       = Column(String(20),  default="QUOTE_NONNUMERIC",  nullable=False)
 
-    # Destination FTP
-    ftp_profile_id    = Column(Integer, ForeignKey("ftp_profiles.id"), nullable=False)
-    remote_path_tpl   = Column(String(500), nullable=False)   # ex: /export/{yyyy}/{MM}/
-    filename_tpl      = Column(String(255), nullable=False)   # ex: ventes_{yyyyMMdd}.csv
+    # Destination FTP (nullable — défini via les étapes du pipeline)
+    ftp_profile_id    = Column(Integer, ForeignKey("ftp_profiles.id"), nullable=True)
+    remote_path_tpl   = Column(String(500), nullable=True)
+    filename_tpl      = Column(String(255), nullable=True)
 
     # Planification
     frequency         = Column(Enum(CronFrequency), default=CronFrequency.DAILY, nullable=False)
