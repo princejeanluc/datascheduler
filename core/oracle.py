@@ -298,6 +298,125 @@ class OracleExporter:
 
 
 # ──────────────────────────────────────────────
+#  RÉSULTAT DE CHARGEMENT
+# ──────────────────────────────────────────────
+
+@dataclass
+class LoadResult:
+    success:       bool
+    rows_loaded:   int         = 0
+    error:         str | None  = None
+    duration_s:    float       = 0.0
+    chunks_count:  int         = 0
+
+
+# ──────────────────────────────────────────────
+#  CHARGEMENT CSV → TABLE ORACLE
+# ──────────────────────────────────────────────
+
+class OracleLoader:
+    """
+    Charge un fichier CSV dans une table Oracle via INSERT par chunks
+    (cursor.executemany). Les colonnes du CSV doivent correspondre
+    aux noms de colonnes de la table cible (association simple par en-tête).
+
+    Paramètres :
+        connector   : OracleConnector connecté
+        csv_path    : chemin du fichier CSV source
+        table_name  : table Oracle cible
+        separator   : séparateur CSV (défaut : ;)
+        encoding    : encodage CSV (défaut : utf-8-sig)
+        chunk_size  : nombre de lignes par chunk (défaut : 50 000)
+        truncate_before_load : si True, TRUNCATE TABLE avant le premier chunk
+        on_progress : callback(rows_done, chunk_index) pour la progressbar UI
+    """
+
+    def __init__(
+        self,
+        connector:   OracleConnector,
+        csv_path:    Path,
+        table_name:  str,
+        separator:   str = ";",
+        encoding:    str = "utf-8-sig",
+        chunk_size:  int = 50_000,
+        truncate_before_load: bool = False,
+        on_progress: Callable[[int, int], None] | None = None,
+    ):
+        self.connector   = connector
+        self.csv_path    = Path(csv_path)
+        self.table_name  = table_name
+        self.separator   = separator
+        self.encoding    = encoding
+        self.chunk_size  = chunk_size
+        self.truncate_before_load = truncate_before_load
+        self.on_progress = on_progress
+
+    def load(self) -> LoadResult:
+        """
+        Lance le chargement. Renvoie un LoadResult.
+        Ne lève pas d'exception — adapté pour l'UI et le scheduler.
+        """
+        start = datetime.utcnow()
+        rows_total  = 0
+        chunk_index = 0
+
+        try:
+            cursor = self.connector.connection.cursor()
+
+            if self.truncate_before_load:
+                cursor.execute(f"TRUNCATE TABLE {self.table_name}")
+
+            chunk_iter: Iterator[pd.DataFrame] = pd.read_csv(
+                self.csv_path,
+                sep=self.separator,
+                encoding=self.encoding,
+                chunksize=self.chunk_size,
+            )
+
+            insert_sql = None
+            for chunk in chunk_iter:
+                if insert_sql is None:
+                    columns    = list(chunk.columns)
+                    placeholders = ", ".join(f":{i + 1}" for i in range(len(columns)))
+                    insert_sql = (
+                        f"INSERT INTO {self.table_name} ({', '.join(columns)}) "
+                        f"VALUES ({placeholders})"
+                    )
+
+                clean = chunk.astype(object).where(chunk.notnull(), None)
+                rows  = [tuple(row) for row in clean.itertuples(index=False)]
+                cursor.executemany(insert_sql, rows)
+                self.connector.connection.commit()
+
+                rows_total  += len(rows)
+                chunk_index += 1
+
+                logger.debug("Chunk %d chargé — %d lignes au total",
+                             chunk_index, rows_total)
+
+                if self.on_progress:
+                    self.on_progress(rows_total, chunk_index)
+
+            duration = (datetime.utcnow() - start).total_seconds()
+            logger.info("Chargement terminé : %d lignes en %.1fs → %s",
+                        rows_total, duration, self.table_name)
+
+            return LoadResult(
+                success=True,
+                rows_loaded=rows_total,
+                duration_s=round(duration, 2),
+                chunks_count=chunk_index,
+            )
+
+        except oracledb.DatabaseError as e:
+            logger.error("Erreur Oracle durant le chargement : %s", e)
+            return LoadResult(success=False, error=f"Erreur Oracle : {e}")
+        except Exception as e:
+            logger.error("Erreur chargement CSV : %s", e)
+            return LoadResult(success=False, error=str(e))
+
+
+# ──────────────────────────────────────────────
 #  HELPER : construire depuis un profil DB
 # ──────────────────────────────────────────────
 
