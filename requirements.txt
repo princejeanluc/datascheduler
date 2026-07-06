@@ -20,5 +20,8 @@ qtawesome==1.3.1
 # FTP sécurisé (SFTP)
 paramiko==3.5.0
 
+# Appels HTTP (étape HTTP_REQUEST)
+requests==2.32.3
+
 # Packaging Windows
 pyinstaller==6.11.1

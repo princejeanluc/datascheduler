@@ -1,26 +1,14 @@
 """
 DataScheduler — core/pipeline.py
-Exécution d'un pipeline complet : Oracle → CSV (tmp) → FTP → nettoyage.
-
-Ce module est appelé par le scheduler. Il est aussi appelable manuellement
-depuis l'UI (bouton "Exécuter maintenant").
+Exécuteur de pipeline : itère sur les PipelineStep dans l'ordre et passe le contexte.
 """
 
+import json
 import logging
-import tempfile
 from datetime import datetime
-from pathlib import Path
 
-from core.oracle import (
-    OracleConnector, OracleExporter,
-    config_from_profile as oracle_config_from_profile,
-)
-from core.ftp import (
-    FtpUploader,
-    config_from_profile as ftp_config_from_profile,
-    resolve_remote_path,
-)
 from database import db_manager as db
+from core.steps import get_step, StepContext
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +29,7 @@ class PipelineResult:
 
     def log(self, msg: str):
         ts = datetime.utcnow().strftime("%H:%M:%S")
-        line = f"[{ts}] {msg}"
-        self.log_lines.append(line)
+        self.log_lines.append(f"[{ts}] {msg}")
         logger.info(msg)
 
     def fail(self, msg: str):
@@ -64,155 +51,98 @@ class PipelineResult:
 
 
 # ──────────────────────────────────────────────
-#  EXÉCUTEUR DE PIPELINE
+#  EXÉCUTEUR PRINCIPAL
 # ──────────────────────────────────────────────
 
-def run_pipeline(
-    pipeline_id: int,
-    on_progress=None,   # callback(step: str, pct: int) pour l'UI
-) -> PipelineResult:
+def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
     """
-    Exécute un pipeline complet :
-      1. Charge la config depuis la DB
-      2. Connexion Oracle
-      3. Export CSV (chunks) vers fichier temporaire
-      4. Upload FTP
-      5. Nettoyage du fichier tmp
-      6. Mise à jour DB (statut, durée, lignes)
+    Exécute un pipeline en enchaînant ses PipelineStep dans l'ordre.
+    Le contexte (fichier, nombre de lignes, etc.) est transmis d'étape en étape.
 
     Paramètres :
-        pipeline_id : ID du pipeline en base
-        on_progress : callback(step, pct) pour alimenter une progressbar UI
+        pipeline_id  : ID du pipeline en base
+        on_progress  : callback(step: str, pct: int) pour alimenter l'UI
 
     Retourne un PipelineResult (ne lève jamais d'exception).
     """
     result = PipelineResult()
     run_id = None
 
-    def progress(step: str, pct: int):
+    def progress(msg: str, pct: int):
         if on_progress:
-            on_progress(step, pct)
+            on_progress(msg, pct)
 
     try:
-        # ── Étape 0 : charger le pipeline ────────
+        # ── Chargement ───────────────────────────
         progress("Chargement…", 0)
         pipeline = db.get_pipeline(pipeline_id)
         if not pipeline:
-            result.fail(f"Pipeline ID {pipeline_id} introuvable en base.")
-            result.finish()
-            return result
-
-        result.log(f"Pipeline : {pipeline.name}")
-
-        oracle_profile = db.get_oracle_profile(pipeline.oracle_profile_id)
-        ftp_profile    = db.get_ftp_profile(pipeline.ftp_profile_id)
-        sql_query      = db.get_sql_query(pipeline.sql_query_id)
-
-        if not oracle_profile:
-            result.fail("Profil Oracle introuvable.")
-            result.finish(); return result
-        if not ftp_profile:
-            result.fail("Profil FTP introuvable.")
-            result.finish(); return result
-        if not sql_query:
-            result.fail("Requête SQL introuvable.")
+            result.fail(f"Pipeline ID {pipeline_id} introuvable.")
             result.finish(); return result
 
-        # ── Enregistrement du RUN en base ────────
-        run = db.create_run(pipeline_id)
+        steps = db.get_steps(pipeline_id)
+        if not steps:
+            result.fail("Ce pipeline ne contient aucune étape.")
+            result.finish(); return result
+
+        result.log(f"Pipeline : {pipeline.name} ({len(steps)} étape(s))")
+
+        # ── Enregistrement du run ─────────────────
+        run    = db.create_run(pipeline_id)
         run_id = run.id
         result.log(f"Run ID : {run_id}")
         _update_pipeline_status(pipeline_id, "RUNNING")
 
-        # ── Étape 1 : connexion Oracle ────────────
-        progress("Connexion Oracle…", 10)
-        result.log(f"Connexion Oracle : {oracle_profile.host}:{oracle_profile.port}")
-        oracle_cfg   = oracle_config_from_profile(oracle_profile)
-        connector    = OracleConnector(oracle_cfg)
-        connector.connect()
-        result.log("Connexion Oracle : OK")
+        # ── Contexte partagé ──────────────────────
+        ctx   = StepContext()
+        total = len(steps)
 
-        # ── Étape 2 : export CSV vers tmp ─────────
-        progress("Export CSV…", 25)
-        result.log(f"Requête : {sql_query.name}")
-        result.log(f"Chunk size : {pipeline.csv_chunk_size} lignes")
+        # ── Exécution des étapes ──────────────────
+        for i, step in enumerate(steps):
+            step_type  = str(step.step_type).replace("StepType.", "")
+            step_label = step.label or step_type
+            config     = json.loads(step.config_json or "{}")
 
-        tmp_file = tempfile.NamedTemporaryFile(
-            suffix=".csv", delete=False,
-            prefix=f"ds_{pipeline.name}_"
-        )
-        tmp_path = Path(tmp_file.name)
-        tmp_file.close()
+            base_pct = int(i * 90 / total)       # 0 → 90 %
+            next_pct = int((i + 1) * 90 / total)
 
-        rows_done = [0]
+            def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+                scaled = _bp + int(pct * (_np - _bp) / 100)
+                progress(msg, scaled)
 
-        def export_progress(rows, chunk_idx):
-            rows_done[0] = rows
-            pct = min(25 + int(chunk_idx * 2), 75)   # 25 → 75 %
-            progress(f"Export… {rows:,} lignes", pct)
+            progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
-        exporter = OracleExporter(
-            connector=connector,
-            sql=sql_query.sql_text,
-            output_path=tmp_path,
-            separator=pipeline.csv_separator,
-            encoding=pipeline.csv_encoding,
-            chunk_size=pipeline.csv_chunk_size,
-            quoting=getattr(pipeline, "csv_quoting", "QUOTE_NONNUMERIC"),
-            on_progress=export_progress,
-        )
-        export_result = exporter.export()
-        connector.disconnect()
+            executor     = get_step(step_type, config)
+            step_result  = executor.run(ctx, on_progress=step_progress)
 
-        if not export_result.success:
-            result.fail(f"Export CSV échoué : {export_result.error}")
-            _update_run(run_id, "FAILED", result)
-            result.finish(); return result
+            # Récupération des logs accumulés dans le contexte
+            for line in ctx.log_lines:
+                result.log_lines.append(line)
+            ctx.log_lines.clear()
 
-        result.rows_exported = export_result.rows_exported
-        result.log(
-            f"Export CSV : OK — {export_result.rows_exported:,} lignes "
-            f"en {export_result.duration_s:.1f}s "
-            f"({export_result.chunks_count} chunks)"
-        )
+            if not step_result.success:
+                result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+                _update_run(run_id, "FAILED", result)
+                result.finish(); return result
 
-        # ── Étape 3 : upload FTP ──────────────────
-        progress("Upload FTP…", 80)
-        remote_full = resolve_remote_path(
-            pipeline.remote_path_tpl,
-            pipeline.filename_tpl,
-        )
-        result.log(f"Upload FTP : {ftp_profile.host} → {remote_full}")
-
-        ftp_cfg  = ftp_config_from_profile(ftp_profile)
-        uploader = FtpUploader(ftp_cfg)
-        upload_result = uploader.upload(tmp_path, remote_full)
-
-        if not upload_result.success:
-            result.fail(f"Upload FTP échoué : {upload_result.error}")
-            _update_run(run_id, "FAILED", result)
-            result.finish(); return result
-
-        result.remote_path = upload_result.remote_path
-        result.log(
-            f"Upload FTP : OK — {upload_result.bytes_sent / 1024:.1f} Ko "
-            f"en {upload_result.duration_s:.1f}s"
-        )
-
-        # ── Étape 4 : nettoyage tmp ───────────────
-        try:
-            tmp_path.unlink()
-            result.log("Fichier temporaire supprimé.")
-        except Exception as e:
-            result.log(f"Avertissement : impossible de supprimer le tmp : {e}")
+        # ── Nettoyage du fichier temporaire ───────
+        if ctx.output_file and ctx.output_file.exists():
+            try:
+                ctx.output_file.unlink()
+                result.log("Fichier temporaire supprimé.")
+            except Exception as e:
+                result.log(f"Avertissement : impossible de supprimer le tmp : {e}")
 
         # ── Succès ────────────────────────────────
-        result.success = True
+        result.success       = True
+        result.rows_exported = ctx.rows_count
+        result.remote_path   = ctx.extra.get("remote_path") or ctx.extra.get("local_path")
         result.finish()
         progress("Terminé ✓", 100)
         result.log(
-            f"Pipeline terminé en {result.duration_s:.1f}s — "
-            f"{result.rows_exported:,} lignes exportées."
+            f"Pipeline terminé en {result.duration_s:.1f}s"
+            + (f" — {result.rows_exported:,} lignes exportées." if result.rows_exported else ".")
         )
         _update_run(run_id, "SUCCESS", result)
         _update_pipeline_status(pipeline_id, "SUCCESS")

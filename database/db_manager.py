@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
-from .models import Base, OracleProfile, FtpProfile, SqlQuery, Pipeline, PipelineRun
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
 
 
 # ──────────────────────────────────────────────
@@ -59,6 +59,86 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Création de la table pipeline_steps si absente
+        tables = {r[0] for r in conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table'")
+        ).fetchall()}
+        if "pipeline_steps" not in tables:
+            conn.execute(text("""
+                CREATE TABLE pipeline_steps (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    pipeline_id INTEGER NOT NULL REFERENCES pipelines(id),
+                    step_order  INTEGER NOT NULL DEFAULT 0,
+                    step_type   VARCHAR(30) NOT NULL,
+                    label       VARCHAR(100),
+                    config_json TEXT NOT NULL DEFAULT '{}'
+                )
+            """))
+            conn.commit()
+
+        # Création de la table smtp_profiles si absente
+        if "smtp_profiles" not in tables:
+            conn.execute(text("""
+                CREATE TABLE smtp_profiles (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name         VARCHAR(100) NOT NULL UNIQUE,
+                    host         VARCHAR(255) NOT NULL,
+                    port         INTEGER NOT NULL DEFAULT 587,
+                    username     VARCHAR(100),
+                    password     VARCHAR(255),
+                    use_tls      BOOLEAN NOT NULL DEFAULT 1,
+                    from_address VARCHAR(255) NOT NULL,
+                    created_at   DATETIME,
+                    updated_at   DATETIME
+                )
+            """))
+            conn.commit()
+
+        # Rendre oracle_profile_id / sql_query_id / ftp_profile_id / remote_path_tpl / filename_tpl
+        # nullable (requis par l'architecture flexible à base d'étapes).
+        # SQLite ne supporte pas ALTER COLUMN : on reconstruit la table si nécessaire.
+        pipeline_info = {r[1]: r[3] for r in conn.execute(
+            text("PRAGMA table_info(pipelines)")
+        ).fetchall()}  # {col_name: notnull}
+        needs_rebuild = any(
+            pipeline_info.get(col, 0) == 1
+            for col in ("oracle_profile_id", "sql_query_id", "ftp_profile_id",
+                        "remote_path_tpl", "filename_tpl")
+        )
+        if needs_rebuild:
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+            conn.execute(text("""
+                CREATE TABLE pipelines_new (
+                    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name              VARCHAR(100) NOT NULL UNIQUE,
+                    description       TEXT,
+                    oracle_profile_id INTEGER REFERENCES oracle_profiles(id),
+                    sql_query_id      INTEGER REFERENCES sql_queries(id),
+                    csv_separator     VARCHAR(5)  NOT NULL DEFAULT ';',
+                    csv_encoding      VARCHAR(20) NOT NULL DEFAULT 'utf-8',
+                    csv_chunk_size    INTEGER     NOT NULL DEFAULT 50000,
+                    csv_quoting       VARCHAR(20) NOT NULL DEFAULT 'QUOTE_NONNUMERIC',
+                    ftp_profile_id    INTEGER REFERENCES ftp_profiles(id),
+                    remote_path_tpl   VARCHAR(500),
+                    filename_tpl      VARCHAR(255),
+                    frequency         VARCHAR(20) NOT NULL DEFAULT 'DAILY',
+                    cron_expression   VARCHAR(100),
+                    scheduled_time    VARCHAR(10),
+                    scheduled_day     INTEGER,
+                    is_active         BOOLEAN     NOT NULL DEFAULT 1,
+                    last_status       VARCHAR(20) DEFAULT 'IDLE',
+                    last_run_at       DATETIME,
+                    next_run_at       DATETIME,
+                    created_at        DATETIME,
+                    updated_at        DATETIME
+                )
+            """))
+            conn.execute(text("INSERT INTO pipelines_new SELECT * FROM pipelines"))
+            conn.execute(text("DROP TABLE pipelines"))
+            conn.execute(text("ALTER TABLE pipelines_new RENAME TO pipelines"))
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -73,6 +153,7 @@ def init_db(db_path: Path = None) -> None:
     Base.metadata.create_all(_engine)
     _migrate(_engine)
     _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False)
+    _migrate_legacy_pipelines()
 
 
 @contextmanager
@@ -163,6 +244,41 @@ def delete_ftp_profile(profile_id: int) -> bool:
 
 
 # ──────────────────────────────────────────────
+#  HELPERS SMTP PROFILE
+# ──────────────────────────────────────────────
+
+def create_smtp_profile(name, host, port, from_address,
+                         username=None, password=None, use_tls=True) -> SmtpProfile:
+    with get_session() as s:
+        profile = SmtpProfile(
+            name=name, host=host, port=port,
+            username=username, password=password,
+            use_tls=use_tls, from_address=from_address,
+        )
+        s.add(profile)
+    return profile
+
+
+def get_smtp_profiles() -> list[SmtpProfile]:
+    with get_session() as s:
+        return s.query(SmtpProfile).order_by(SmtpProfile.name).all()
+
+
+def get_smtp_profile(profile_id: int) -> SmtpProfile | None:
+    with get_session() as s:
+        return s.get(SmtpProfile, profile_id)
+
+
+def delete_smtp_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(SmtpProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────
 #  HELPERS SQL QUERY
 # ──────────────────────────────────────────────
 
@@ -203,13 +319,14 @@ def delete_sql_query(query_id: int) -> bool:
 #  HELPERS PIPELINE
 # ──────────────────────────────────────────────
 
-def create_pipeline(name, oracle_profile_id, sql_query_id, ftp_profile_id,
-                    remote_path_tpl, filename_tpl,
-                    csv_separator=";", csv_encoding="utf-8", csv_chunk_size=50000,
-                    csv_quoting="QUOTE_NONNUMERIC",
+def create_pipeline(name, description=None,
                     frequency="DAILY", cron_expression=None,
                     scheduled_time="06:00", scheduled_day=None,
-                    description=None) -> Pipeline:
+                    # Champs legacy conservés pour compatibilité migration
+                    oracle_profile_id=None, sql_query_id=None, ftp_profile_id=None,
+                    remote_path_tpl=None, filename_tpl=None,
+                    csv_separator=";", csv_encoding="utf-8", csv_chunk_size=50000,
+                    csv_quoting="QUOTE_NONNUMERIC") -> Pipeline:
     with get_session() as s:
         p = Pipeline(
             name=name, description=description,
@@ -238,6 +355,7 @@ def get_pipelines(active_only=False) -> list[Pipeline]:
                    joinedload(Pipeline.oracle_profile),
                    joinedload(Pipeline.ftp_profile),
                    joinedload(Pipeline.sql_query),
+                   joinedload(Pipeline.steps),
                )
                .order_by(Pipeline.name))
         if active_only:
@@ -316,3 +434,77 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
             .limit(limit)
             .all()
         )
+
+
+# ──────────────────────────────────────────────
+#  HELPERS PIPELINE STEPS
+# ──────────────────────────────────────────────
+
+def get_steps(pipeline_id: int) -> list[PipelineStep]:
+    with get_session() as s:
+        return (s.query(PipelineStep)
+                  .filter_by(pipeline_id=pipeline_id)
+                  .order_by(PipelineStep.step_order)
+                  .all())
+
+
+def save_steps(pipeline_id: int, steps: list[dict]) -> None:
+    """Remplace toutes les étapes d'un pipeline.
+
+    Chaque dict : {"step_type": str, "label": str|None, "config": dict}
+    """
+    import json
+    with get_session() as s:
+        s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).delete()
+        for i, step in enumerate(steps):
+            s.add(PipelineStep(
+                pipeline_id=pipeline_id,
+                step_order=i,
+                step_type=step["step_type"],
+                label=step.get("label"),
+                config_json=json.dumps(step.get("config", {})),
+            ))
+
+
+# ──────────────────────────────────────────────
+#  MIGRATION LEGACY → STEPS
+# ──────────────────────────────────────────────
+
+def _migrate_legacy_pipelines() -> None:
+    """Convertit les anciens pipelines Oracle→FTP en étapes PipelineStep."""
+    import json
+    if _SessionFactory is None:
+        return
+    with get_session() as s:
+        pipelines = s.query(Pipeline).all()
+        for p in pipelines:
+            has_steps = s.query(PipelineStep).filter_by(pipeline_id=p.id).count() > 0
+            if has_steps:
+                continue
+            if not (p.oracle_profile_id and p.sql_query_id and p.ftp_profile_id):
+                continue
+            s.add(PipelineStep(
+                pipeline_id=p.id,
+                step_order=0,
+                step_type=StepType.ORACLE_EXTRACT,
+                label="Extraction Oracle",
+                config_json=json.dumps({
+                    "oracle_profile_id": p.oracle_profile_id,
+                    "sql_query_id":      p.sql_query_id,
+                    "csv_separator":     p.csv_separator or ";",
+                    "csv_encoding":      p.csv_encoding  or "utf-8-sig",
+                    "csv_chunk_size":    p.csv_chunk_size or 50000,
+                    "csv_quoting":       p.csv_quoting    or "QUOTE_NONNUMERIC",
+                }),
+            ))
+            s.add(PipelineStep(
+                pipeline_id=p.id,
+                step_order=1,
+                step_type=StepType.FTP_UPLOAD,
+                label="Envoi FTP",
+                config_json=json.dumps({
+                    "ftp_profile_id":  p.ftp_profile_id,
+                    "remote_path_tpl": p.remote_path_tpl or "/export/",
+                    "filename_tpl":    p.filename_tpl    or "export_{yyyyMMdd}.csv",
+                }),
+            ))

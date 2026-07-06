@@ -44,6 +44,15 @@ class UploadResult:
 
 
 @dataclass
+class DownloadResult:
+    success:      bool
+    local_path:   str  = ""
+    bytes_received: int = 0
+    duration_s:   float = 0.0
+    error:        str  = ""
+
+
+@dataclass
 class ConnectionTestResult:
     success: bool
     message: str
@@ -82,6 +91,26 @@ class FtpUploader:
             logger.error("Erreur upload %s → %s : %s", local_path, remote_path, e)
             return UploadResult(success=False, error=str(e))
 
+    def download(self, remote_path: str, local_path: Path) -> DownloadResult:
+        """
+        Télécharge remote_path depuis le serveur vers local_path.
+        Crée les répertoires locaux si nécessaire.
+        Retourne un DownloadResult (ne lève jamais d'exception).
+        """
+        proto = self.config.protocol.upper()
+        try:
+            local_path = Path(local_path)
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            if proto == "SFTP":
+                return self._download_sftp(remote_path, local_path)
+            elif proto == "FTPS":
+                return self._download_ftps(remote_path, local_path)
+            else:
+                return self._download_ftp(remote_path, local_path)
+        except Exception as e:
+            logger.error("Erreur download %s → %s : %s", remote_path, local_path, e)
+            return DownloadResult(success=False, error=str(e))
+
     def test_connection(self) -> ConnectionTestResult:
         """
         Vérifie que la connexion est possible sans transférer de fichier.
@@ -118,6 +147,23 @@ class FtpUploader:
         return UploadResult(success=True, remote_path=remote_path,
                             bytes_sent=size, duration_s=round(duration, 2))
 
+    def _download_ftp(self, remote_path: str, local_path: Path) -> DownloadResult:
+        import ftplib
+        start = datetime.now()
+
+        with ftplib.FTP(timeout=self.config.timeout) as ftp:
+            ftp.connect(self.config.host, self.config.port)
+            ftp.login(self.config.username, self.config.password)
+            with open(local_path, "wb") as f:
+                ftp.retrbinary(f"RETR {remote_path}", f.write)
+
+        size     = local_path.stat().st_size
+        duration = (datetime.now() - start).total_seconds()
+        logger.info("FTP download OK : %s → %s (%.1f Ko, %.1fs)",
+                    remote_path, local_path.name, size / 1024, duration)
+        return DownloadResult(success=True, local_path=str(local_path),
+                              bytes_received=size, duration_s=round(duration, 2))
+
     def _test_ftp(self) -> ConnectionTestResult:
         import ftplib
         with ftplib.FTP(timeout=self.config.timeout) as ftp:
@@ -146,6 +192,24 @@ class FtpUploader:
                     local_path.name, remote_path, size / 1024, duration)
         return UploadResult(success=True, remote_path=remote_path,
                             bytes_sent=size, duration_s=round(duration, 2))
+
+    def _download_ftps(self, remote_path: str, local_path: Path) -> DownloadResult:
+        import ftplib
+        start = datetime.now()
+
+        with ftplib.FTP_TLS(timeout=self.config.timeout) as ftp:
+            ftp.connect(self.config.host, self.config.port)
+            ftp.login(self.config.username, self.config.password)
+            ftp.prot_p()   # chiffrement des données
+            with open(local_path, "wb") as f:
+                ftp.retrbinary(f"RETR {remote_path}", f.write)
+
+        size     = local_path.stat().st_size
+        duration = (datetime.now() - start).total_seconds()
+        logger.info("FTPS download OK : %s → %s (%.1f Ko, %.1fs)",
+                    remote_path, local_path.name, size / 1024, duration)
+        return DownloadResult(success=True, local_path=str(local_path),
+                              bytes_received=size, duration_s=round(duration, 2))
 
     def _test_ftps(self) -> ConnectionTestResult:
         import ftplib
@@ -178,6 +242,26 @@ class FtpUploader:
                     local_path.name, remote_path, size / 1024, duration)
         return UploadResult(success=True, remote_path=remote_path,
                             bytes_sent=size, duration_s=round(duration, 2))
+
+    def _download_sftp(self, remote_path: str, local_path: Path) -> DownloadResult:
+        import paramiko
+        start = datetime.now()
+
+        transport = paramiko.Transport((self.config.host, self.config.port))
+        transport.connect(username=self.config.username, password=self.config.password)
+        try:
+            sftp = paramiko.SFTPClient.from_transport(transport)
+            sftp.get(remote_path, str(local_path))
+            sftp.close()
+        finally:
+            transport.close()
+
+        size     = local_path.stat().st_size
+        duration = (datetime.now() - start).total_seconds()
+        logger.info("SFTP download OK : %s → %s (%.1f Ko, %.1fs)",
+                    remote_path, local_path.name, size / 1024, duration)
+        return DownloadResult(success=True, local_path=str(local_path),
+                              bytes_received=size, duration_s=round(duration, 2))
 
     def _test_sftp(self) -> ConnectionTestResult:
         import paramiko

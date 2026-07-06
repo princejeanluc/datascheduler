@@ -37,6 +37,18 @@ class CronFrequency(str, enum.Enum):
     CUSTOM  = "CUSTOM"   # syntaxe cron brute
 
 
+class StepType(str, enum.Enum):
+    ORACLE_EXTRACT = "ORACLE_EXTRACT"  # Oracle → CSV temporaire
+    FTP_UPLOAD     = "FTP_UPLOAD"      # Upload vers serveur FTP/SFTP
+    LOCAL_COPY     = "LOCAL_COPY"      # Copie locale avec tokens datetime
+    PYTHON_SCRIPT  = "PYTHON_SCRIPT"   # Exécution d'un script .py
+    ORACLE_EXECUTE = "ORACLE_EXECUTE"  # Exécution SQL/PLSQL (DML/DDL/procédure) sans extraction
+    FTP_DOWNLOAD   = "FTP_DOWNLOAD"    # Téléchargement FTP/FTPS/SFTP (source de pipeline)
+    ORACLE_LOAD    = "ORACLE_LOAD"     # Chargement d'un CSV vers une table Oracle
+    EMAIL_NOTIFY   = "EMAIL_NOTIFY"    # Envoi d'un email (avec pièce jointe optionnelle)
+    HTTP_REQUEST   = "HTTP_REQUEST"    # Appel HTTP (API REST / webhook)
+
+
 # ──────────────────────────────────────────────
 #  PROFIL ORACLE
 # ──────────────────────────────────────────────
@@ -89,6 +101,28 @@ class FtpProfile(Base):
 
 
 # ──────────────────────────────────────────────
+#  PROFIL SMTP
+# ──────────────────────────────────────────────
+
+class SmtpProfile(Base):
+    __tablename__ = "smtp_profiles"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    name         = Column(String(100), unique=True, nullable=False)
+    host         = Column(String(255), nullable=False)
+    port         = Column(Integer, default=587, nullable=False)
+    username     = Column(String(100), nullable=True)
+    password     = Column(String(255), nullable=True)  # chiffré en prod (étape 2)
+    use_tls      = Column(Boolean, default=True, nullable=False)
+    from_address = Column(String(255), nullable=False)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+    updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<SmtpProfile name={self.name} host={self.host}:{self.port}>"
+
+
+# ──────────────────────────────────────────────
 #  REQUÊTE SQL RÉUTILISABLE
 # ──────────────────────────────────────────────
 
@@ -122,9 +156,9 @@ class Pipeline(Base):
     name              = Column(String(100), unique=True, nullable=False)
     description       = Column(Text, nullable=True)
 
-    # Source
-    oracle_profile_id = Column(Integer, ForeignKey("oracle_profiles.id"), nullable=False)
-    sql_query_id      = Column(Integer, ForeignKey("sql_queries.id"),     nullable=False)
+    # Source (nullable — défini via les étapes du pipeline)
+    oracle_profile_id = Column(Integer, ForeignKey("oracle_profiles.id"), nullable=True)
+    sql_query_id      = Column(Integer, ForeignKey("sql_queries.id"),     nullable=True)
 
     # Export CSV
     csv_separator     = Column(String(5),   default=";",                 nullable=False)
@@ -132,10 +166,10 @@ class Pipeline(Base):
     csv_chunk_size    = Column(Integer,     default=50000,               nullable=False)
     csv_quoting       = Column(String(20),  default="QUOTE_NONNUMERIC",  nullable=False)
 
-    # Destination FTP
-    ftp_profile_id    = Column(Integer, ForeignKey("ftp_profiles.id"), nullable=False)
-    remote_path_tpl   = Column(String(500), nullable=False)   # ex: /export/{yyyy}/{MM}/
-    filename_tpl      = Column(String(255), nullable=False)   # ex: ventes_{yyyyMMdd}.csv
+    # Destination FTP (nullable — défini via les étapes du pipeline)
+    ftp_profile_id    = Column(Integer, ForeignKey("ftp_profiles.id"), nullable=True)
+    remote_path_tpl   = Column(String(500), nullable=True)
+    filename_tpl      = Column(String(255), nullable=True)
 
     # Planification
     frequency         = Column(Enum(CronFrequency), default=CronFrequency.DAILY, nullable=False)
@@ -159,9 +193,32 @@ class Pipeline(Base):
     runs           = relationship("PipelineRun",   back_populates="pipeline",
                                   cascade="all, delete-orphan",
                                   order_by="PipelineRun.started_at.desc()")
+    steps          = relationship("PipelineStep",  back_populates="pipeline",
+                                  cascade="all, delete-orphan",
+                                  order_by="PipelineStep.step_order")
 
     def __repr__(self):
         return f"<Pipeline name={self.name} active={self.is_active}>"
+
+
+# ──────────────────────────────────────────────
+#  ÉTAPE DE PIPELINE
+# ──────────────────────────────────────────────
+
+class PipelineStep(Base):
+    __tablename__ = "pipeline_steps"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    step_order  = Column(Integer, nullable=False, default=0)
+    step_type   = Column(Enum(StepType), nullable=False)
+    label       = Column(String(100), nullable=True)   # libellé optionnel
+    config_json = Column(Text, nullable=False, default="{}")
+
+    pipeline = relationship("Pipeline", back_populates="steps")
+
+    def __repr__(self):
+        return f"<PipelineStep pipeline_id={self.pipeline_id} order={self.step_order} type={self.step_type}>"
 
 
 # ──────────────────────────────────────────────

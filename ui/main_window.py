@@ -494,7 +494,7 @@ class PipelinesView(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout(); title_col.setSpacing(2)
         title_col.addWidget(_make_title("Pipelines"))
-        title_col.addWidget(_make_subtitle("Orchestration Oracle → CSV → FTP"))
+        title_col.addWidget(_make_subtitle("Orchestration flexible par étapes"))
         header.addLayout(title_col); header.addStretch()
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
@@ -505,9 +505,9 @@ class PipelinesView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
-            ["Nom", "Statut", "Profil Oracle", "Profil FTP", "Planification", "Prochaine exéc.", "Actions"])
+            ["Nom", "Statut", "Étapes", "Planification", "Prochaine exéc.", "Actions"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -519,18 +519,23 @@ class PipelinesView(QWidget):
 
     def refresh(self):
         from database import db_manager as db
+        from ui.step_editor import STEP_META
         pipelines = db.get_pipelines()
         self.table.setRowCount(len(pipelines))
         for r_idx, p in enumerate(pipelines):
-            st          = _status_str(p.last_status)
-            freq        = _status_str(p.frequency)
-            plan        = f"{freq} {p.scheduled_time or ''}".strip()
-            next_run    = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
-            oracle_name = p.oracle_profile.name if p.oracle_profile else "—"
-            ftp_name    = p.ftp_profile.name    if p.ftp_profile    else "—"
+            st       = _status_str(p.last_status)
+            freq     = _status_str(p.frequency)
+            plan     = f"{freq} {p.scheduled_time or ''}".strip()
+            next_run = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
+
+            # Résumé des étapes
+            step_types = [str(s.step_type).replace("StepType.", "") for s in (p.steps or [])]
+            steps_str  = " → ".join(
+                STEP_META.get(t, {}).get("label", t) for t in step_types
+            ) or "—"
 
             text_color = COLORS["text_dim"] if not p.is_active else COLORS["text_main"]
-            cells = [p.name, st, oracle_name, ftp_name, plan, next_run]
+            cells = [p.name, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
                     badge_st   = "INACTIF" if not p.is_active else st
@@ -568,20 +573,19 @@ class PipelinesView(QWidget):
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             al.addWidget(btn_run); al.addWidget(btn_toggle)
             al.addWidget(btn_edit); al.addWidget(btn_del); al.addStretch()
-            self.table.setCellWidget(r_idx, 6, aw)
+            self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
 
     def _on_new_pipeline(self):
-        from ui.dialogs import PipelineDialog
-        dlg = PipelineDialog(self)
-        if dlg.exec():
+        from ui.step_editor import PipelineEditorDialog
+        if PipelineEditorDialog(self).exec():
             self.refresh()
 
     def _on_edit_pipeline(self, pipeline_id: int):
         from database import db_manager as db
-        from ui.dialogs import PipelineDialog
+        from ui.step_editor import PipelineEditorDialog
         p = db.get_pipeline(pipeline_id)
-        if p and PipelineDialog(self, pipeline=p).exec():
+        if p and PipelineEditorDialog(self, pipeline=p).exec():
             self.refresh()
 
     def _on_run_pipeline(self, pipeline_id: int):
@@ -632,7 +636,7 @@ class ConnectionsView(QWidget):
         layout.setSpacing(24)
 
         layout.addWidget(_make_title("Connexions"))
-        layout.addWidget(_make_subtitle("Profils Oracle et FTP réutilisables dans les pipelines"))
+        layout.addWidget(_make_subtitle("Profils Oracle, FTP et SMTP réutilisables dans les pipelines"))
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -640,6 +644,7 @@ class ConnectionsView(QWidget):
         cols = QHBoxLayout(); cols.setSpacing(24)
         cols.addWidget(self._build_oracle_panel())
         cols.addWidget(self._build_ftp_panel())
+        cols.addWidget(self._build_smtp_panel())
         layout.addLayout(cols)
         layout.addStretch()
 
@@ -683,6 +688,24 @@ class ConnectionsView(QWidget):
         vl.addWidget(self.ftp_table)
         return card
 
+    def _build_smtp_panel(self) -> QFrame:
+        card = QFrame(); card.setObjectName("card")
+        vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
+
+        top = QHBoxLayout()
+        lbl = QLabel("SMTP")
+        lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        btn = QPushButton("  Nouveau profil SMTP"); btn.setFixedHeight(32)
+        btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
+        btn.clicked.connect(self._on_new_smtp)
+        top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
+        vl.addLayout(top)
+
+        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur"]
+        self.smtp_table = self._make_table(hdrs)
+        vl.addWidget(self.smtp_table)
+        return card
+
     def _make_table(self, headers: list) -> QTableWidget:
         t = QTableWidget(0, len(headers) + 1)
         t.setHorizontalHeaderLabels(headers + [""])
@@ -700,6 +723,7 @@ class ConnectionsView(QWidget):
     def refresh(self):
         self._refresh_oracle()
         self._refresh_ftp()
+        self._refresh_smtp()
 
     def _refresh_oracle(self):
         from database import db_manager as db
@@ -741,6 +765,27 @@ class ConnectionsView(QWidget):
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
             self.ftp_table.setCellWidget(r_idx, 5, w)
             self.ftp_table.setRowHeight(r_idx, 44)
+
+    def _refresh_smtp(self):
+        from database import db_manager as db
+        profiles = db.get_smtp_profiles()
+        self.smtp_table.setRowCount(len(profiles))
+        for r_idx, p in enumerate(profiles):
+            security = "STARTTLS" if p.use_tls else "Aucune"
+            cells = [p.name, p.host, str(p.port), security, p.from_address]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_main"]))
+                self.smtp_table.setItem(r_idx, c_idx, item)
+            pid = p.id
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
+            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_smtp(i))
+            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_smtp(i))
+            hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
+            self.smtp_table.setCellWidget(r_idx, 5, w)
+            self.smtp_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────
 
@@ -785,6 +830,27 @@ class ConnectionsView(QWidget):
         if reply == QMessageBox.Yes:
             db.delete_ftp_profile(profile_id)
             self._refresh_ftp()
+
+    def _on_new_smtp(self):
+        from ui.dialogs import SmtpDialog
+        dlg = SmtpDialog(self)
+        if dlg.exec():
+            self._refresh_smtp()
+
+    def _on_edit_smtp(self, profile_id: int):
+        from database import db_manager as db
+        from ui.dialogs import SmtpDialog
+        p = db.get_smtp_profile(profile_id)
+        if p and SmtpDialog(self, profile=p).exec():
+            self._refresh_smtp()
+
+    def _on_delete_smtp(self, profile_id: int):
+        from database import db_manager as db
+        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce profil SMTP ?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            db.delete_smtp_profile(profile_id)
+            self._refresh_smtp()
 
 
 # ──────────────────────────────────────────────
