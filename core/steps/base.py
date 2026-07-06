@@ -34,6 +34,7 @@ class StepContext:
         t   = t.replace("{mm}",             now.strftime("%M"))
         t   = t.replace("{yyyyMMdd}",       now.strftime("%Y%m%d"))
         t   = t.replace("{yyyyMMddHHmm}",   now.strftime("%Y%m%d%H%M"))
+        t   = t.replace("{rows_count}",     str(self.rows_count))
         if self.output_file:
             t = t.replace("{output_file}", str(self.output_file))
         return t
