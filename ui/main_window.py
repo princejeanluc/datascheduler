@@ -17,12 +17,12 @@ import qtawesome as qta
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout,
     QVBoxLayout, QLabel, QPushButton, QStackedWidget,
-    QFrame, QSizePolicy, QSpacerItem, QScrollArea,
+    QFrame, QSizePolicy, QSpacerItem, QScrollArea, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView,
     QAbstractItemView, QMessageBox, QStatusBar,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QThread, QTimer, QObject
-from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap
+from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QShortcut, QKeySequence
 
 from ui.styles import COLORS
 
@@ -46,6 +46,66 @@ def _action_btn(icon_name: str, object_name: str = "", tooltip: str = "",
     btn.setIcon(_icon(icon_name, color))
     btn.setIconSize(QSize(14, 14))
     return btn
+
+
+def _configure_columns(table: QTableWidget, stretch_cols: set) -> None:
+    """
+    N'étire que les colonnes indiquées (celles qui ont besoin de place :
+    noms, chemins…) ; les autres s'ajustent à leur contenu (port, statut,
+    protocole…). Évite qu'une colonne de 4 chiffres reçoive la même largeur
+    qu'un nom de pipeline.
+    """
+    header = table.horizontalHeader()
+    for i in range(table.columnCount()):
+        header.setSectionResizeMode(
+            i, QHeaderView.Stretch if i in stretch_cols else QHeaderView.ResizeToContents
+        )
+
+
+def _filter_table_rows(table: QTableWidget, needle: str, columns: list) -> None:
+    """Cache les lignes qui ne contiennent pas `needle` (insensible à la casse)
+    dans les colonnes indiquées — fonctionne pour les cellules texte (QTableWidgetItem)
+    et les badges (QLabel en cellWidget)."""
+    needle = needle.strip().lower()
+    for row in range(table.rowCount()):
+        if not needle:
+            table.setRowHidden(row, False)
+            continue
+        haystack = []
+        for col in columns:
+            item = table.item(row, col)
+            if item:
+                haystack.append(item.text().lower())
+            else:
+                w = table.cellWidget(row, col)
+                if isinstance(w, QLabel):
+                    haystack.append(w.text().lower())
+        table.setRowHidden(row, needle not in " ".join(haystack))
+
+
+def _make_search_input(placeholder: str) -> QLineEdit:
+    inp = QLineEdit()
+    inp.setPlaceholderText(placeholder)
+    inp.setFixedHeight(34)
+    inp.setFixedWidth(240)
+    inp.setClearButtonEnabled(True)
+    icon = _icon("fa5s.search", COLORS["text_dim"])
+    if icon:
+        inp.addAction(icon, QLineEdit.LeadingPosition)
+    return inp
+
+
+def _make_empty_label(text: str) -> QLabel:
+    """Message d'état vide, cohérent avec celui de l'éditeur de pipeline."""
+    lbl = QLabel(text)
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setWordWrap(True)
+    lbl.setStyleSheet(
+        f"color: {COLORS['text_muted']}; font-size: 12px; font-style: italic; "
+        f"background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+        f"border-radius: 6px; padding: 28px 12px;"
+    )
+    return lbl
 
 # ──────────────────────────────────────────────
 #  CONSTANTES
@@ -398,11 +458,20 @@ class DashboardView(QWidget):
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _configure_columns(self.table, stretch_cols={0, 5})
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 130)
         self.table.setAlternatingRowColors(False)
         self.table.setShowGrid(False)
         self.table.setFixedHeight(200)
         layout.addWidget(self.table)
+
+        self._empty_label = _make_empty_label(
+            "Aucune exécution pour l'instant — les runs planifiés ou manuels apparaîtront ici."
+        )
+        self._empty_label.setFixedHeight(200)
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
 
         self.refresh()
 
@@ -429,6 +498,8 @@ class DashboardView(QWidget):
             self._card_next.set_subtitle("aucun planifié")
 
         latest = db.get_recent_runs(limit=20)
+        self.table.setVisible(bool(latest))
+        self._empty_label.setVisible(not latest)
         self.table.setRowCount(len(latest))
         for r_idx, run in enumerate(latest):
             pname = run.pipeline.name if run.pipeline else str(run.pipeline_id)
@@ -496,6 +567,9 @@ class PipelinesView(QWidget):
         title_col.addWidget(_make_title("Pipelines"))
         title_col.addWidget(_make_subtitle("Orchestration flexible par étapes"))
         header.addLayout(title_col); header.addStretch()
+        self.inp_search = _make_search_input("Rechercher un pipeline…  (Ctrl+N : nouveau)")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        header.addWidget(self.inp_search)
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
         btn_new.clicked.connect(self._on_new_pipeline)
@@ -512,15 +586,31 @@ class PipelinesView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _configure_columns(self.table, stretch_cols={0, 2})
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 130)
+        self.table.setColumnWidth(5, 150)
         layout.addWidget(self.table)
 
+        self._empty_label = _make_empty_label(
+            "Aucun pipeline configuré — cliquez sur « Nouveau pipeline » pour créer le premier."
+        )
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
+
+        QShortcut(QKeySequence("Ctrl+N"), self, activated=self._on_new_pipeline)
+
         self.refresh()
+
+    def _on_search_changed(self, text: str):
+        _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4])
 
     def refresh(self):
         from database import db_manager as db
         from ui.step_editor import STEP_META
         pipelines = db.get_pipelines()
+        self.table.setVisible(bool(pipelines))
+        self._empty_label.setVisible(not pipelines)
         self.table.setRowCount(len(pipelines))
         for r_idx, p in enumerate(pipelines):
             st       = _status_str(p.last_status)
@@ -546,6 +636,8 @@ class PipelinesView(QWidget):
                 else:
                     item = QTableWidgetItem(cell)
                     item.setForeground(QColor(text_color))
+                    if c_idx == 2:
+                        item.setToolTip(steps_str)
                     self.table.setItem(r_idx, c_idx, item)
 
             pid       = p.id
@@ -575,6 +667,8 @@ class PipelinesView(QWidget):
             al.addWidget(btn_edit); al.addWidget(btn_del); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
+
+        self._on_search_changed(self.inp_search.text())
 
     def _on_new_pipeline(self):
         from ui.step_editor import PipelineEditorDialog
@@ -641,7 +735,7 @@ class ConnectionsView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        cols = QHBoxLayout(); cols.setSpacing(24)
+        cols = QVBoxLayout(); cols.setSpacing(20)
         cols.addWidget(self._build_oracle_panel())
         cols.addWidget(self._build_ftp_panel())
         cols.addWidget(self._build_smtp_panel())
@@ -666,8 +760,11 @@ class ConnectionsView(QWidget):
         vl.addLayout(top)
 
         hdrs = ["Nom", "Hôte", "Port", "Service / SID", "Utilisateur"]
-        self.oracle_table = self._make_table(hdrs)
+        self.oracle_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.oracle_table)
+        self._oracle_empty = _make_empty_label("Aucun profil Oracle — cliquez sur « Nouveau profil Oracle ».")
+        self._oracle_empty.setVisible(False)
+        vl.addWidget(self._oracle_empty)
         return card
 
     def _build_ftp_panel(self) -> QFrame:
@@ -684,8 +781,11 @@ class ConnectionsView(QWidget):
         vl.addLayout(top)
 
         hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur"]
-        self.ftp_table = self._make_table(hdrs)
+        self.ftp_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ftp_table)
+        self._ftp_empty = _make_empty_label("Aucun profil FTP — cliquez sur « Nouveau profil FTP ».")
+        self._ftp_empty.setVisible(False)
+        vl.addWidget(self._ftp_empty)
         return card
 
     def _build_smtp_panel(self) -> QFrame:
@@ -702,18 +802,21 @@ class ConnectionsView(QWidget):
         vl.addLayout(top)
 
         hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur"]
-        self.smtp_table = self._make_table(hdrs)
+        self.smtp_table = self._make_table(hdrs, stretch_cols={0, 1, 4})
         vl.addWidget(self.smtp_table)
+        self._smtp_empty = _make_empty_label("Aucun profil SMTP — cliquez sur « Nouveau profil SMTP ».")
+        self._smtp_empty.setVisible(False)
+        vl.addWidget(self._smtp_empty)
         return card
 
-    def _make_table(self, headers: list) -> QTableWidget:
+    def _make_table(self, headers: list, stretch_cols: set) -> QTableWidget:
         t = QTableWidget(0, len(headers) + 1)
         t.setHorizontalHeaderLabels(headers + [""])
         t.verticalHeader().setVisible(False)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.setSelectionBehavior(QAbstractItemView.SelectRows)
         t.setShowGrid(False)
-        t.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _configure_columns(t, stretch_cols)
         t.horizontalHeader().setSectionResizeMode(len(headers), QHeaderView.Fixed)
         t.setColumnWidth(len(headers), 90)
         return t
@@ -728,6 +831,8 @@ class ConnectionsView(QWidget):
     def _refresh_oracle(self):
         from database import db_manager as db
         profiles = db.get_oracle_profiles()
+        self.oracle_table.setVisible(bool(profiles))
+        self._oracle_empty.setVisible(not profiles)
         self.oracle_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
             cells = [p.name, p.host, str(p.port), p.service_name or p.sid or "—", p.username]
@@ -748,6 +853,8 @@ class ConnectionsView(QWidget):
     def _refresh_ftp(self):
         from database import db_manager as db
         profiles = db.get_ftp_profiles()
+        self.ftp_table.setVisible(bool(profiles))
+        self._ftp_empty.setVisible(not profiles)
         self.ftp_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
             protocol = _status_str(p.protocol)
@@ -769,6 +876,8 @@ class ConnectionsView(QWidget):
     def _refresh_smtp(self):
         from database import db_manager as db
         profiles = db.get_smtp_profiles()
+        self.smtp_table.setVisible(bool(profiles))
+        self._smtp_empty.setVisible(not profiles)
         self.smtp_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
             security = "STARTTLS" if p.use_tls else "Aucune"
@@ -804,11 +913,11 @@ class ConnectionsView(QWidget):
 
     def _on_delete_oracle(self, profile_id: int):
         from database import db_manager as db
-        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce profil Oracle ?",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            db.delete_oracle_profile(profile_id)
-            self._refresh_oracle()
+        used_by = db.find_pipelines_using_profile("oracle_profile_id", profile_id)
+        if not self._confirm_delete("Oracle", used_by):
+            return
+        db.delete_oracle_profile(profile_id)
+        self._refresh_oracle()
 
     def _on_new_ftp(self):
         from ui.dialogs import FtpDialog
@@ -825,11 +934,11 @@ class ConnectionsView(QWidget):
 
     def _on_delete_ftp(self, profile_id: int):
         from database import db_manager as db
-        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce profil FTP ?",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            db.delete_ftp_profile(profile_id)
-            self._refresh_ftp()
+        used_by = db.find_pipelines_using_profile("ftp_profile_id", profile_id)
+        if not self._confirm_delete("FTP", used_by):
+            return
+        db.delete_ftp_profile(profile_id)
+        self._refresh_ftp()
 
     def _on_new_smtp(self):
         from ui.dialogs import SmtpDialog
@@ -846,11 +955,24 @@ class ConnectionsView(QWidget):
 
     def _on_delete_smtp(self, profile_id: int):
         from database import db_manager as db
-        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce profil SMTP ?",
-                                     QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
-            db.delete_smtp_profile(profile_id)
-            self._refresh_smtp()
+        used_by = db.find_pipelines_using_profile("smtp_profile_id", profile_id)
+        if not self._confirm_delete("SMTP", used_by):
+            return
+        db.delete_smtp_profile(profile_id)
+        self._refresh_smtp()
+
+    def _confirm_delete(self, profile_kind: str, used_by: list) -> bool:
+        """Confirmation de suppression — avertit si des pipelines utilisent ce profil."""
+        if used_by:
+            names = ", ".join(used_by)
+            msg = (
+                f"Ce profil {profile_kind} est utilisé par {len(used_by)} pipeline(s) : {names}.\n\n"
+                f"Le(s) supprimer quand même ? Ces pipelines échoueront à leur prochaine exécution."
+            )
+        else:
+            msg = f"Supprimer ce profil {profile_kind} ?"
+        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
+        return reply == QMessageBox.Yes
 
 
 # ──────────────────────────────────────────────
@@ -872,6 +994,9 @@ class QueriesView(QWidget):
         col.addWidget(_make_title("Requêtes SQL"))
         col.addWidget(_make_subtitle("Bibliothèque de requêtes réutilisables"))
         header.addLayout(col); header.addStretch()
+        self.inp_search = _make_search_input("Rechercher une requête…")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        header.addWidget(self.inp_search)
         btn = QPushButton("  Nouvelle requête"); btn.setFixedHeight(36)
         btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(13, 13))
         btn.clicked.connect(self._on_new_query)
@@ -887,15 +1012,27 @@ class QueriesView(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _configure_columns(self.table, stretch_cols={0, 1})
+        self.table.setColumnWidth(3, 100)
         layout.addWidget(self.table)
+
+        self._empty_label = _make_empty_label(
+            "Aucune requête enregistrée — cliquez sur « Nouvelle requête » pour créer la première."
+        )
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
         layout.addStretch()
 
         self.refresh()
 
+    def _on_search_changed(self, text: str):
+        _filter_table_rows(self.table, text, columns=[0, 1, 2])
+
     def refresh(self):
         from database import db_manager as db
         queries = db.get_sql_queries()
+        self.table.setVisible(bool(queries))
+        self._empty_label.setVisible(not queries)
         self.table.setRowCount(len(queries))
         for r_idx, q in enumerate(queries):
             oracle_name = q.oracle_profile.name if q.oracle_profile else "—"
@@ -914,6 +1051,8 @@ class QueriesView(QWidget):
             self.table.setCellWidget(r_idx, 3, w)
             self.table.setRowHeight(r_idx, 48)
 
+        self._on_search_changed(self.inp_search.text())
+
     def _on_new_query(self):
         from ui.dialogs import SqlQueryDialog
         if SqlQueryDialog(self).exec():
@@ -928,8 +1067,16 @@ class QueriesView(QWidget):
 
     def _on_delete_query(self, query_id: int):
         from database import db_manager as db
-        reply = QMessageBox.question(self, "Supprimer", "Supprimer cette requête ?",
-                                     QMessageBox.Yes | QMessageBox.No)
+        used_by = db.find_pipelines_using_profile("sql_query_id", query_id)
+        if used_by:
+            names = ", ".join(used_by)
+            msg = (
+                f"Cette requête est utilisée par {len(used_by)} pipeline(s) : {names}.\n\n"
+                f"La supprimer quand même ? Ces pipelines échoueront à leur prochaine exécution."
+            )
+        else:
+            msg = "Supprimer cette requête ?"
+        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             db.delete_sql_query(query_id)
             self.refresh()
@@ -949,32 +1096,54 @@ class HistoryView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        layout.addWidget(_make_title("Historique"))
-        layout.addWidget(_make_subtitle("Journal complet de toutes les exécutions"))
+        header = QHBoxLayout()
+        title_col = QVBoxLayout(); title_col.setSpacing(2)
+        title_col.addWidget(_make_title("Historique"))
+        title_col.addWidget(_make_subtitle("Journal complet de toutes les exécutions"))
+        header.addLayout(title_col); header.addStretch()
+        self.inp_search = _make_search_input("Rechercher…")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        header.addWidget(self.inp_search)
+        layout.addLayout(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
         self._run_ids = []   # index ligne → run_id
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Pipeline", "Démarré le", "Durée", "Lignes", "Statut", "Fichier déposé"])
+            ["Pipeline", "Démarré le", "Durée", "Lignes", "Statut", "Fichier déposé", ""])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _configure_columns(self.table, stretch_cols={0, 5})
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table.setColumnWidth(4, 130)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        self.table.setColumnWidth(6, 60)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
+
+        self._empty_label = _make_empty_label(
+            "Aucune exécution enregistrée pour l'instant."
+        )
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
         layout.addStretch()
 
         self.refresh()
+
+    def _on_search_changed(self, text: str):
+        _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4, 5])
 
     def refresh(self):
         from database import db_manager as db
         runs = db.get_recent_runs(limit=100)
         self._run_ids = [r.id for r in runs]
+        self.table.setVisible(bool(runs))
+        self._empty_label.setVisible(not runs)
         self.table.setRowCount(len(runs))
         for r_idx, run in enumerate(runs):
             pname  = run.pipeline.name if run.pipeline else str(run.pipeline_id)
@@ -997,10 +1166,22 @@ class HistoryView(QWidget):
                     if c_idx == 5:
                         item.setFont(QFont(FONT_MONO, 11))
                     self.table.setItem(r_idx, c_idx, item)
+
+            btn_view = _action_btn("fa5s.search", object_name="secondary",
+                                   tooltip="Voir le log complet", size=(26, 26))
+            btn_view.clicked.connect(lambda _, i=r_idx: self._open_log(i))
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4)
+            hl.addWidget(btn_view)
+            self.table.setCellWidget(r_idx, 6, w)
+
             self.table.setRowHeight(r_idx, 44)
 
+        self._on_search_changed(self.inp_search.text())
+
     def _on_row_dbl_click(self, index):
-        row = index.row()
+        self._open_log(index.row())
+
+    def _open_log(self, row: int):
         if row >= len(self._run_ids):
             return
         from database import db_manager as db
@@ -1131,6 +1312,14 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status)
 
         self._navigate(0)   # Dashboard par défaut
+
+        QShortcut(QKeySequence("F5"), self, activated=self._refresh_current_view)
+
+    def _refresh_current_view(self):
+        view = self._views[self._stack.currentIndex()]
+        if hasattr(view, "refresh"):
+            view.refresh()
+        self.statusBar().showMessage("  Vue actualisée", 2_000)
 
     def _build_nav(self) -> QWidget:
         panel = QWidget()

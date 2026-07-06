@@ -448,6 +448,30 @@ def get_steps(pipeline_id: int) -> list[PipelineStep]:
                   .all())
 
 
+def find_pipelines_using_profile(config_key: str, profile_id: int) -> list[str]:
+    """
+    Cherche les pipelines dont une étape référence `profile_id` sous la clé
+    `config_key` (ex: "oracle_profile_id", "ftp_profile_id", "smtp_profile_id")
+    dans son config_json. La référence n'étant pas une vraie contrainte de clé
+    étrangère (elle vit dans un blob JSON), c'est le seul moyen de la détecter
+    avant de supprimer un profil — évite de casser silencieusement un pipeline.
+
+    Retourne les noms de pipelines concernés (dédupliqués, triés).
+    """
+    import json
+    with get_session() as s:
+        steps = s.query(PipelineStep).options(joinedload(PipelineStep.pipeline)).all()
+        names = set()
+        for step in steps:
+            try:
+                config = json.loads(step.config_json or "{}")
+            except ValueError:
+                continue
+            if config.get(config_key) == profile_id and step.pipeline:
+                names.add(step.pipeline.name)
+        return sorted(names)
+
+
 def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
