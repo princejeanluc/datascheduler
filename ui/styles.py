@@ -27,7 +27,7 @@ COLORS = {
     # Textes
     "text_main":  "#f0f0f0",   # texte principal — blanc doux
     "text_dim":   "#999999",   # texte secondaire
-    "text_muted": "#555555",   # texte discret / version
+    "text_muted": "#6e6e6e",   # texte discret / version (contraste AA sur bg_main)
 }
 
 DIALOG_STYLE = f"""
