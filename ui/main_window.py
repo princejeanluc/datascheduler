@@ -636,7 +636,7 @@ class ConnectionsView(QWidget):
         layout.setSpacing(24)
 
         layout.addWidget(_make_title("Connexions"))
-        layout.addWidget(_make_subtitle("Profils Oracle et FTP réutilisables dans les pipelines"))
+        layout.addWidget(_make_subtitle("Profils Oracle, FTP et SMTP réutilisables dans les pipelines"))
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -644,6 +644,7 @@ class ConnectionsView(QWidget):
         cols = QHBoxLayout(); cols.setSpacing(24)
         cols.addWidget(self._build_oracle_panel())
         cols.addWidget(self._build_ftp_panel())
+        cols.addWidget(self._build_smtp_panel())
         layout.addLayout(cols)
         layout.addStretch()
 
@@ -687,6 +688,24 @@ class ConnectionsView(QWidget):
         vl.addWidget(self.ftp_table)
         return card
 
+    def _build_smtp_panel(self) -> QFrame:
+        card = QFrame(); card.setObjectName("card")
+        vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
+
+        top = QHBoxLayout()
+        lbl = QLabel("SMTP")
+        lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        btn = QPushButton("  Nouveau profil SMTP"); btn.setFixedHeight(32)
+        btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
+        btn.clicked.connect(self._on_new_smtp)
+        top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
+        vl.addLayout(top)
+
+        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur"]
+        self.smtp_table = self._make_table(hdrs)
+        vl.addWidget(self.smtp_table)
+        return card
+
     def _make_table(self, headers: list) -> QTableWidget:
         t = QTableWidget(0, len(headers) + 1)
         t.setHorizontalHeaderLabels(headers + [""])
@@ -704,6 +723,7 @@ class ConnectionsView(QWidget):
     def refresh(self):
         self._refresh_oracle()
         self._refresh_ftp()
+        self._refresh_smtp()
 
     def _refresh_oracle(self):
         from database import db_manager as db
@@ -745,6 +765,27 @@ class ConnectionsView(QWidget):
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
             self.ftp_table.setCellWidget(r_idx, 5, w)
             self.ftp_table.setRowHeight(r_idx, 44)
+
+    def _refresh_smtp(self):
+        from database import db_manager as db
+        profiles = db.get_smtp_profiles()
+        self.smtp_table.setRowCount(len(profiles))
+        for r_idx, p in enumerate(profiles):
+            security = "STARTTLS" if p.use_tls else "Aucune"
+            cells = [p.name, p.host, str(p.port), security, p.from_address]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_main"]))
+                self.smtp_table.setItem(r_idx, c_idx, item)
+            pid = p.id
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
+            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_smtp(i))
+            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_smtp(i))
+            hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
+            self.smtp_table.setCellWidget(r_idx, 5, w)
+            self.smtp_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────
 
@@ -789,6 +830,27 @@ class ConnectionsView(QWidget):
         if reply == QMessageBox.Yes:
             db.delete_ftp_profile(profile_id)
             self._refresh_ftp()
+
+    def _on_new_smtp(self):
+        from ui.dialogs import SmtpDialog
+        dlg = SmtpDialog(self)
+        if dlg.exec():
+            self._refresh_smtp()
+
+    def _on_edit_smtp(self, profile_id: int):
+        from database import db_manager as db
+        from ui.dialogs import SmtpDialog
+        p = db.get_smtp_profile(profile_id)
+        if p and SmtpDialog(self, profile=p).exec():
+            self._refresh_smtp()
+
+    def _on_delete_smtp(self, profile_id: int):
+        from database import db_manager as db
+        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce profil SMTP ?",
+                                     QMessageBox.Yes | QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            db.delete_smtp_profile(profile_id)
+            self._refresh_smtp()
 
 
 # ──────────────────────────────────────────────
