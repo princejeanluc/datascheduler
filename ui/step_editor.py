@@ -8,10 +8,10 @@ import json
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
     QLabel, QLineEdit, QSpinBox, QComboBox, QTextEdit, QPlainTextEdit,
-    QPushButton, QFrame, QWidget, QRadioButton, QButtonGroup,
+    QPushButton, QFrame, QWidget, QRadioButton, QButtonGroup, QCheckBox,
     QFileDialog, QMessageBox, QSizePolicy, QStackedWidget,
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, QThread, Signal
 from PySide6.QtGui import QFont
 
 from ui.styles import COLORS, DIALOG_STYLE
@@ -32,11 +32,16 @@ STEP_META = {
     "FTP_UPLOAD":     {"label": "Envoi FTP",          "color": "#FF7900"},
     "LOCAL_COPY":     {"label": "Copie locale",       "color": "#66bb6a"},
     "PYTHON_SCRIPT":  {"label": "Script Python",      "color": "#ce93d8"},
+    "ORACLE_EXECUTE": {"label": "Exécution Oracle",   "color": "#29b6f6"},
+    "FTP_DOWNLOAD":   {"label": "Téléchargement FTP",  "color": "#ffa726"},
+    "ORACLE_LOAD":    {"label": "Chargement Oracle",  "color": "#26a69a"},
+    "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350"},
+    "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc"},
 }
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
-TOKENS_HINT = "{yyyy}  {yy}  {MM}  {dd}  {HH}  {mm}  {yyyyMMdd}  {yyyyMMddHHmm}  {output_file}"
+TOKENS_HINT = "{yyyy}  {yy}  {MM}  {dd}  {HH}  {mm}  {yyyyMMdd}  {yyyyMMddHHmm}  {output_file}  {rows_count}"
 
 
 # ──────────────────────────────────────────────
@@ -69,6 +74,7 @@ class PipelineEditorDialog(QDialog):
         self._oracle_profiles = db.get_oracle_profiles()
         self._ftp_profiles    = db.get_ftp_profiles()
         self._sql_queries     = db.get_sql_queries()
+        self._smtp_profiles   = db.get_smtp_profiles()
 
     # ── Construction UI ──────────────────────
 
@@ -352,6 +358,38 @@ class PipelineEditorDialog(QDialog):
             return (f"{d}/{f}" if f else d)[:80] or "(non configuré)"
         elif step_type == "PYTHON_SCRIPT":
             return config.get("script_path", "(non configuré)")[:80]
+        elif step_type == "ORACLE_EXECUTE":
+            oracle = next((p for p in self._oracle_profiles if p.id == config.get("oracle_profile_id")), None)
+            query  = next((q for q in self._sql_queries     if q.id == config.get("sql_query_id")), None)
+            parts  = []
+            if oracle: parts.append(f"Oracle: {oracle.name}")
+            if query:  parts.append(f"Requête: {query.name}")
+            return " · ".join(parts) or "(non configuré)"
+        elif step_type == "FTP_DOWNLOAD":
+            ftp  = next((p for p in self._ftp_profiles if p.id == config.get("ftp_profile_id")), None)
+            path = config.get("remote_path_tpl", "")[:60]
+            parts = []
+            if ftp:  parts.append(f"FTP: {ftp.name}")
+            if path: parts.append(path)
+            return " · ".join(parts) or "(non configuré)"
+        elif step_type == "ORACLE_LOAD":
+            oracle = next((p for p in self._oracle_profiles if p.id == config.get("oracle_profile_id")), None)
+            table  = config.get("table_name", "")
+            parts  = []
+            if oracle: parts.append(f"Oracle: {oracle.name}")
+            if table:  parts.append(f"Table: {table}")
+            return " · ".join(parts) or "(non configuré)"
+        elif step_type == "EMAIL_NOTIFY":
+            smtp = next((p for p in self._smtp_profiles if p.id == config.get("smtp_profile_id")), None)
+            to   = config.get("to", "")
+            parts = []
+            if smtp: parts.append(f"SMTP: {smtp.name}")
+            if to:   parts.append(f"→ {to}")
+            return " · ".join(parts) or "(non configuré)"
+        elif step_type == "HTTP_REQUEST":
+            method = config.get("method", "GET")
+            url    = config.get("url_tpl", "")
+            return f"{method} {url}"[:80] or "(non configuré)"
         return ""
 
     def _on_add_step(self):
@@ -362,6 +400,7 @@ class PipelineEditorDialog(QDialog):
         config_dlg = _open_config_dialog(
             step_type, {}, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
+            self._smtp_profiles,
         )
         if config_dlg and config_dlg.exec():
             self._steps_data.append(config_dlg.result_step())
@@ -373,6 +412,7 @@ class PipelineEditorDialog(QDialog):
         config_dlg = _open_config_dialog(
             step["step_type"], step.get("config", {}), self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
+            self._smtp_profiles,
             label=step.get("label", ""),
         )
         if config_dlg and config_dlg.exec():
@@ -620,6 +660,11 @@ class StepTypeChooserDialog(QDialog):
             "FTP_UPLOAD":     "Upload du fichier produit vers un serveur FTP / FTPS / SFTP.",
             "LOCAL_COPY":     "Copie du fichier produit dans un dossier local (avec tokens datetime).",
             "PYTHON_SCRIPT":  "Exécution d'un script Python avec arguments (tokens datetime + contexte).",
+            "ORACLE_EXECUTE": "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction.",
+            "FTP_DOWNLOAD":   "Téléchargement d'un fichier distant (FTP / FTPS / SFTP) comme source du pipeline.",
+            "ORACLE_LOAD":    "Chargement du fichier produit (CSV) dans une table Oracle.",
+            "EMAIL_NOTIFY":   "Envoi d'un email, avec le fichier produit en pièce jointe optionnelle.",
+            "HTTP_REQUEST":   "Appel d'une API REST / webhook, avec le fichier produit en option.",
         }
 
         for step_type, desc in descriptions.items():
@@ -822,7 +867,8 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
     ]
 
     def __init__(self, config: dict, parent=None, label: str = "",
-                 oracle_profiles=None, sql_queries=None, ftp_profiles=None):
+                 oracle_profiles=None, sql_queries=None, ftp_profiles=None,
+                 smtp_profiles=None):
         super().__init__(config, parent, label)
         self._oracle_profiles = oracle_profiles or []
         self._sql_queries     = sql_queries     or []
@@ -947,7 +993,8 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "FTP_UPLOAD"
 
     def __init__(self, config: dict, parent=None, label: str = "",
-                 oracle_profiles=None, sql_queries=None, ftp_profiles=None):
+                 oracle_profiles=None, sql_queries=None, ftp_profiles=None,
+                 smtp_profiles=None):
         super().__init__(config, parent, label)
         self._ftp_profiles = ftp_profiles or []
         self.setWindowTitle("Étape — Envoi FTP")
@@ -1243,23 +1290,549 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
 
 # ──────────────────────────────────────────────
+#  CONFIG : ORACLE_EXECUTE
+# ──────────────────────────────────────────────
+
+class _OracleExecuteTestThread(QThread):
+    """Exécute le SQL réel puis annule (rollback) — ne persiste rien."""
+    result_ready = Signal(bool, str, int)   # success, message, rows_affected
+
+    def __init__(self, oracle_profile, sql_text: str):
+        super().__init__()
+        self.oracle_profile = oracle_profile
+        self.sql_text = sql_text
+
+    def run(self):
+        try:
+            from core.oracle import OracleConnector, config_from_profile
+            cfg = config_from_profile(self.oracle_profile)
+            connector = OracleConnector(cfg)
+            connector.connect()
+            try:
+                cursor = connector.connection.cursor()
+                cursor.execute(self.sql_text)
+                rows = cursor.rowcount
+                connector.connection.rollback()
+            finally:
+                connector.disconnect()
+            self.result_ready.emit(True, "Exécution réussie — annulée, rien n'a été persisté.", rows)
+        except Exception as e:
+            self.result_ready.emit(False, str(e), 0)
+
+
+class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "ORACLE_EXECUTE"
+
+    def __init__(self, config: dict, parent=None, label: str = "",
+                 oracle_profiles=None, sql_queries=None, ftp_profiles=None,
+                 smtp_profiles=None):
+        super().__init__(config, parent, label)
+        self._oracle_profiles = oracle_profiles or []
+        self._sql_queries     = sql_queries     or []
+        self._test_thread      = None
+        self.setWindowTitle("Étape — Exécution Oracle")
+        self.setMinimumSize(540, 460)
+        self._build_ui()
+        self._prefill()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title = QLabel("Exécution SQL / PLSQL (DML, DDL, procédure)")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title); root.addWidget(self._sep())
+
+        form = self._form()
+        self._add_label_row(form)
+        self.cb_oracle = self._profile_row(
+            form, "Profil Oracle *",
+            self._oracle_profiles, "— Sélectionner un profil Oracle —",
+            self._new_oracle_profile,
+        )
+        self.cb_query = self._profile_row(
+            form, "Requête / instruction *",
+            self._sql_queries, "— Sélectionner une requête SQL —",
+            self._new_sql_query,
+        )
+        self.cb_oracle.currentIndexChanged.connect(self._filter_queries)
+
+        self.chk_commit = QCheckBox("Valider (commit) automatiquement après exécution")
+        self.chk_commit.setChecked(True)
+        self.chk_commit.setStyleSheet(f"color: {COLORS['text_main']};")
+        form.addRow("", self.chk_commit)
+        root.addLayout(form)
+
+        note = QLabel(
+            "Une étape = une instruction ou un bloc PL/SQL complet (pas de découpage sur ';'). "
+            "Pour un script à plusieurs étapes, chaîner plusieurs étapes ORACLE_EXECUTE."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
+        root.addWidget(note)
+
+        root.addWidget(self._build_test_zone())
+        root.addStretch()
+        self._buttons(root)
+
+    def _build_test_zone(self) -> QFrame:
+        frame = QFrame(); frame.setObjectName("card")
+        hl = QHBoxLayout(frame); hl.setContentsMargins(14, 10, 14, 10); hl.setSpacing(12)
+        self.btn_test = QPushButton("⚡  Tester (exécute + annule)")
+        self.btn_test.setObjectName("secondary"); self.btn_test.setFixedHeight(32)
+        self.btn_test.clicked.connect(self._on_test)
+        self.lbl_test_result = QLabel("—")
+        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        hl.addWidget(self.btn_test); hl.addWidget(self.lbl_test_result, stretch=1)
+        return frame
+
+    def _on_test(self):
+        oracle = next((p for p in self._oracle_profiles if p.id == self.cb_oracle.currentData()), None)
+        query  = next((q for q in self._sql_queries     if q.id == self.cb_query.currentData()), None)
+        if not oracle or not query:
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle et une requête.")
+            return
+        from core.steps.base import StepContext
+        sql_text = StepContext().resolve_tokens(query.sql_text)
+
+        self.btn_test.setEnabled(False)
+        self.lbl_test_result.setText("Exécution en cours…")
+        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._test_thread = _OracleExecuteTestThread(oracle, sql_text)
+        self._test_thread.result_ready.connect(self._on_test_result)
+        self._test_thread.start()
+
+    def _on_test_result(self, success: bool, message: str, rows: int):
+        self.btn_test.setEnabled(True)
+        if success:
+            txt   = f"✅  {message} ({rows} ligne(s) affectée(s))"
+            color = COLORS["success"]
+        else:
+            txt   = f"❌  {message}"
+            color = COLORS["danger"]
+        self.lbl_test_result.setText(txt)
+        self.lbl_test_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+
+    def _prefill(self):
+        c = self._config
+        self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
+        self._filter_queries()
+        self._set_combo(self.cb_query, c.get("sql_query_id"))
+        self.chk_commit.setChecked(c.get("commit", True))
+
+    def _filter_queries(self):
+        oracle_id = self.cb_oracle.currentData()
+        cur_qid   = self.cb_query.currentData()
+        self.cb_query.blockSignals(True)
+        self.cb_query.clear()
+        self.cb_query.addItem("— Sélectionner une requête SQL —", None)
+        for q in self._sql_queries:
+            if oracle_id is None or q.oracle_profile_id == oracle_id or q.oracle_profile_id is None:
+                self.cb_query.addItem(q.name, q.id)
+        self._set_combo(self.cb_query, cur_qid)
+        self.cb_query.blockSignals(False)
+
+    def _new_oracle_profile(self, cb: QComboBox):
+        from ui.dialogs import OracleDialog
+        from database import db_manager as db
+        if OracleDialog(self).exec():
+            self._oracle_profiles = db.get_oracle_profiles()
+            cb.clear(); cb.addItem("— Sélectionner un profil Oracle —", None)
+            for p in self._oracle_profiles: cb.addItem(p.name, p.id)
+            cb.setCurrentIndex(cb.count() - 1)
+
+    def _new_sql_query(self, cb: QComboBox):
+        from ui.dialogs import SqlQueryDialog
+        from database import db_manager as db
+        if SqlQueryDialog(self).exec():
+            self._sql_queries = db.get_sql_queries()
+            self._filter_queries()
+            self._set_combo(cb, self._sql_queries[-1].id if self._sql_queries else None)
+
+    def _collect_config(self) -> dict:
+        return {
+            "oracle_profile_id": self.cb_oracle.currentData(),
+            "sql_query_id":      self.cb_query.currentData(),
+            "commit":            self.chk_commit.isChecked(),
+        }
+
+    def _on_ok(self):
+        if not self.cb_oracle.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")
+            return
+        if not self.cb_query.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner une requête/instruction.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────
+#  CONFIG : FTP_DOWNLOAD
+# ──────────────────────────────────────────────
+
+class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "FTP_DOWNLOAD"
+
+    def __init__(self, config: dict, parent=None, label: str = "", **_):
+        super().__init__(config, parent, label)
+        self._ftp_profiles = _.get("ftp_profiles") or []
+        self.setWindowTitle("Étape — Téléchargement FTP")
+        self._build_ui()
+        self._prefill()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title = QLabel("Téléchargement FTP / FTPS / SFTP")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title); root.addWidget(self._sep())
+
+        form = self._form()
+        self._add_label_row(form)
+        self.cb_ftp = self._profile_row(
+            form, "Profil FTP *",
+            self._ftp_profiles, "— Sélectionner un profil FTP —",
+            self._new_ftp_profile,
+        )
+        self.inp_remote = self._input("ex : /export/{yyyy}/{MM}/ventes_{yyyyMMdd}.csv")
+        form.addRow(self._lbl("Chemin distant *"), self.inp_remote)
+        form.addRow("", self._tokens_hint())
+        root.addLayout(form)
+        root.addStretch()
+        self._buttons(root)
+
+    def _prefill(self):
+        c = self._config
+        self._set_combo(self.cb_ftp, c.get("ftp_profile_id"))
+        self.inp_remote.setText(c.get("remote_path_tpl", ""))
+
+    def _new_ftp_profile(self, cb: QComboBox):
+        from ui.dialogs import FtpDialog
+        from database import db_manager as db
+        if FtpDialog(self).exec():
+            self._ftp_profiles = db.get_ftp_profiles()
+            cb.clear(); cb.addItem("— Sélectionner un profil FTP —", None)
+            for p in self._ftp_profiles: cb.addItem(p.name, p.id)
+            cb.setCurrentIndex(cb.count() - 1)
+
+    def _collect_config(self) -> dict:
+        return {
+            "ftp_profile_id":  self.cb_ftp.currentData(),
+            "remote_path_tpl": self.inp_remote.text().strip(),
+        }
+
+    def _on_ok(self):
+        if not self.cb_ftp.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil FTP.")
+            return
+        if not self.inp_remote.text().strip():
+            QMessageBox.warning(self, "Champ requis", "Saisir le chemin distant.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────
+#  CONFIG : ORACLE_LOAD
+# ──────────────────────────────────────────────
+
+class _OracleLoadConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "ORACLE_LOAD"
+
+    def __init__(self, config: dict, parent=None, label: str = "",
+                 oracle_profiles=None, sql_queries=None, ftp_profiles=None,
+                 smtp_profiles=None):
+        super().__init__(config, parent, label)
+        self._oracle_profiles = oracle_profiles or []
+        self.setWindowTitle("Étape — Chargement Oracle")
+        self._build_ui()
+        self._prefill()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title = QLabel("Chargement CSV → table Oracle")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title); root.addWidget(self._sep())
+
+        form = self._form()
+        self._add_label_row(form)
+        self.cb_oracle = self._profile_row(
+            form, "Profil Oracle *",
+            self._oracle_profiles, "— Sélectionner un profil Oracle —",
+            self._new_oracle_profile,
+        )
+        self.inp_table = self._input("ex : VENTES_STAGING")
+        form.addRow(self._lbl("Table cible *"), self.inp_table)
+
+        note = QLabel("Les colonnes du CSV doivent correspondre aux noms de colonnes de la table.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
+        form.addRow("", note)
+
+        self.chk_truncate = QCheckBox("Vider la table avant chargement (TRUNCATE)")
+        self.chk_truncate.setStyleSheet(f"color: {COLORS['text_main']};")
+        form.addRow("", self.chk_truncate)
+
+        self.inp_chunk = QSpinBox()
+        self.inp_chunk.setRange(1_000, 1_000_000); self.inp_chunk.setValue(50_000)
+        self.inp_chunk.setSingleStep(10_000); self.inp_chunk.setSuffix(" lignes")
+        self.inp_chunk.setStyleSheet(self._spinbox_style())
+        form.addRow(self._lbl("Taille chunk"), self.inp_chunk)
+        root.addLayout(form)
+        root.addStretch()
+        self._buttons(root)
+
+    def _prefill(self):
+        c = self._config
+        self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
+        self.inp_table.setText(c.get("table_name", ""))
+        self.chk_truncate.setChecked(c.get("truncate_before_load", False))
+        self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
+
+    def _new_oracle_profile(self, cb: QComboBox):
+        from ui.dialogs import OracleDialog
+        from database import db_manager as db
+        if OracleDialog(self).exec():
+            self._oracle_profiles = db.get_oracle_profiles()
+            cb.clear(); cb.addItem("— Sélectionner un profil Oracle —", None)
+            for p in self._oracle_profiles: cb.addItem(p.name, p.id)
+            cb.setCurrentIndex(cb.count() - 1)
+
+    def _collect_config(self) -> dict:
+        return {
+            "oracle_profile_id":    self.cb_oracle.currentData(),
+            "table_name":           self.inp_table.text().strip(),
+            "truncate_before_load": self.chk_truncate.isChecked(),
+            "csv_chunk_size":       self.inp_chunk.value(),
+        }
+
+    def _on_ok(self):
+        if not self.cb_oracle.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")
+            return
+        if not self.inp_table.text().strip():
+            QMessageBox.warning(self, "Champ requis", "Saisir la table cible.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────
+#  CONFIG : EMAIL_NOTIFY
+# ──────────────────────────────────────────────
+
+class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "EMAIL_NOTIFY"
+
+    def __init__(self, config: dict, parent=None, label: str = "", **_):
+        super().__init__(config, parent, label)
+        self._smtp_profiles = _.get("smtp_profiles") or []
+        self.setWindowTitle("Étape — Notification email")
+        self.setMinimumSize(540, 480)
+        self._build_ui()
+        self._prefill()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title = QLabel("Envoi d'un email de notification")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title); root.addWidget(self._sep())
+
+        form = self._form()
+        self._add_label_row(form)
+        self.cb_smtp = self._profile_row(
+            form, "Profil SMTP *",
+            self._smtp_profiles, "— Sélectionner un profil SMTP —",
+            self._new_smtp_profile,
+        )
+        self.inp_to = self._input("ex : alerte@company.com, autre@company.com")
+        form.addRow(self._lbl("Destinataires *"), self.inp_to)
+
+        self.inp_subject = self._input("ex : Pipeline {yyyyMMdd} — {rows_count} lignes")
+        form.addRow(self._lbl("Sujet *"), self.inp_subject)
+        form.addRow("", self._tokens_hint())
+        root.addLayout(form)
+
+        body_lbl = QLabel("Corps du message :")
+        body_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
+        root.addWidget(body_lbl)
+        self.txt_body = QPlainTextEdit()
+        self.txt_body.setFont(QFont("Consolas", 11))
+        self.txt_body.setPlaceholderText("Le pipeline a exporté {rows_count} lignes le {yyyy}-{MM}-{dd}.")
+        self.txt_body.setFixedHeight(110)
+        self.txt_body.setStyleSheet(
+            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 6px;"
+        )
+        root.addWidget(self.txt_body)
+
+        self.chk_attach = QCheckBox("Joindre le fichier produit par le pipeline (si disponible)")
+        self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
+        root.addWidget(self.chk_attach)
+
+        root.addStretch()
+        self._buttons(root)
+
+    def _prefill(self):
+        c = self._config
+        self._set_combo(self.cb_smtp, c.get("smtp_profile_id"))
+        self.inp_to.setText(c.get("to", ""))
+        self.inp_subject.setText(c.get("subject_tpl", ""))
+        self.txt_body.setPlainText(c.get("body_tpl", ""))
+        self.chk_attach.setChecked(c.get("attach_output_file", False))
+
+    def _new_smtp_profile(self, cb: QComboBox):
+        from ui.dialogs import SmtpDialog
+        from database import db_manager as db
+        if SmtpDialog(self).exec():
+            self._smtp_profiles = db.get_smtp_profiles()
+            cb.clear(); cb.addItem("— Sélectionner un profil SMTP —", None)
+            for p in self._smtp_profiles: cb.addItem(p.name, p.id)
+            cb.setCurrentIndex(cb.count() - 1)
+
+    def _collect_config(self) -> dict:
+        return {
+            "smtp_profile_id":    self.cb_smtp.currentData(),
+            "to":                 self.inp_to.text().strip(),
+            "subject_tpl":        self.inp_subject.text().strip(),
+            "body_tpl":           self.txt_body.toPlainText(),
+            "attach_output_file": self.chk_attach.isChecked(),
+        }
+
+    def _on_ok(self):
+        if not self.cb_smtp.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil SMTP.")
+            return
+        if not self.inp_to.text().strip():
+            QMessageBox.warning(self, "Champ requis", "Saisir au moins un destinataire.")
+            return
+        if not self.inp_subject.text().strip():
+            QMessageBox.warning(self, "Champ requis", "Saisir un sujet.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────
+#  CONFIG : HTTP_REQUEST
+# ──────────────────────────────────────────────
+
+class _HttpRequestConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "HTTP_REQUEST"
+
+    METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
+
+    def __init__(self, config: dict, parent=None, label: str = "", **_):
+        super().__init__(config, parent, label)
+        self.setWindowTitle("Étape — Appel HTTP")
+        self.setMinimumSize(540, 560)
+        self._build_ui()
+        self._prefill()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title = QLabel("Appel HTTP (API REST / webhook)")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title); root.addWidget(self._sep())
+
+        form = self._form()
+        self._add_label_row(form)
+
+        self.cb_method = QComboBox(); self.cb_method.setStyleSheet(self._combo_style())
+        for m in self.METHODS: self.cb_method.addItem(m, m)
+        form.addRow(self._lbl("Méthode"), self.cb_method)
+
+        self.inp_url = self._input("ex : https://api.company.com/webhook/{yyyyMMdd}")
+        form.addRow(self._lbl("URL *"), self.inp_url)
+        form.addRow("", self._tokens_hint())
+
+        self.inp_timeout = QSpinBox()
+        self.inp_timeout.setRange(1, 3600); self.inp_timeout.setValue(30)
+        self.inp_timeout.setSuffix(" s"); self.inp_timeout.setFixedWidth(110)
+        self.inp_timeout.setStyleSheet(self._spinbox_style())
+        form.addRow(self._lbl("Timeout"), self.inp_timeout)
+        root.addLayout(form)
+
+        headers_lbl = QLabel("En-têtes (un par ligne, format « Clé: Valeur ») :")
+        headers_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
+        root.addWidget(headers_lbl)
+        self.txt_headers = QPlainTextEdit()
+        self.txt_headers.setFont(QFont("Consolas", 11))
+        self.txt_headers.setPlaceholderText("Content-Type: application/json\nAuthorization: Bearer {output_file}")
+        self.txt_headers.setFixedHeight(70)
+        self.txt_headers.setStyleSheet(
+            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 6px;"
+        )
+        root.addWidget(self.txt_headers)
+
+        body_lbl = QLabel("Corps de la requête :")
+        body_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
+        root.addWidget(body_lbl)
+        self.txt_body = QPlainTextEdit()
+        self.txt_body.setFont(QFont("Consolas", 11))
+        self.txt_body.setPlaceholderText('{"date": "{yyyyMMdd}", "rows": {rows_count}}')
+        self.txt_body.setFixedHeight(90)
+        self.txt_body.setStyleSheet(
+            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 6px;"
+        )
+        root.addWidget(self.txt_body)
+
+        self.chk_attach = QCheckBox("Envoyer le fichier produit en pièce jointe (multipart)")
+        self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
+        root.addWidget(self.chk_attach)
+
+        root.addStretch()
+        self._buttons(root)
+
+    def _prefill(self):
+        c = self._config
+        idx = self.cb_method.findData(c.get("method", "GET"))
+        if idx >= 0:
+            self.cb_method.setCurrentIndex(idx)
+        self.inp_url.setText(c.get("url_tpl", ""))
+        self.inp_timeout.setValue(int(c.get("timeout", 30)))
+        self.txt_headers.setPlainText(c.get("headers", ""))
+        self.txt_body.setPlainText(c.get("body_tpl", ""))
+        self.chk_attach.setChecked(c.get("attach_output_file", False))
+
+    def _collect_config(self) -> dict:
+        return {
+            "method":             self.cb_method.currentData(),
+            "url_tpl":            self.inp_url.text().strip(),
+            "timeout":            self.inp_timeout.value(),
+            "headers":            self.txt_headers.toPlainText(),
+            "body_tpl":           self.txt_body.toPlainText(),
+            "attach_output_file": self.chk_attach.isChecked(),
+        }
+
+    def _on_ok(self):
+        if not self.inp_url.text().strip():
+            QMessageBox.warning(self, "Champ requis", "Saisir l'URL.")
+            return
+        self.accept()
+
+
+# ──────────────────────────────────────────────
 #  FACTORY
 # ──────────────────────────────────────────────
 
 def _open_config_dialog(step_type: str, config: dict, parent,
                         oracle_profiles, ftp_profiles, sql_queries,
+                        smtp_profiles=None,
                         label: str = "") -> _BaseStepConfigDialog | None:
     kwargs = dict(
         config=config, parent=parent, label=label,
         oracle_profiles=oracle_profiles,
         ftp_profiles=ftp_profiles,
         sql_queries=sql_queries,
+        smtp_profiles=smtp_profiles,
     )
     mapping = {
         "ORACLE_EXTRACT": _OracleExtractConfigDialog,
         "FTP_UPLOAD":     _FtpUploadConfigDialog,
         "LOCAL_COPY":     _LocalCopyConfigDialog,
         "PYTHON_SCRIPT":  _PythonScriptConfigDialog,
+        "ORACLE_EXECUTE": _OracleExecuteConfigDialog,
+        "FTP_DOWNLOAD":   _FtpDownloadConfigDialog,
+        "ORACLE_LOAD":    _OracleLoadConfigDialog,
+        "EMAIL_NOTIFY":   _EmailNotifyConfigDialog,
+        "HTTP_REQUEST":   _HttpRequestConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None
