@@ -1,23 +1,41 @@
 # DataScheduler
 
-Application de bureau Windows permettant d'automatiser l'export de données Oracle vers des serveurs FTP.  
+Application de bureau Windows permettant d'automatiser des pipelines de données : extraction et
+exécution Oracle, transferts FTP/FTPS/SFTP, notifications email, appels HTTP, scripts Python —
+enchaînés dans l'ordre de votre choix.  
 Développée avec Python 3 + PySide6, elle offre une interface graphique sombre aux couleurs d'Orange SA.
+
+> Pour un tour d'horizon technique complet (couches, modèle de données, comment ajouter un type
+> d'étape...), voir [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) et le reste de `docs/`.
 
 ---
 
 ## Fonctionnement en un coup d'œil
 
+Un **pipeline** est une suite d'**étapes** (steps) exécutées dans l'ordre, chacune pouvant
+consommer le fichier produit par la précédente :
+
 ```
-Profil Oracle  ──►  Requête SQL  ──►  Fichier CSV (tmp)  ──►  Upload FTP
-                         └── planification cron (APScheduler)
+[Étape 1] ──►  [Étape 2] ──►  [Étape 3] ──► ...
+                    └── planification cron (APScheduler), ou déclenchement manuel
 ```
 
-Chaque **pipeline** combine :
-- une connexion Oracle (profil réutilisable)
-- une requête SQL stockée en bibliothèque
-- des options d'export CSV (séparateur, encodage, guillemets)
-- une destination FTP/FTPS/SFTP avec nommage dynamique
-- une planification (quotidienne, hebdomadaire, mensuelle ou cron custom)
+9 types d'étapes disponibles aujourd'hui, combinables librement dans un même pipeline :
+
+| Étape | Rôle |
+|---|---|
+| `ORACLE_EXTRACT` | Exécute une requête SELECT, exporte le résultat en CSV |
+| `ORACLE_EXECUTE` | Exécute une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction |
+| `ORACLE_LOAD` | Charge un CSV dans une table Oracle |
+| `FTP_UPLOAD` | Envoie un fichier vers un serveur FTP/FTPS/SFTP |
+| `FTP_DOWNLOAD` | Récupère un fichier distant (source d'un pipeline) |
+| `LOCAL_COPY` | Copie un fichier localement, avec tokens de date |
+| `PYTHON_SCRIPT` | Exécute un script Python externe |
+| `EMAIL_NOTIFY` | Envoie un email, pièce jointe optionnelle |
+| `HTTP_REQUEST` | Appelle une API REST / un webhook |
+
+Chaque type d'étape réutilisant des identifiants (Oracle, FTP, SMTP) s'appuie sur un **profil**
+créé une fois et réutilisable dans plusieurs pipelines.
 
 ---
 
@@ -61,22 +79,28 @@ DataScheduler/
 ├── main.py                  # Point d'entrée — init DB + scheduler + UI
 │
 ├── core/
-│   ├── oracle.py            # OracleConnector + OracleExporter (CSV chunked)
-│   ├── ftp.py               # FtpUploader (FTP / FTPS / SFTP via paramiko)
-│   ├── pipeline.py          # Orchestration complète Oracle → CSV → FTP
-│   └── scheduler.py         # Wrapper APScheduler (cron jobs)
+│   ├── oracle.py            # OracleConnector + OracleExporter/OracleLoader (CSV chunked)
+│   ├── ftp.py               # FtpUploader (upload + download, FTP / FTPS / SFTP)
+│   ├── email.py             # EmailSender (SMTP)
+│   ├── pipeline.py          # run_pipeline() — exécuteur séquentiel de steps
+│   ├── scheduler.py         # Wrapper APScheduler (cron jobs)
+│   └── steps/
+│       ├── base.py          # BaseStep, StepContext, StepResult
+│       ├── __init__.py      # Registre des types d'étape (_REGISTRY, get_step())
+│       └── <nom>.py         # Une classe par type d'étape (9 aujourd'hui)
 │
 ├── database/
-│   ├── models.py            # Modèles SQLAlchemy (OracleProfile, FtpProfile,
-│   │                        #   SqlQuery, Pipeline, PipelineRun)
+│   ├── models.py            # Modèles SQLAlchemy (profils, SqlQuery, Pipeline,
+│   │                        #   PipelineStep, PipelineRun)
 │   └── db_manager.py        # Init DB, migrations DDL, helpers CRUD
 │
 ├── ui/
 │   ├── main_window.py       # Fenêtre principale + navigation latérale + vues
-│   ├── pipeline_dialog.py   # Dialogue de création/édition de pipeline (5 onglets)
-│   ├── dialogs.py           # Dialogues Oracle, FTP, SQL, progression
+│   ├── step_editor.py       # Éditeur de pipeline : liste d'étapes + dialogues de config
+│   ├── dialogs.py           # Dialogues de profils (Oracle/FTP/SMTP), SQL, progression
 │   └── styles.py            # Palette couleurs (charte Orange SA #FF7900)
 │
+├── docs/                    # Architecture, librairies, concepts, cookbook d'extension
 ├── requirements.txt
 ├── DataScheduler.spec       # Configuration PyInstaller
 └── .gitignore
@@ -99,9 +123,10 @@ Le mode **Minimal** supprime les guillemets autour des chaînes et dates lorsqu'
 
 ---
 
-## Templates de nommage FTP
+## Tokens disponibles dans les champs configurables
 
-Le chemin distant et le nom du fichier acceptent des tokens de date résolus à l'exécution :
+Chemins FTP, noms de fichiers, sujets/corps d'email, URL et corps HTTP acceptent tous les mêmes
+tokens, résolus à l'exécution :
 
 | Token | Valeur exemple |
 |---|---|
@@ -111,6 +136,8 @@ Le chemin distant et le nom du fichier acceptent des tokens de date résolus à 
 | `{HH}` | `08` |
 | `{yyyyMMdd}` | `20250611` |
 | `{yyyyMMddHHmm}` | `202506110823` |
+| `{output_file}` | Chemin du fichier produit par l'étape précédente |
+| `{rows_count}` | Nombre de lignes traitées jusqu'ici |
 
 Exemple : `chemin = /export/{yyyy}/{MM}/`  ·  `fichier = employes_{yyyyMMdd}.csv`
 
@@ -136,6 +163,9 @@ pyinstaller DataScheduler.spec
 | `pandas` | Export CSV chunked depuis Oracle |
 | `apscheduler` | Planificateur de tâches cron |
 | `paramiko` | SFTP sécurisé |
+| `requests` | Appels HTTP (étape `HTTP_REQUEST`) |
+
+Détail de chaque dépendance et de son usage réel dans ce repo : [docs/LIBRARIES.md](docs/LIBRARIES.md).
 
 ---
 
