@@ -35,6 +35,8 @@ class StepContext:
         t   = t.replace("{yyyyMMdd}",       now.strftime("%Y%m%d"))
         t   = t.replace("{yyyyMMddHHmm}",   now.strftime("%Y%m%d%H%M"))
         t   = t.replace("{rows_count}",     str(self.rows_count))
+        t   = t.replace("{error}",          str(self.extra.get("error_message", "")))
+        t   = t.replace("{failed_step}",    str(self.extra.get("failed_step_label", "")))
         if self.output_file:
             t = t.replace("{output_file}", str(self.output_file))
         return t
@@ -47,6 +49,12 @@ class StepResult:
 
 
 class BaseStep:
+    # Ce que ce type d'étape exige déjà présent dans ctx pour fonctionner
+    # (ex: {"output_file"}) — utilisé par la validation statique à la sauvegarde.
+    REQUIRES: set[str] = set()
+    # Ce que ce type d'étape garantit avoir rempli dans ctx en cas de succès.
+    PRODUCES: set[str] = set()
+
     def __init__(self, config: dict):
         self.config = config
 

@@ -27,3 +27,11 @@ def get_step(step_type: str, config: dict) -> BaseStep:
     if cls is None:
         raise ValueError(f"Type d'étape inconnu : {step_type!r}")
     return cls(config)
+
+
+def get_step_requirements(step_type: str) -> tuple[set[str], set[str]]:
+    """Retourne (REQUIRES, PRODUCES) pour un type d'étape, sans l'instancier."""
+    cls = _REGISTRY.get(step_type)
+    if cls is None:
+        return set(), set()
+    return set(cls.REQUIRES), set(cls.PRODUCES)

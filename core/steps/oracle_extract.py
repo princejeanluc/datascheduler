@@ -10,6 +10,7 @@ from .base import BaseStep, StepContext, StepResult
 
 
 class OracleExtractStep(BaseStep):
+    PRODUCES = {"output_file"}
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
