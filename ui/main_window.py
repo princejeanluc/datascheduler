@@ -753,13 +753,13 @@ class ConnectionsView(QWidget):
         layout.setSpacing(24)
 
         layout.addWidget(_make_title("Connexions"))
-        layout.addWidget(_make_subtitle("Profils Oracle, FTP et SMTP réutilisables dans les pipelines"))
+        layout.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
         cols = QVBoxLayout(); cols.setSpacing(20)
-        cols.addWidget(self._build_oracle_panel())
+        cols.addWidget(self._build_databases_panel())
         cols.addWidget(self._build_ftp_panel())
         cols.addWidget(self._build_smtp_panel())
         layout.addLayout(cols)
@@ -769,25 +769,28 @@ class ConnectionsView(QWidget):
 
     # ── Panels ───────────────────────────────────
 
-    def _build_oracle_panel(self) -> QFrame:
+    def _build_databases_panel(self) -> QFrame:
         card = QFrame(); card.setObjectName("card")
         vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
 
         top = QHBoxLayout()
-        lbl = QLabel("Oracle")
+        lbl = QLabel("Bases de données")
         lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
-        btn = QPushButton("  Nouveau profil Oracle"); btn.setFixedHeight(32)
+        btn = QPushButton("  Nouveau profil"); btn.setFixedHeight(32)
         btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
-        btn.clicked.connect(self._on_new_oracle)
+        btn.clicked.connect(self._on_new_database)
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Service / SID", "Utilisateur"]
-        self.oracle_table = self._make_table(hdrs, stretch_cols={0, 1})
-        vl.addWidget(self.oracle_table)
-        self._oracle_empty = _make_empty_label("Aucun profil Oracle — cliquez sur « Nouveau profil Oracle ».")
-        self._oracle_empty.setVisible(False)
-        vl.addWidget(self._oracle_empty)
+        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur"]
+        self.database_table = self._make_table(hdrs, stretch_cols={0, 2})
+        vl.addWidget(self.database_table)
+        self._database_empty = _make_empty_label(
+            "Aucun profil de base de données — cliquez sur « Nouveau profil » "
+            "(Oracle, MySQL, PostgreSQL ou SQL Server)."
+        )
+        self._database_empty.setVisible(False)
+        vl.addWidget(self._database_empty)
         return card
 
     def _build_ftp_panel(self) -> QFrame:
@@ -847,31 +850,33 @@ class ConnectionsView(QWidget):
     # ── Refresh ──────────────────────────────────
 
     def refresh(self):
-        self._refresh_oracle()
+        self._refresh_databases()
         self._refresh_ftp()
         self._refresh_smtp()
 
-    def _refresh_oracle(self):
+    def _refresh_databases(self):
         from database import db_manager as db
-        profiles = db.get_oracle_profiles()
-        self.oracle_table.setVisible(bool(profiles))
-        self._oracle_empty.setVisible(not profiles)
-        self.oracle_table.setRowCount(len(profiles))
+        from ui.dialogs import DB_TYPE_META
+        profiles = db.list_all_db_profiles()
+        self.database_table.setVisible(bool(profiles))
+        self._database_empty.setVisible(not profiles)
+        self.database_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            cells = [p.name, p.host, str(p.port), p.service_name or p.sid or "—", p.username]
+            type_label = DB_TYPE_META.get(p["db_type"], {}).get("label", p["db_type"])
+            cells = [p["name"], type_label, p["host"], str(p["port"]), p["username"]]
             for c_idx, cell in enumerate(cells):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
-                self.oracle_table.setItem(r_idx, c_idx, item)
-            pid = p.id
+                self.database_table.setItem(r_idx, c_idx, item)
+            pid, dtype = p["id"], p["db_type"]
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
             btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
-            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_oracle(i))
-            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_oracle(i))
+            btn_edit.clicked.connect(lambda _, i=pid, t=dtype: self._on_edit_database(i, t))
+            btn_del.clicked.connect(lambda _, i=pid, t=dtype: self._on_delete_database(i, t))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.oracle_table.setCellWidget(r_idx, 5, w)
-            self.oracle_table.setRowHeight(r_idx, 44)
+            self.database_table.setCellWidget(r_idx, 5, w)
+            self.database_table.setRowHeight(r_idx, 44)
 
     def _refresh_ftp(self):
         from database import db_manager as db
@@ -921,26 +926,40 @@ class ConnectionsView(QWidget):
 
     # ── Callbacks ────────────────────────────────
 
-    def _on_new_oracle(self):
-        from ui.dialogs import OracleDialog
-        dlg = OracleDialog(self)
-        if dlg.exec():
-            self._refresh_oracle()
-
-    def _on_edit_oracle(self, profile_id: int):
-        from database import db_manager as db
-        from ui.dialogs import OracleDialog
-        p = db.get_oracle_profile(profile_id)
-        if p and OracleDialog(self, profile=p).exec():
-            self._refresh_oracle()
-
-    def _on_delete_oracle(self, profile_id: int):
-        from database import db_manager as db
-        used_by = db.find_pipelines_using_profile("oracle_profile_id", profile_id)
-        if not self._confirm_delete("Oracle", used_by):
+    def _on_new_database(self):
+        from ui.dialogs import DbTypeChooserDialog, OracleDialog, DatabaseProfileDialog
+        chooser = DbTypeChooserDialog(self)
+        if not chooser.exec():
             return
-        db.delete_oracle_profile(profile_id)
-        self._refresh_oracle()
+        db_type = chooser.chosen_type
+        dlg = OracleDialog(self) if db_type == "ORACLE" else DatabaseProfileDialog(self, db_type=db_type)
+        if dlg.exec():
+            self._refresh_databases()
+
+    def _on_edit_database(self, profile_id: int, db_type: str):
+        from database import db_manager as db
+        from ui.dialogs import OracleDialog, DatabaseProfileDialog
+        if db_type == "ORACLE":
+            p = db.get_oracle_profile(profile_id)
+            dlg = OracleDialog(self, profile=p) if p else None
+        else:
+            p = db.get_database_profile(profile_id)
+            dlg = DatabaseProfileDialog(self, db_type=db_type, profile=p) if p else None
+        if dlg and dlg.exec():
+            self._refresh_databases()
+
+    def _on_delete_database(self, profile_id: int, db_type: str):
+        from database import db_manager as db
+        from ui.dialogs import DB_TYPE_META
+        used_by = db.find_pipelines_using_db_profile(db_type, profile_id)
+        label = DB_TYPE_META.get(db_type, {}).get("label", db_type)
+        if not self._confirm_delete(label, used_by):
+            return
+        if db_type == "ORACLE":
+            db.delete_oracle_profile(profile_id)
+        else:
+            db.delete_database_profile(profile_id)
+        self._refresh_databases()
 
     def _on_new_ftp(self):
         from ui.dialogs import FtpDialog
