@@ -1304,18 +1304,23 @@ class _OracleExecuteTestThread(QThread):
 
     def run(self):
         try:
-            from core.oracle import OracleConnector, config_from_profile
+            from core.oracle import OracleConnector, config_from_profile, is_plsql_block
             cfg = config_from_profile(self.oracle_profile)
             connector = OracleConnector(cfg)
             connector.connect()
             try:
                 cursor = connector.connection.cursor()
                 cursor.execute(self.sql_text)
-                rows = cursor.rowcount
+                plsql = is_plsql_block(self.sql_text)
+                rows = -1 if plsql else cursor.rowcount
                 connector.connection.rollback()
             finally:
                 connector.disconnect()
-            self.result_ready.emit(True, "Exécution réussie — annulée, rien n'a été persisté.", rows)
+            msg = "Exécution réussie — annulée, rien n'a été persisté."
+            if plsql:
+                msg += (" Bloc PL/SQL : le nombre de lignes affectées par une instruction "
+                        "DML interne (ex. via une procédure stockée) n'est pas mesurable ici.")
+            self.result_ready.emit(True, msg, rows)
         except Exception as e:
             self.result_ready.emit(False, str(e), 0)
 
@@ -1403,7 +1408,7 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
     def _on_test_result(self, success: bool, message: str, rows: int):
         self.btn_test.setEnabled(True)
         if success:
-            txt   = f"✅  {message} ({rows} ligne(s) affectée(s))"
+            txt   = f"✅  {message}" if rows < 0 else f"✅  {message} ({rows} ligne(s) affectée(s))"
             color = COLORS["success"]
         else:
             txt   = f"❌  {message}"

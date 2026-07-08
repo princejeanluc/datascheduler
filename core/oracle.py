@@ -439,6 +439,25 @@ def config_from_profile(profile) -> OracleConfig:
 
 
 # ──────────────────────────────────────────────
+#  HELPER : détection bloc PL/SQL vs DML direct
+# ──────────────────────────────────────────────
+
+def is_plsql_block(sql_text: str) -> bool:
+    """
+    Détecte un bloc PL/SQL (anonyme "BEGIN ... END;" ou "DECLARE ...") plutôt qu'une
+    instruction DML/DDL directe.
+
+    Important pour l'interprétation de cursor.rowcount : pour un bloc PL/SQL, oracledb ne
+    remonte que le résultat de l'appel du bloc lui-même — pas le nombre de lignes affectées
+    par une instruction DML exécutée à l'intérieur (typiquement un INSERT/UPDATE fait par une
+    procédure stockée appelée depuis le bloc). rowcount reste alors à 0 même si des lignes ont
+    bien été insérées/modifiées côté base.
+    """
+    head = sql_text.strip().upper()
+    return head.startswith("BEGIN") or head.startswith("DECLARE")
+
+
+# ──────────────────────────────────────────────
 #  HELPER : résolution des templates de nom
 # ──────────────────────────────────────────────
 

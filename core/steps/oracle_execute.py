@@ -18,7 +18,7 @@ class OracleExecuteStep(BaseStep):
 
         try:
             from database import db_manager as db
-            from core.oracle import OracleConnector, config_from_profile
+            from core.oracle import OracleConnector, config_from_profile, is_plsql_block
 
             oracle_id = self.config.get("oracle_profile_id")
             query_id  = self.config.get("sql_query_id")
@@ -47,9 +47,19 @@ class OracleExecuteStep(BaseStep):
             progress("Exécution SQL…", 50)
             cursor = connector.connection.cursor()
             cursor.execute(sql_text)
-            rows_affected = cursor.rowcount
-            ctx.extra["rows_affected"] = rows_affected
-            ctx.log(f"Exécution SQL : OK — {rows_affected} ligne(s) affectée(s)")
+
+            if is_plsql_block(sql_text):
+                ctx.extra["rows_affected"] = None
+                ctx.log(
+                    "Exécution SQL : OK — bloc PL/SQL. Le nombre de lignes affectées par une "
+                    "instruction DML exécutée à l'intérieur du bloc (ex : via une procédure "
+                    "stockée) n'est pas remonté par le pilote Oracle ; vérifiez le résultat "
+                    "directement en base."
+                )
+            else:
+                rows_affected = cursor.rowcount
+                ctx.extra["rows_affected"] = rows_affected
+                ctx.log(f"Exécution SQL : OK — {rows_affected} ligne(s) affectée(s)")
 
             if commit:
                 connector.connection.commit()

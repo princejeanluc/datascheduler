@@ -189,3 +189,12 @@ supprimez le fichier `datascheduler.db`, relancez — `init_db()` en recrée un 
   l'utilise, car la référence vit dans un `config_json` (pas une vraie clé étrangère). Utilisez
   `db.find_pipelines_using_profile(cle, id)` avant de supprimer si vous ajoutez un nouvel endroit
   de suppression.
+- **`cursor.rowcount` après un bloc PL/SQL (`BEGIN ... END;`) reste à 0 même si des lignes ont
+  vraiment été insérées/modifiées** — si le bloc appelle une procédure stockée qui fait le DML en
+  interne, oracledb ne remonte que le résultat de l'appel du bloc lui-même, pas les lignes
+  affectées par les instructions exécutées à l'intérieur. Ce n'est pas un bug de DataScheduler,
+  c'est un comportement du pilote Oracle. `ORACLE_EXECUTE`
+  (`core/steps/oracle_execute.py`) détecte ce cas via `core.oracle.is_plsql_block()` et log un
+  message honnête au lieu d'afficher un « 0 ligne(s) affectée(s) » trompeur. Si vous avez besoin
+  du nombre réel de lignes affectées par une procédure stockée, faites-le remonter explicitement
+  via un paramètre `OUT` dans la procédure elle-même (Oracle ne l'expose pas autrement côté client).
