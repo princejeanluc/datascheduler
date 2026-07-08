@@ -685,9 +685,32 @@ class PipelinesView(QWidget):
     def _on_run_pipeline(self, pipeline_id: int):
         from database import db_manager as db
         from ui.dialogs import RunProgressDialog
+        from core.pipeline import is_pipeline_running, request_cancel
         p = db.get_pipeline(pipeline_id)
         if not p:
             return
+
+        if p.prevent_overlap and is_pipeline_running(pipeline_id):
+            box = QMessageBox(self)
+            box.setWindowTitle("Pipeline déjà en cours")
+            box.setText(
+                f"« {p.name} » est déjà en cours d'exécution.\n\n"
+                "L'interruption est coopérative : elle prend effet à la fin de l'étape en "
+                "cours, pas instantanément si celle-ci est longue (ex: une extraction Oracle "
+                "de plusieurs minutes). Relancez manuellement une fois le run arrêté."
+            )
+            btn_interrupt = box.addButton("Interrompre l'exécution en cours", QMessageBox.DestructiveRole)
+            box.addButton("Annuler", QMessageBox.RejectRole)
+            box.setDefaultButton(box.buttons()[-1])
+            box.exec()
+            if box.clickedButton() == btn_interrupt:
+                request_cancel(pipeline_id)
+                QMessageBox.information(
+                    self, "Demande envoyée",
+                    "L'arrêt a été demandé — relancez le pipeline une fois qu'il se sera arrêté."
+                )
+            return
+
         RunProgressDialog(pipeline_id, p.name, self).exec()
         self.refresh()
 
