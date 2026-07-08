@@ -164,6 +164,14 @@ class PipelineEditorDialog(QDialog):
     def _build_schedule_ui(self) -> QVBoxLayout:
         vl = QVBoxLayout(); vl.setSpacing(10)
 
+        self.chk_prevent_overlap = QCheckBox("Empêcher les exécutions simultanées de ce pipeline")
+        self.chk_prevent_overlap.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_prevent_overlap.setToolTip(
+            "Si activé, un déclenchement (manuel ou planifié) qui trouve ce pipeline déjà en "
+            "cours d'exécution est ignoré (planifié) ou vous propose de l'interrompre (manuel)."
+        )
+        vl.addWidget(self.chk_prevent_overlap)
+
         # Sélecteur fréquence
         freq_row = QHBoxLayout(); freq_row.setSpacing(14)
         self._freq_group   = QButtonGroup()
@@ -282,6 +290,13 @@ class PipelineEditorDialog(QDialog):
 
         user_label = step.get("label") or ""
         summary    = self._step_summary(step_type, step.get("config", {}))
+        extras = []
+        if step.get("retry_count"):
+            extras.append(f"retry×{step['retry_count']}")
+        if step.get("run_always"):
+            extras.append("toujours exécuté")
+        if extras:
+            summary = (summary + "  ·  " if summary else "") + " · ".join(extras)
 
         info_col = QVBoxLayout(); info_col.setSpacing(2); info_col.setContentsMargins(0,0,0,0)
         top_row  = QHBoxLayout(); top_row.setSpacing(8); top_row.setContentsMargins(0,0,0,0)
@@ -414,6 +429,8 @@ class PipelineEditorDialog(QDialog):
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles,
             label=step.get("label", ""),
+            retry_count=step.get("retry_count", 0),
+            run_always=step.get("run_always", False),
         )
         if config_dlg and config_dlg.exec():
             self._steps_data[idx] = config_dlg.result_step()
@@ -496,6 +513,8 @@ class PipelineEditorDialog(QDialog):
         elif freq == "CUSTOM":
             cron_expr  = self.inp_cron.text().strip()
 
+        prevent_overlap = self.chk_prevent_overlap.isChecked()
+
         if self._pipeline:
             with db.get_session() as s:
                 from database.models import Pipeline
@@ -506,12 +525,14 @@ class PipelineEditorDialog(QDialog):
                 p.scheduled_time  = sched_time
                 p.scheduled_day   = sched_day
                 p.cron_expression = cron_expr
+                p.prevent_overlap = prevent_overlap
             pipeline_id = self._pipeline.id
         else:
             p = db.create_pipeline(
                 name=name, description=desc,
                 frequency=freq, scheduled_time=sched_time,
                 scheduled_day=sched_day, cron_expression=cron_expr,
+                prevent_overlap=prevent_overlap,
             )
             pipeline_id = p.id
 
@@ -529,6 +550,27 @@ class PipelineEditorDialog(QDialog):
                 "Ajoutez au moins une étape avant d'enregistrer.",
             )
             return False
+
+        from core.pipeline import validate_step_sequence
+        errors, warnings = validate_step_sequence(self._steps_data)
+        if errors:
+            QMessageBox.warning(
+                self, "Séquence d'étapes invalide",
+                "Cette séquence d'étapes ne peut pas fonctionner :\n\n"
+                + "\n".join(f"• {e}" for e in errors),
+            )
+            return False
+        if warnings:
+            reply = QMessageBox.question(
+                self, "Avertissement",
+                "Certaines étapes \"toujours exécutées\" pourraient tourner sans les données "
+                "attendues (par ex. après un échec précoce) :\n\n"
+                + "\n".join(f"• {w}" for w in warnings)
+                + "\n\nContinuer quand même ?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return False
         return True
 
     # ── Remplissage en édition ────────────────
@@ -540,11 +582,15 @@ class PipelineEditorDialog(QDialog):
         from database import db_manager as db
         for s in db.get_steps(p.id):
             self._steps_data.append({
-                "step_type": str(s.step_type).replace("StepType.", ""),
-                "label":     s.label or "",
-                "config":    json.loads(s.config_json or "{}"),
+                "step_type":   str(s.step_type).replace("StepType.", ""),
+                "label":       s.label or "",
+                "config":      json.loads(s.config_json or "{}"),
+                "retry_count": s.retry_count or 0,
+                "run_always":  bool(s.run_always),
             })
         self._rebuild_step_list()
+
+        self.chk_prevent_overlap.setChecked(bool(p.prevent_overlap))
 
         freq = str(p.frequency).replace("CronFrequency.", "") if p.frequency else "DAILY"
         if freq in self._freq_buttons:
@@ -727,18 +773,27 @@ class _BaseStepConfigDialog(QDialog):
 
     STEP_TYPE = ""
 
-    def __init__(self, config: dict, parent=None, label: str = ""):
+    # Types de step à effet de bord externe — un retry peut dupliquer une action réelle
+    # (upload, email, appel HTTP, commit SQL). Affiche un avertissement sous le champ retry.
+    SIDE_EFFECT_TYPES = {"FTP_UPLOAD", "EMAIL_NOTIFY", "HTTP_REQUEST", "ORACLE_EXECUTE"}
+
+    def __init__(self, config: dict, parent=None, label: str = "",
+                 retry_count: int = 0, run_always: bool = False):
         super().__init__(parent)
         self._config = config
         self._init_label = label
+        self._init_retry_count = retry_count
+        self._init_run_always  = run_always
         self.setMinimumWidth(500)
         self.setStyleSheet(DIALOG_STYLE)
 
     def result_step(self) -> dict:
         return {
-            "step_type": self.STEP_TYPE,
-            "label":     self._get_label(),
-            "config":    self._collect_config(),
+            "step_type":   self.STEP_TYPE,
+            "label":       self._get_label(),
+            "config":      self._collect_config(),
+            "retry_count": self.inp_retry.value() if hasattr(self, "inp_retry") else 0,
+            "run_always":  self.chk_run_always.isChecked() if hasattr(self, "chk_run_always") else False,
         }
 
     def _get_label(self) -> str:
@@ -756,6 +811,28 @@ class _BaseStepConfigDialog(QDialog):
         self.inp_label.setFixedHeight(34)
         self.inp_label.setStyleSheet(self._input_style())
         form.addRow(self._lbl("Libellé"), self.inp_label)
+
+    def _add_execution_policy_row(self, form: QFormLayout):
+        self.inp_retry = QSpinBox()
+        self.inp_retry.setRange(0, 10)
+        self.inp_retry.setValue(self._init_retry_count)
+        self.inp_retry.setSuffix(" tentative(s) supplémentaire(s)")
+        self.inp_retry.setStyleSheet(self._spinbox_style())
+        form.addRow(self._lbl("Réessayer en cas d'échec"), self.inp_retry)
+
+        if self.STEP_TYPE in self.SIDE_EFFECT_TYPES:
+            warn = QLabel(
+                "⚠ Un réessai peut dupliquer l'action (nouvel envoi/appel/commit) si le "
+                "premier essai a partiellement réussi."
+            )
+            warn.setWordWrap(True)
+            warn.setStyleSheet(f"color: {COLORS['warning']}; font-size: 10.5px; font-style: italic;")
+            form.addRow("", warn)
+
+        self.chk_run_always = QCheckBox("Exécuter même si une étape précédente a échoué")
+        self.chk_run_always.setChecked(self._init_run_always)
+        self.chk_run_always.setStyleSheet(f"color: {COLORS['text_main']};")
+        form.addRow("", self.chk_run_always)
 
     def _profile_row(self, form: QFormLayout, label: str, items: list,
                      empty_label: str, new_fn) -> QComboBox:
@@ -868,8 +945,8 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None):
-        super().__init__(config, parent, label)
+                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+        super().__init__(config, parent, label, retry_count, run_always)
         self._oracle_profiles = oracle_profiles or []
         self._sql_queries     = sql_queries     or []
         self.setWindowTitle("Étape — Extraction Oracle")
@@ -885,6 +962,7 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_oracle = self._profile_row(
             form, "Profil Oracle *",
             self._oracle_profiles, "— Sélectionner un profil Oracle —",
@@ -994,8 +1072,8 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None):
-        super().__init__(config, parent, label)
+                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+        super().__init__(config, parent, label, retry_count, run_always)
         self._ftp_profiles = ftp_profiles or []
         self.setWindowTitle("Étape — Envoi FTP")
         self._build_ui()
@@ -1009,6 +1087,7 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_ftp = self._profile_row(
             form, "Profil FTP *",
             self._ftp_profiles, "— Sélectionner un profil FTP —",
@@ -1089,7 +1168,9 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "LOCAL_COPY"
 
     def __init__(self, config: dict, parent=None, label: str = "", **_):
-        super().__init__(config, parent, label)
+        super().__init__(config, parent, label,
+                          retry_count=_.get("retry_count", 0),
+                          run_always=_.get("run_always", False))
         self.setWindowTitle("Étape — Copie locale")
         self._build_ui()
         self._prefill()
@@ -1102,6 +1183,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
 
         # Dossier destination
         self.inp_dest = self._input("ex : C:/backup/{yyyy}/{MM}/")
@@ -1171,7 +1253,9 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "PYTHON_SCRIPT"
 
     def __init__(self, config: dict, parent=None, label: str = "", **_):
-        super().__init__(config, parent, label)
+        super().__init__(config, parent, label,
+                          retry_count=_.get("retry_count", 0),
+                          run_always=_.get("run_always", False))
         self.setWindowTitle("Étape — Script Python")
         self.setMinimumSize(540, 520)
         self._build_ui()
@@ -1185,6 +1269,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
 
         # Script
         self.inp_script = self._input("ex : C:/scripts/traitement.py")
@@ -1330,8 +1415,8 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None):
-        super().__init__(config, parent, label)
+                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+        super().__init__(config, parent, label, retry_count, run_always)
         self._oracle_profiles = oracle_profiles or []
         self._sql_queries     = sql_queries     or []
         self._test_thread      = None
@@ -1348,6 +1433,7 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_oracle = self._profile_row(
             form, "Profil Oracle *",
             self._oracle_profiles, "— Sélectionner un profil Oracle —",
@@ -1477,7 +1563,9 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "FTP_DOWNLOAD"
 
     def __init__(self, config: dict, parent=None, label: str = "", **_):
-        super().__init__(config, parent, label)
+        super().__init__(config, parent, label,
+                          retry_count=_.get("retry_count", 0),
+                          run_always=_.get("run_always", False))
         self._ftp_profiles = _.get("ftp_profiles") or []
         self.setWindowTitle("Étape — Téléchargement FTP")
         self._build_ui()
@@ -1491,6 +1579,7 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_ftp = self._profile_row(
             form, "Profil FTP *",
             self._ftp_profiles, "— Sélectionner un profil FTP —",
@@ -1542,8 +1631,8 @@ class _OracleLoadConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None):
-        super().__init__(config, parent, label)
+                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+        super().__init__(config, parent, label, retry_count, run_always)
         self._oracle_profiles = oracle_profiles or []
         self.setWindowTitle("Étape — Chargement Oracle")
         self._build_ui()
@@ -1557,6 +1646,7 @@ class _OracleLoadConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_oracle = self._profile_row(
             form, "Profil Oracle *",
             self._oracle_profiles, "— Sélectionner un profil Oracle —",
@@ -1625,7 +1715,9 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "EMAIL_NOTIFY"
 
     def __init__(self, config: dict, parent=None, label: str = "", **_):
-        super().__init__(config, parent, label)
+        super().__init__(config, parent, label,
+                          retry_count=_.get("retry_count", 0),
+                          run_always=_.get("run_always", False))
         self._smtp_profiles = _.get("smtp_profiles") or []
         self.setWindowTitle("Étape — Notification email")
         self.setMinimumSize(540, 480)
@@ -1640,6 +1732,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
         self.cb_smtp = self._profile_row(
             form, "Profil SMTP *",
             self._smtp_profiles, "— Sélectionner un profil SMTP —",
@@ -1722,7 +1815,9 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
     METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"]
 
     def __init__(self, config: dict, parent=None, label: str = "", **_):
-        super().__init__(config, parent, label)
+        super().__init__(config, parent, label,
+                          retry_count=_.get("retry_count", 0),
+                          run_always=_.get("run_always", False))
         self.setWindowTitle("Étape — Appel HTTP")
         self.setMinimumSize(540, 560)
         self._build_ui()
@@ -1736,6 +1831,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
 
         form = self._form()
         self._add_label_row(form)
+        self._add_execution_policy_row(form)
 
         self.cb_method = QComboBox(); self.cb_method.setStyleSheet(self._combo_style())
         for m in self.METHODS: self.cb_method.addItem(m, m)
@@ -1820,13 +1916,16 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
 def _open_config_dialog(step_type: str, config: dict, parent,
                         oracle_profiles, ftp_profiles, sql_queries,
                         smtp_profiles=None,
-                        label: str = "") -> _BaseStepConfigDialog | None:
+                        label: str = "", retry_count: int = 0,
+                        run_always: bool = False) -> _BaseStepConfigDialog | None:
     kwargs = dict(
         config=config, parent=parent, label=label,
         oracle_profiles=oracle_profiles,
         ftp_profiles=ftp_profiles,
         sql_queries=sql_queries,
         smtp_profiles=smtp_profiles,
+        retry_count=retry_count,
+        run_always=run_always,
     )
     mapping = {
         "ORACLE_EXTRACT": _OracleExtractConfigDialog,
