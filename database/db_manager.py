@@ -13,7 +13,7 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
 
 
 # ──────────────────────────────────────────────
@@ -90,6 +90,25 @@ def _migrate(engine) -> None:
                     from_address VARCHAR(255) NOT NULL,
                     created_at   DATETIME,
                     updated_at   DATETIME
+                )
+            """))
+            conn.commit()
+
+        # Création de la table database_profiles si absente (MySQL/PostgreSQL/SQL Server)
+        if "database_profiles" not in tables:
+            conn.execute(text("""
+                CREATE TABLE database_profiles (
+                    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name          VARCHAR(100) NOT NULL UNIQUE,
+                    db_type       VARCHAR(20) NOT NULL,
+                    host          VARCHAR(255) NOT NULL,
+                    port          INTEGER NOT NULL,
+                    username      VARCHAR(100) NOT NULL,
+                    password      VARCHAR(255) NOT NULL,
+                    database_name VARCHAR(100),
+                    extra_json    TEXT NOT NULL DEFAULT '{}',
+                    created_at    DATETIME,
+                    updated_at    DATETIME
                 )
             """))
             conn.commit()
@@ -175,6 +194,7 @@ def init_db(db_path: Path = None) -> None:
     _migrate(_engine)
     _SessionFactory = sessionmaker(bind=_engine, expire_on_commit=False)
     _migrate_legacy_pipelines()
+    _migrate_oracle_steps_to_generic()
 
 
 @contextmanager
@@ -297,6 +317,69 @@ def delete_smtp_profile(profile_id: int) -> bool:
             s.delete(obj)
             return True
     return False
+
+
+# ──────────────────────────────────────────────
+#  HELPERS PROFIL BASE DE DONNÉES (MySQL / PostgreSQL / SQL Server)
+# ──────────────────────────────────────────────
+
+def create_database_profile(name, db_type, host, port, username, password,
+                             database_name=None, extra=None) -> DatabaseProfile:
+    import json
+    with get_session() as s:
+        profile = DatabaseProfile(
+            name=name, db_type=db_type, host=host, port=port,
+            username=username, password=password,
+            database_name=database_name,
+            extra_json=json.dumps(extra or {}),
+        )
+        s.add(profile)
+    return profile
+
+
+def get_database_profiles() -> list[DatabaseProfile]:
+    with get_session() as s:
+        return s.query(DatabaseProfile).order_by(DatabaseProfile.name).all()
+
+
+def get_database_profile(profile_id: int) -> DatabaseProfile | None:
+    with get_session() as s:
+        return s.get(DatabaseProfile, profile_id)
+
+
+def delete_database_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(DatabaseProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+def list_all_db_profiles() -> list[dict]:
+    """
+    Fusionne OracleProfile et DatabaseProfile en une liste unique et légère —
+    pour l'affichage unifié (page Connexions) et les sélecteurs de profil des steps
+    DB_EXTRACT/DB_EXECUTE/DB_LOAD, qui doivent pouvoir référencer n'importe quel moteur.
+    """
+    with get_session() as s:
+        rows = []
+        for p in s.query(OracleProfile).order_by(OracleProfile.name).all():
+            rows.append({
+                "db_type": "ORACLE", "id": p.id, "name": p.name,
+                "host": p.host, "port": p.port, "username": p.username,
+            })
+        for p in s.query(DatabaseProfile).order_by(DatabaseProfile.name).all():
+            rows.append({
+                "db_type": _status_str(p.db_type), "id": p.id, "name": p.name,
+                "host": p.host, "port": p.port, "username": p.username,
+            })
+        rows.sort(key=lambda r: r["name"])
+        return rows
+
+
+def _status_str(val) -> str:
+    return val.value if hasattr(val, "value") else str(val or "")
 
 
 # ──────────────────────────────────────────────
@@ -495,6 +578,29 @@ def find_pipelines_using_profile(config_key: str, profile_id: int) -> list[str]:
         return sorted(names)
 
 
+def find_pipelines_using_db_profile(db_type: str, profile_id: int) -> list[str]:
+    """
+    Comme find_pipelines_using_profile, mais pour les steps génériques DB_EXTRACT/
+    DB_EXECUTE/DB_LOAD : leur config porte à la fois "profile_id" et "db_type" — il faut
+    vérifier les deux, sinon un profil Oracle et un profil MySQL qui partagent le même id
+    numérique produiraient un faux positif (ou négatif) l'un pour l'autre.
+    """
+    import json
+    with get_session() as s:
+        steps = s.query(PipelineStep).options(joinedload(PipelineStep.pipeline)).all()
+        names = set()
+        for step in steps:
+            try:
+                config = json.loads(step.config_json or "{}")
+            except ValueError:
+                continue
+            if (config.get("profile_id") == profile_id
+                    and config.get("db_type") == db_type
+                    and step.pipeline):
+                names.add(step.pipeline.name)
+        return sorted(names)
+
+
 def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
@@ -536,10 +642,11 @@ def _migrate_legacy_pipelines() -> None:
             s.add(PipelineStep(
                 pipeline_id=p.id,
                 step_order=0,
-                step_type=StepType.ORACLE_EXTRACT,
+                step_type=StepType.DB_EXTRACT,
                 label="Extraction Oracle",
                 config_json=json.dumps({
-                    "oracle_profile_id": p.oracle_profile_id,
+                    "db_type":           "ORACLE",
+                    "profile_id":        p.oracle_profile_id,
                     "sql_query_id":      p.sql_query_id,
                     "csv_separator":     p.csv_separator or ";",
                     "csv_encoding":      p.csv_encoding  or "utf-8-sig",
@@ -558,3 +665,38 @@ def _migrate_legacy_pipelines() -> None:
                     "filename_tpl":    p.filename_tpl    or "export_{yyyyMMdd}.csv",
                 }),
             ))
+
+
+# ──────────────────────────────────────────────
+#  MIGRATION ORACLE_* → DB_* (steps génériques multi-moteurs)
+# ──────────────────────────────────────────────
+
+def _migrate_oracle_steps_to_generic() -> None:
+    """
+    Réécrit les PipelineStep encore sur les anciens types Oracle-spécifiques
+    (ORACLE_EXTRACT/ORACLE_EXECUTE/ORACLE_LOAD, dépréciés) vers les types génériques
+    équivalents (DB_EXTRACT/DB_EXECUTE/DB_LOAD), en ajoutant "db_type": "ORACLE" et en
+    renommant la clé "oracle_profile_id" en "profile_id" dans leur config_json.
+    Idempotent — ne touche que les steps encore sur l'ancien type.
+    """
+    import json
+    if _SessionFactory is None:
+        return
+
+    mapping = {
+        StepType.ORACLE_EXTRACT: StepType.DB_EXTRACT,
+        StepType.ORACLE_EXECUTE: StepType.DB_EXECUTE,
+        StepType.ORACLE_LOAD:    StepType.DB_LOAD,
+    }
+    with get_session() as s:
+        steps = (s.query(PipelineStep)
+                   .filter(PipelineStep.step_type.in_(list(mapping.keys())))
+                   .all())
+        for step in steps:
+            new_type = mapping[step.step_type]
+            config = json.loads(step.config_json or "{}")
+            if "oracle_profile_id" in config:
+                config["profile_id"] = config.pop("oracle_profile_id")
+            config["db_type"] = "ORACLE"
+            step.step_type = new_type
+            step.config_json = json.dumps(config)

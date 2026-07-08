@@ -38,16 +38,30 @@ class CronFrequency(str, enum.Enum):
     CUSTOM  = "CUSTOM"   # syntaxe cron brute
 
 
+class DbType(str, enum.Enum):
+    ORACLE     = "ORACLE"
+    MYSQL      = "MYSQL"
+    POSTGRESQL = "POSTGRESQL"
+    SQLSERVER  = "SQLSERVER"
+
+
 class StepType(str, enum.Enum):
-    ORACLE_EXTRACT = "ORACLE_EXTRACT"  # Oracle → CSV temporaire
+    # Dépréciés — remplacés par DB_EXTRACT/DB_EXECUTE/DB_LOAD (génériques, tout moteur).
+    # Conservés uniquement pour que SQLAlchemy ne plante pas si une ligne pipeline_steps
+    # non migrée traîne encore ; ils ne sont plus enregistrés dans le registre ni l'UI.
+    ORACLE_EXTRACT = "ORACLE_EXTRACT"
+    ORACLE_EXECUTE = "ORACLE_EXECUTE"
+    ORACLE_LOAD    = "ORACLE_LOAD"
+
     FTP_UPLOAD     = "FTP_UPLOAD"      # Upload vers serveur FTP/SFTP
     LOCAL_COPY     = "LOCAL_COPY"      # Copie locale avec tokens datetime
     PYTHON_SCRIPT  = "PYTHON_SCRIPT"   # Exécution d'un script .py
-    ORACLE_EXECUTE = "ORACLE_EXECUTE"  # Exécution SQL/PLSQL (DML/DDL/procédure) sans extraction
     FTP_DOWNLOAD   = "FTP_DOWNLOAD"    # Téléchargement FTP/FTPS/SFTP (source de pipeline)
-    ORACLE_LOAD    = "ORACLE_LOAD"     # Chargement d'un CSV vers une table Oracle
     EMAIL_NOTIFY   = "EMAIL_NOTIFY"    # Envoi d'un email (avec pièce jointe optionnelle)
     HTTP_REQUEST   = "HTTP_REQUEST"    # Appel HTTP (API REST / webhook)
+    DB_EXTRACT     = "DB_EXTRACT"      # Base de données (tout moteur) → CSV temporaire
+    DB_EXECUTE     = "DB_EXECUTE"      # Exécution SQL/PLSQL sans extraction (tout moteur)
+    DB_LOAD        = "DB_LOAD"         # Chargement d'un CSV vers une table (tout moteur)
 
 
 # ──────────────────────────────────────────────
@@ -121,6 +135,34 @@ class SmtpProfile(Base):
 
     def __repr__(self):
         return f"<SmtpProfile name={self.name} host={self.host}:{self.port}>"
+
+
+# ──────────────────────────────────────────────
+#  PROFIL BASE DE DONNÉES GÉNÉRIQUE (MySQL / PostgreSQL / SQL Server)
+# ──────────────────────────────────────────────
+
+class DatabaseProfile(Base):
+    """
+    Profil de connexion pour les moteurs non-Oracle (structure identique entre eux :
+    host/port/user/password/nom de base). Oracle garde sa propre table (OracleProfile) —
+    ses champs service_name/sid/auth_mode sont trop spécifiques pour être généralisés ici.
+    """
+    __tablename__ = "database_profiles"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    name          = Column(String(100), unique=True, nullable=False)
+    db_type       = Column(Enum(DbType), nullable=False)
+    host          = Column(String(255), nullable=False)
+    port          = Column(Integer, nullable=False)
+    username      = Column(String(100), nullable=False)
+    password      = Column(String(255), nullable=False)  # chiffré en prod (étape 2)
+    database_name = Column(String(100), nullable=True)
+    extra_json    = Column(Text, nullable=False, default="{}")  # options propres au moteur
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DatabaseProfile name={self.name} db_type={self.db_type} host={self.host}:{self.port}>"
 
 
 # ──────────────────────────────────────────────
