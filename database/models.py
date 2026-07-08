@@ -24,10 +24,11 @@ class FtpProtocol(str, enum.Enum):
 
 
 class PipelineStatus(str, enum.Enum):
-    IDLE    = "IDLE"
-    RUNNING = "RUNNING"
-    SUCCESS = "SUCCESS"
-    FAILED  = "FAILED"
+    IDLE      = "IDLE"
+    RUNNING   = "RUNNING"
+    SUCCESS   = "SUCCESS"
+    FAILED    = "FAILED"
+    CANCELLED = "CANCELLED"
 
 
 class CronFrequency(str, enum.Enum):
@@ -179,6 +180,7 @@ class Pipeline(Base):
 
     # État
     is_active         = Column(Boolean, default=True, nullable=False)
+    prevent_overlap   = Column(Boolean, default=False, nullable=False)
     last_status       = Column(Enum(PipelineStatus), default=PipelineStatus.IDLE)
     last_run_at       = Column(DateTime, nullable=True)
     next_run_at       = Column(DateTime, nullable=True)
@@ -214,6 +216,8 @@ class PipelineStep(Base):
     step_type   = Column(Enum(StepType), nullable=False)
     label       = Column(String(100), nullable=True)   # libellé optionnel
     config_json = Column(Text, nullable=False, default="{}")
+    retry_count = Column(Integer, default=0, nullable=False)
+    run_always  = Column(Boolean, default=False, nullable=False)
 
     pipeline = relationship("Pipeline", back_populates="steps")
 

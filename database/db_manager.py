@@ -94,6 +94,26 @@ def _migrate(engine) -> None:
             """))
             conn.commit()
 
+        # Colonnes pour le verrou anti-chevauchement et l'exécuteur restructuré
+        pipeline_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipelines)")).fetchall()}
+        if "prevent_overlap" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN prevent_overlap BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
+        step_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_steps)")).fetchall()}
+        if "retry_count" not in step_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_steps ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+        if "run_always" not in step_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_steps ADD COLUMN run_always BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
         # Rendre oracle_profile_id / sql_query_id / ftp_profile_id / remote_path_tpl / filename_tpl
         # nullable (requis par l'architecture flexible à base d'étapes).
         # SQLite ne supporte pas ALTER COLUMN : on reconstruit la table si nécessaire.
@@ -126,6 +146,7 @@ def _migrate(engine) -> None:
                     scheduled_time    VARCHAR(10),
                     scheduled_day     INTEGER,
                     is_active         BOOLEAN     NOT NULL DEFAULT 1,
+                    prevent_overlap   BOOLEAN     NOT NULL DEFAULT 0,
                     last_status       VARCHAR(20) DEFAULT 'IDLE',
                     last_run_at       DATETIME,
                     next_run_at       DATETIME,
@@ -322,6 +343,7 @@ def delete_sql_query(query_id: int) -> bool:
 def create_pipeline(name, description=None,
                     frequency="DAILY", cron_expression=None,
                     scheduled_time="06:00", scheduled_day=None,
+                    prevent_overlap=False,
                     # Champs legacy conservés pour compatibilité migration
                     oracle_profile_id=None, sql_query_id=None, ftp_profile_id=None,
                     remote_path_tpl=None, filename_tpl=None,
@@ -343,6 +365,7 @@ def create_pipeline(name, description=None,
             cron_expression=cron_expression,
             scheduled_time=scheduled_time,
             scheduled_day=scheduled_day,
+            prevent_overlap=prevent_overlap,
         )
         s.add(p)
     return p
@@ -475,7 +498,8 @@ def find_pipelines_using_profile(config_key: str, profile_id: int) -> list[str]:
 def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
-    Chaque dict : {"step_type": str, "label": str|None, "config": dict}
+    Chaque dict : {"step_type": str, "label": str|None, "config": dict,
+                    "retry_count": int|None, "run_always": bool|None}
     """
     import json
     with get_session() as s:
@@ -487,6 +511,8 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 step_type=step["step_type"],
                 label=step.get("label"),
                 config_json=json.dumps(step.get("config", {})),
+                retry_count=step.get("retry_count") or 0,
+                run_always=step.get("run_always") or False,
             ))
 
 
