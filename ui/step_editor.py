@@ -28,13 +28,13 @@ except ImportError:
 # ──────────────────────────────────────────────
 
 STEP_META = {
-    "ORACLE_EXTRACT": {"label": "Extraction Oracle", "color": "#4fc3f7"},
+    "DB_EXTRACT":     {"label": "Extraction base de données", "color": "#4fc3f7"},
     "FTP_UPLOAD":     {"label": "Envoi FTP",          "color": "#FF7900"},
     "LOCAL_COPY":     {"label": "Copie locale",       "color": "#66bb6a"},
     "PYTHON_SCRIPT":  {"label": "Script Python",      "color": "#ce93d8"},
-    "ORACLE_EXECUTE": {"label": "Exécution Oracle",   "color": "#29b6f6"},
+    "DB_EXECUTE":     {"label": "Exécution base de données", "color": "#29b6f6"},
     "FTP_DOWNLOAD":   {"label": "Téléchargement FTP",  "color": "#ffa726"},
-    "ORACLE_LOAD":    {"label": "Chargement Oracle",  "color": "#26a69a"},
+    "DB_LOAD":        {"label": "Chargement base de données", "color": "#26a69a"},
     "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350"},
     "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc"},
 }
@@ -75,6 +75,7 @@ class PipelineEditorDialog(QDialog):
         self._ftp_profiles    = db.get_ftp_profiles()
         self._sql_queries     = db.get_sql_queries()
         self._smtp_profiles   = db.get_smtp_profiles()
+        self._db_profiles     = db.list_all_db_profiles()
 
     # ── Construction UI ──────────────────────
 
@@ -352,13 +353,23 @@ class PipelineEditorDialog(QDialog):
 
         return card
 
+    def _db_profile_summary_name(self, config: dict) -> str | None:
+        db_type, profile_id = config.get("db_type"), config.get("profile_id")
+        p = next((p for p in self._db_profiles
+                  if p["db_type"] == db_type and p["id"] == profile_id), None)
+        if not p:
+            return None
+        from ui.dialogs import DB_TYPE_META
+        type_label = DB_TYPE_META.get(db_type, {}).get("label", db_type)
+        return f"{type_label}: {p['name']}"
+
     def _step_summary(self, step_type: str, config: dict) -> str:
-        if step_type == "ORACLE_EXTRACT":
-            oracle = next((p for p in self._oracle_profiles if p.id == config.get("oracle_profile_id")), None)
-            query  = next((q for q in self._sql_queries     if q.id == config.get("sql_query_id")), None)
+        if step_type == "DB_EXTRACT":
+            profile_s = self._db_profile_summary_name(config)
+            query  = next((q for q in self._sql_queries if q.id == config.get("sql_query_id")), None)
             parts  = []
-            if oracle: parts.append(f"Oracle: {oracle.name}")
-            if query:  parts.append(f"Requête: {query.name}")
+            if profile_s: parts.append(profile_s)
+            if query:     parts.append(f"Requête: {query.name}")
             return " · ".join(parts) or "(non configuré)"
         elif step_type == "FTP_UPLOAD":
             ftp  = next((p for p in self._ftp_profiles if p.id == config.get("ftp_profile_id")), None)
@@ -373,12 +384,12 @@ class PipelineEditorDialog(QDialog):
             return (f"{d}/{f}" if f else d)[:80] or "(non configuré)"
         elif step_type == "PYTHON_SCRIPT":
             return config.get("script_path", "(non configuré)")[:80]
-        elif step_type == "ORACLE_EXECUTE":
-            oracle = next((p for p in self._oracle_profiles if p.id == config.get("oracle_profile_id")), None)
-            query  = next((q for q in self._sql_queries     if q.id == config.get("sql_query_id")), None)
+        elif step_type == "DB_EXECUTE":
+            profile_s = self._db_profile_summary_name(config)
+            query  = next((q for q in self._sql_queries if q.id == config.get("sql_query_id")), None)
             parts  = []
-            if oracle: parts.append(f"Oracle: {oracle.name}")
-            if query:  parts.append(f"Requête: {query.name}")
+            if profile_s: parts.append(profile_s)
+            if query:     parts.append(f"Requête: {query.name}")
             return " · ".join(parts) or "(non configuré)"
         elif step_type == "FTP_DOWNLOAD":
             ftp  = next((p for p in self._ftp_profiles if p.id == config.get("ftp_profile_id")), None)
@@ -387,12 +398,12 @@ class PipelineEditorDialog(QDialog):
             if ftp:  parts.append(f"FTP: {ftp.name}")
             if path: parts.append(path)
             return " · ".join(parts) or "(non configuré)"
-        elif step_type == "ORACLE_LOAD":
-            oracle = next((p for p in self._oracle_profiles if p.id == config.get("oracle_profile_id")), None)
+        elif step_type == "DB_LOAD":
+            profile_s = self._db_profile_summary_name(config)
             table  = config.get("table_name", "")
             parts  = []
-            if oracle: parts.append(f"Oracle: {oracle.name}")
-            if table:  parts.append(f"Table: {table}")
+            if profile_s: parts.append(profile_s)
+            if table:     parts.append(f"Table: {table}")
             return " · ".join(parts) or "(non configuré)"
         elif step_type == "EMAIL_NOTIFY":
             smtp = next((p for p in self._smtp_profiles if p.id == config.get("smtp_profile_id")), None)
@@ -415,7 +426,7 @@ class PipelineEditorDialog(QDialog):
         config_dlg = _open_config_dialog(
             step_type, {}, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
-            self._smtp_profiles,
+            self._smtp_profiles, self._db_profiles,
         )
         if config_dlg and config_dlg.exec():
             self._steps_data.append(config_dlg.result_step())
@@ -427,7 +438,7 @@ class PipelineEditorDialog(QDialog):
         config_dlg = _open_config_dialog(
             step["step_type"], step.get("config", {}), self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
-            self._smtp_profiles,
+            self._smtp_profiles, self._db_profiles,
             label=step.get("label", ""),
             retry_count=step.get("retry_count", 0),
             run_always=step.get("run_always", False),
@@ -702,13 +713,13 @@ class StepTypeChooserDialog(QDialog):
         root.addWidget(sep)
 
         descriptions = {
-            "ORACLE_EXTRACT": "Connexion Oracle, exécution SQL, export CSV vers fichier temporaire.",
+            "DB_EXTRACT":     "Connexion à une base (Oracle, MySQL, PostgreSQL, SQL Server), exécution SQL, export CSV vers fichier temporaire.",
             "FTP_UPLOAD":     "Upload du fichier produit vers un serveur FTP / FTPS / SFTP.",
             "LOCAL_COPY":     "Copie du fichier produit dans un dossier local (avec tokens datetime).",
             "PYTHON_SCRIPT":  "Exécution d'un script Python avec arguments (tokens datetime + contexte).",
-            "ORACLE_EXECUTE": "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction.",
+            "DB_EXECUTE":     "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction, tout moteur.",
             "FTP_DOWNLOAD":   "Téléchargement d'un fichier distant (FTP / FTPS / SFTP) comme source du pipeline.",
-            "ORACLE_LOAD":    "Chargement du fichier produit (CSV) dans une table Oracle.",
+            "DB_LOAD":        "Chargement du fichier produit (CSV) dans une table, tout moteur.",
             "EMAIL_NOTIFY":   "Envoi d'un email, avec le fichier produit en pièce jointe optionnelle.",
             "HTTP_REQUEST":   "Appel d'une API REST / webhook, avec le fichier produit en option.",
         }
@@ -775,7 +786,7 @@ class _BaseStepConfigDialog(QDialog):
 
     # Types de step à effet de bord externe — un retry peut dupliquer une action réelle
     # (upload, email, appel HTTP, commit SQL). Affiche un avertissement sous le champ retry.
-    SIDE_EFFECT_TYPES = {"FTP_UPLOAD", "EMAIL_NOTIFY", "HTTP_REQUEST", "ORACLE_EXECUTE"}
+    SIDE_EFFECT_TYPES = {"FTP_UPLOAD", "EMAIL_NOTIFY", "HTTP_REQUEST", "DB_EXECUTE"}
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  retry_count: int = 0, run_always: bool = False):
@@ -850,6 +861,56 @@ class _BaseStepConfigDialog(QDialog):
         w = QWidget(); w.setLayout(row)
         form.addRow(self._lbl(label), w)
         return cb
+
+    def _db_profile_row(self, form: QFormLayout, label: str, profiles: list) -> QComboBox:
+        """
+        Sélecteur de profil de base de données, tout moteur confondu (Oracle/MySQL/
+        PostgreSQL/SQL Server). L'itemData est un tuple (db_type, id) — un profile_id seul
+        ne suffit pas à identifier un profil de façon unique puisque OracleProfile et
+        DatabaseProfile sont deux tables distinctes qui peuvent partager le même id.
+        """
+        cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+        self._populate_db_combo(cb, profiles)
+        row = QHBoxLayout(); row.setSpacing(6)
+        row.addWidget(cb, stretch=1)
+        btn_new = QPushButton("+ Nouveau")
+        btn_new.setObjectName("secondary"); btn_new.setFixedHeight(30)
+        btn_new.setFixedWidth(90)
+        btn_new.clicked.connect(lambda: self._new_db_profile(cb))
+        row.addWidget(btn_new)
+        w = QWidget(); w.setLayout(row)
+        form.addRow(self._lbl(label), w)
+        return cb
+
+    @staticmethod
+    def _populate_db_combo(cb: QComboBox, profiles: list, keep_current: bool = False):
+        from ui.dialogs import DB_TYPE_META
+        cur = cb.currentData() if keep_current else None
+        cb.blockSignals(True)
+        cb.clear()
+        cb.addItem("— Sélectionner un profil —", None)
+        for p in profiles:
+            type_label = DB_TYPE_META.get(p["db_type"], {}).get("label", p["db_type"])
+            cb.addItem(f"[{type_label}] {p['name']}", (p["db_type"], p["id"]))
+        cb.blockSignals(False)
+        if keep_current:
+            _BaseStepConfigDialog._set_combo(cb, cur)
+
+    def _new_db_profile(self, cb: QComboBox):
+        from ui.dialogs import DbTypeChooserDialog, OracleDialog, DatabaseProfileDialog
+        from database import db_manager as db
+        chooser = DbTypeChooserDialog(self)
+        if not chooser.exec():
+            return
+        db_type = chooser.chosen_type
+        dlg = OracleDialog(self) if db_type == "ORACLE" else DatabaseProfileDialog(self, db_type=db_type)
+        if not dlg.exec():
+            return
+        profiles = db.list_all_db_profiles()
+        if hasattr(self, "_db_profiles"):
+            self._db_profiles = profiles
+        self._populate_db_combo(cb, profiles)
+        cb.setCurrentIndex(cb.count() - 1)
 
     def _tokens_hint(self) -> QLabel:
         lbl = QLabel("Tokens : " + TOKENS_HINT)
@@ -926,11 +987,11 @@ class _BaseStepConfigDialog(QDialog):
 
 
 # ──────────────────────────────────────────────
-#  CONFIG : ORACLE_EXTRACT
+#  CONFIG : DB_EXTRACT
 # ──────────────────────────────────────────────
 
-class _OracleExtractConfigDialog(_BaseStepConfigDialog):
-    STEP_TYPE = "ORACLE_EXTRACT"
+class _DbExtractConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "DB_EXTRACT"
 
     SEPARATORS = [("Point-virgule  ;", ";"), ("Virgule  ,", ","),
                   ("Pipe  |", "|"), ("Tabulation  \\t", "\t")]
@@ -945,35 +1006,32 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+                 smtp_profiles=None, db_profiles=None,
+                 retry_count: int = 0, run_always: bool = False):
         super().__init__(config, parent, label, retry_count, run_always)
-        self._oracle_profiles = oracle_profiles or []
-        self._sql_queries     = sql_queries     or []
-        self.setWindowTitle("Étape — Extraction Oracle")
+        self._db_profiles = db_profiles or []
+        self._sql_queries  = sql_queries or []
+        self.setWindowTitle("Étape — Extraction base de données")
         self.setMinimumSize(540, 500)
         self._build_ui()
         self._prefill()
 
     def _build_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
-        title = QLabel("Extraction Oracle → CSV")
+        title = QLabel("Extraction base de données → CSV")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
 
         form = self._form()
         self._add_label_row(form)
         self._add_execution_policy_row(form)
-        self.cb_oracle = self._profile_row(
-            form, "Profil Oracle *",
-            self._oracle_profiles, "— Sélectionner un profil Oracle —",
-            self._new_oracle_profile,
-        )
+        self.cb_profile = self._db_profile_row(form, "Profil *", self._db_profiles)
         self.cb_query = self._profile_row(
             form, "Requête SQL *",
             self._sql_queries, "— Sélectionner une requête SQL —",
             self._new_sql_query,
         )
-        self.cb_oracle.currentIndexChanged.connect(self._filter_queries)
+        self.cb_profile.currentIndexChanged.connect(self._filter_queries)
 
         # CSV
         self.cb_sep = QComboBox(); self.cb_sep.setStyleSheet(self._combo_style())
@@ -1000,7 +1058,8 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
 
     def _prefill(self):
         c = self._config
-        self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
+        if c.get("db_type"):
+            self._set_combo(self.cb_profile, (c.get("db_type"), c.get("profile_id")))
         self._filter_queries()
         self._set_combo(self.cb_query, c.get("sql_query_id"))
         self._set_combo_by_data(self.cb_sep,     c.get("csv_separator", ";"))
@@ -1009,25 +1068,20 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
 
     def _filter_queries(self):
-        oracle_id = self.cb_oracle.currentData()
-        cur_qid   = self.cb_query.currentData()
+        data = self.cb_profile.currentData()
+        db_type, profile_id = data if data else (None, None)
+        cur_qid = self.cb_query.currentData()
         self.cb_query.blockSignals(True)
         self.cb_query.clear()
         self.cb_query.addItem("— Sélectionner une requête SQL —", None)
         for q in self._sql_queries:
-            if oracle_id is None or q.oracle_profile_id == oracle_id or q.oracle_profile_id is None:
+            # Le filtrage par profil n'a de sens que pour Oracle (SqlQuery.oracle_profile_id) ;
+            # pour les autres moteurs, toutes les requêtes sont proposées sans filtre.
+            if (db_type != "ORACLE" or profile_id is None
+                    or q.oracle_profile_id == profile_id or q.oracle_profile_id is None):
                 self.cb_query.addItem(q.name, q.id)
         self._set_combo(self.cb_query, cur_qid)
         self.cb_query.blockSignals(False)
-
-    def _new_oracle_profile(self, cb: QComboBox):
-        from ui.dialogs import OracleDialog
-        from database import db_manager as db
-        if OracleDialog(self).exec():
-            self._oracle_profiles = db.get_oracle_profiles()
-            cb.clear(); cb.addItem("— Sélectionner un profil Oracle —", None)
-            for p in self._oracle_profiles: cb.addItem(p.name, p.id)
-            cb.setCurrentIndex(cb.count() - 1)
 
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
@@ -1038,8 +1092,11 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
             self._set_combo(cb, self._sql_queries[-1].id if self._sql_queries else None)
 
     def _collect_config(self) -> dict:
+        data = self.cb_profile.currentData()
+        db_type, profile_id = data if data else (None, None)
         return {
-            "oracle_profile_id": self.cb_oracle.currentData(),
+            "db_type":           db_type,
+            "profile_id":        profile_id,
             "sql_query_id":      self.cb_query.currentData(),
             "csv_separator":     self.cb_sep.currentData(),
             "csv_encoding":      self.cb_enc.currentData(),
@@ -1048,8 +1105,8 @@ class _OracleExtractConfigDialog(_BaseStepConfigDialog):
         }
 
     def _on_ok(self):
-        if not self.cb_oracle.currentData():
-            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")
+        if not self.cb_profile.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil de base de données.")
             return
         if not self.cb_query.currentData():
             QMessageBox.warning(self, "Champ requis", "Sélectionner une requête SQL.")
@@ -1072,7 +1129,8 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+                 smtp_profiles=None, db_profiles=None,
+                 retry_count: int = 0, run_always: bool = False):
         super().__init__(config, parent, label, retry_count, run_always)
         self._ftp_profiles = ftp_profiles or []
         self.setWindowTitle("Étape — Envoi FTP")
@@ -1375,29 +1433,31 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
 
 # ──────────────────────────────────────────────
-#  CONFIG : ORACLE_EXECUTE
+#  CONFIG : DB_EXECUTE
 # ──────────────────────────────────────────────
 
-class _OracleExecuteTestThread(QThread):
+class _DbExecuteTestThread(QThread):
     """Exécute le SQL réel puis annule (rollback) — ne persiste rien."""
     result_ready = Signal(bool, str, int)   # success, message, rows_affected
 
-    def __init__(self, oracle_profile, sql_text: str):
+    def __init__(self, db_type: str, profile, sql_text: str):
         super().__init__()
-        self.oracle_profile = oracle_profile
+        self.db_type = db_type
+        self.profile = profile
         self.sql_text = sql_text
 
     def run(self):
         try:
-            from core.oracle import OracleConnector, config_from_profile, is_plsql_block
-            cfg = config_from_profile(self.oracle_profile)
-            connector = OracleConnector(cfg)
+            from sqlalchemy import text
+            from core.sql_db import SqlConnector, config_from_profile, is_plsql_block
+            cfg = config_from_profile(self.db_type, self.profile)
+            connector = SqlConnector(cfg)
             connector.connect()
+            plsql = False
             try:
-                cursor = connector.connection.cursor()
-                cursor.execute(self.sql_text)
-                plsql = is_plsql_block(self.sql_text)
-                rows = -1 if plsql else cursor.rowcount
+                plsql = self.db_type == "ORACLE" and is_plsql_block(self.sql_text)
+                cursor_result = connector.connection.execute(text(self.sql_text))
+                rows = -1 if plsql else cursor_result.rowcount
                 connector.connection.rollback()
             finally:
                 connector.disconnect()
@@ -1410,17 +1470,18 @@ class _OracleExecuteTestThread(QThread):
             self.result_ready.emit(False, str(e), 0)
 
 
-class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
-    STEP_TYPE = "ORACLE_EXECUTE"
+class _DbExecuteConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "DB_EXECUTE"
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+                 smtp_profiles=None, db_profiles=None,
+                 retry_count: int = 0, run_always: bool = False):
         super().__init__(config, parent, label, retry_count, run_always)
-        self._oracle_profiles = oracle_profiles or []
-        self._sql_queries     = sql_queries     or []
-        self._test_thread      = None
-        self.setWindowTitle("Étape — Exécution Oracle")
+        self._db_profiles = db_profiles or []
+        self._sql_queries  = sql_queries or []
+        self._test_thread  = None
+        self.setWindowTitle("Étape — Exécution base de données")
         self.setMinimumSize(540, 460)
         self._build_ui()
         self._prefill()
@@ -1434,17 +1495,13 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
         form = self._form()
         self._add_label_row(form)
         self._add_execution_policy_row(form)
-        self.cb_oracle = self._profile_row(
-            form, "Profil Oracle *",
-            self._oracle_profiles, "— Sélectionner un profil Oracle —",
-            self._new_oracle_profile,
-        )
+        self.cb_profile = self._db_profile_row(form, "Profil *", self._db_profiles)
         self.cb_query = self._profile_row(
             form, "Requête / instruction *",
             self._sql_queries, "— Sélectionner une requête SQL —",
             self._new_sql_query,
         )
-        self.cb_oracle.currentIndexChanged.connect(self._filter_queries)
+        self.cb_profile.currentIndexChanged.connect(self._filter_queries)
 
         self.chk_commit = QCheckBox("Valider (commit) automatiquement après exécution")
         self.chk_commit.setChecked(True)
@@ -1454,7 +1511,7 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
 
         note = QLabel(
             "Une étape = une instruction ou un bloc PL/SQL complet (pas de découpage sur ';'). "
-            "Pour un script à plusieurs étapes, chaîner plusieurs étapes ORACLE_EXECUTE."
+            "Pour un script à plusieurs étapes, chaîner plusieurs étapes DB_EXECUTE."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
@@ -1476,10 +1533,16 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
         return frame
 
     def _on_test(self):
-        oracle = next((p for p in self._oracle_profiles if p.id == self.cb_oracle.currentData()), None)
-        query  = next((q for q in self._sql_queries     if q.id == self.cb_query.currentData()), None)
-        if not oracle or not query:
-            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle et une requête.")
+        from core.sql_db import get_profile_object
+        data  = self.cb_profile.currentData()
+        query = next((q for q in self._sql_queries if q.id == self.cb_query.currentData()), None)
+        if not data or not query:
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil et une requête.")
+            return
+        db_type, profile_id = data
+        profile = get_profile_object(db_type, profile_id)
+        if not profile:
+            QMessageBox.warning(self, "Erreur", "Profil introuvable.")
             return
         from core.steps.base import StepContext
         sql_text = StepContext().resolve_tokens(query.sql_text)
@@ -1487,7 +1550,7 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
         self.btn_test.setEnabled(False)
         self.lbl_test_result.setText("Exécution en cours…")
         self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-        self._test_thread = _OracleExecuteTestThread(oracle, sql_text)
+        self._test_thread = _DbExecuteTestThread(db_type, profile, sql_text)
         self._test_thread.result_ready.connect(self._on_test_result)
         self._test_thread.start()
 
@@ -1504,31 +1567,25 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
 
     def _prefill(self):
         c = self._config
-        self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
+        if c.get("db_type"):
+            self._set_combo(self.cb_profile, (c.get("db_type"), c.get("profile_id")))
         self._filter_queries()
         self._set_combo(self.cb_query, c.get("sql_query_id"))
         self.chk_commit.setChecked(c.get("commit", True))
 
     def _filter_queries(self):
-        oracle_id = self.cb_oracle.currentData()
-        cur_qid   = self.cb_query.currentData()
+        data = self.cb_profile.currentData()
+        db_type, profile_id = data if data else (None, None)
+        cur_qid = self.cb_query.currentData()
         self.cb_query.blockSignals(True)
         self.cb_query.clear()
         self.cb_query.addItem("— Sélectionner une requête SQL —", None)
         for q in self._sql_queries:
-            if oracle_id is None or q.oracle_profile_id == oracle_id or q.oracle_profile_id is None:
+            if (db_type != "ORACLE" or profile_id is None
+                    or q.oracle_profile_id == profile_id or q.oracle_profile_id is None):
                 self.cb_query.addItem(q.name, q.id)
         self._set_combo(self.cb_query, cur_qid)
         self.cb_query.blockSignals(False)
-
-    def _new_oracle_profile(self, cb: QComboBox):
-        from ui.dialogs import OracleDialog
-        from database import db_manager as db
-        if OracleDialog(self).exec():
-            self._oracle_profiles = db.get_oracle_profiles()
-            cb.clear(); cb.addItem("— Sélectionner un profil Oracle —", None)
-            for p in self._oracle_profiles: cb.addItem(p.name, p.id)
-            cb.setCurrentIndex(cb.count() - 1)
 
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
@@ -1539,15 +1596,18 @@ class _OracleExecuteConfigDialog(_BaseStepConfigDialog):
             self._set_combo(cb, self._sql_queries[-1].id if self._sql_queries else None)
 
     def _collect_config(self) -> dict:
+        data = self.cb_profile.currentData()
+        db_type, profile_id = data if data else (None, None)
         return {
-            "oracle_profile_id": self.cb_oracle.currentData(),
-            "sql_query_id":      self.cb_query.currentData(),
-            "commit":            self.chk_commit.isChecked(),
+            "db_type":      db_type,
+            "profile_id":   profile_id,
+            "sql_query_id": self.cb_query.currentData(),
+            "commit":       self.chk_commit.isChecked(),
         }
 
     def _on_ok(self):
-        if not self.cb_oracle.currentData():
-            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")
+        if not self.cb_profile.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil de base de données.")
             return
         if not self.cb_query.currentData():
             QMessageBox.warning(self, "Champ requis", "Sélectionner une requête/instruction.")
@@ -1623,35 +1683,32 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
 
 
 # ──────────────────────────────────────────────
-#  CONFIG : ORACLE_LOAD
+#  CONFIG : DB_LOAD
 # ──────────────────────────────────────────────
 
-class _OracleLoadConfigDialog(_BaseStepConfigDialog):
-    STEP_TYPE = "ORACLE_LOAD"
+class _DbLoadConfigDialog(_BaseStepConfigDialog):
+    STEP_TYPE = "DB_LOAD"
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
-                 smtp_profiles=None, retry_count: int = 0, run_always: bool = False):
+                 smtp_profiles=None, db_profiles=None,
+                 retry_count: int = 0, run_always: bool = False):
         super().__init__(config, parent, label, retry_count, run_always)
-        self._oracle_profiles = oracle_profiles or []
-        self.setWindowTitle("Étape — Chargement Oracle")
+        self._db_profiles = db_profiles or []
+        self.setWindowTitle("Étape — Chargement base de données")
         self._build_ui()
         self._prefill()
 
     def _build_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
-        title = QLabel("Chargement CSV → table Oracle")
+        title = QLabel("Chargement CSV → table")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
 
         form = self._form()
         self._add_label_row(form)
         self._add_execution_policy_row(form)
-        self.cb_oracle = self._profile_row(
-            form, "Profil Oracle *",
-            self._oracle_profiles, "— Sélectionner un profil Oracle —",
-            self._new_oracle_profile,
-        )
+        self.cb_profile = self._db_profile_row(form, "Profil *", self._db_profiles)
         self.inp_table = self._input("ex : VENTES_STAGING")
         form.addRow(self._lbl("Table cible *"), self.inp_table)
 
@@ -1675,31 +1732,26 @@ class _OracleLoadConfigDialog(_BaseStepConfigDialog):
 
     def _prefill(self):
         c = self._config
-        self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
+        if c.get("db_type"):
+            self._set_combo(self.cb_profile, (c.get("db_type"), c.get("profile_id")))
         self.inp_table.setText(c.get("table_name", ""))
         self.chk_truncate.setChecked(c.get("truncate_before_load", False))
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
 
-    def _new_oracle_profile(self, cb: QComboBox):
-        from ui.dialogs import OracleDialog
-        from database import db_manager as db
-        if OracleDialog(self).exec():
-            self._oracle_profiles = db.get_oracle_profiles()
-            cb.clear(); cb.addItem("— Sélectionner un profil Oracle —", None)
-            for p in self._oracle_profiles: cb.addItem(p.name, p.id)
-            cb.setCurrentIndex(cb.count() - 1)
-
     def _collect_config(self) -> dict:
+        data = self.cb_profile.currentData()
+        db_type, profile_id = data if data else (None, None)
         return {
-            "oracle_profile_id":    self.cb_oracle.currentData(),
+            "db_type":              db_type,
+            "profile_id":           profile_id,
             "table_name":           self.inp_table.text().strip(),
             "truncate_before_load": self.chk_truncate.isChecked(),
             "csv_chunk_size":       self.inp_chunk.value(),
         }
 
     def _on_ok(self):
-        if not self.cb_oracle.currentData():
-            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")
+        if not self.cb_profile.currentData():
+            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil de base de données.")
             return
         if not self.inp_table.text().strip():
             QMessageBox.warning(self, "Champ requis", "Saisir la table cible.")
@@ -1915,7 +1967,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
 
 def _open_config_dialog(step_type: str, config: dict, parent,
                         oracle_profiles, ftp_profiles, sql_queries,
-                        smtp_profiles=None,
+                        smtp_profiles=None, db_profiles=None,
                         label: str = "", retry_count: int = 0,
                         run_always: bool = False) -> _BaseStepConfigDialog | None:
     kwargs = dict(
@@ -1924,17 +1976,18 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         ftp_profiles=ftp_profiles,
         sql_queries=sql_queries,
         smtp_profiles=smtp_profiles,
+        db_profiles=db_profiles,
         retry_count=retry_count,
         run_always=run_always,
     )
     mapping = {
-        "ORACLE_EXTRACT": _OracleExtractConfigDialog,
+        "DB_EXTRACT":     _DbExtractConfigDialog,
         "FTP_UPLOAD":     _FtpUploadConfigDialog,
         "LOCAL_COPY":     _LocalCopyConfigDialog,
         "PYTHON_SCRIPT":  _PythonScriptConfigDialog,
-        "ORACLE_EXECUTE": _OracleExecuteConfigDialog,
+        "DB_EXECUTE":     _DbExecuteConfigDialog,
         "FTP_DOWNLOAD":   _FtpDownloadConfigDialog,
-        "ORACLE_LOAD":    _OracleLoadConfigDialog,
+        "DB_LOAD":        _DbLoadConfigDialog,
         "EMAIL_NOTIFY":   _EmailNotifyConfigDialog,
         "HTTP_REQUEST":   _HttpRequestConfigDialog,
     }
