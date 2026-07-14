@@ -32,6 +32,7 @@ class StepContext:
         t   = t.replace("{dd}",             now.strftime("%d"))
         t   = t.replace("{HH}",             now.strftime("%H"))
         t   = t.replace("{mm}",             now.strftime("%M"))
+        t   = t.replace("{ss}",             now.strftime("%S"))
         t   = t.replace("{yyyyMMdd}",       now.strftime("%Y%m%d"))
         t   = t.replace("{yyyyMMddHHmm}",   now.strftime("%Y%m%d%H%M"))
         t   = t.replace("{rows_count}",     str(self.rows_count))
