@@ -26,6 +26,7 @@ a = Analysis(
         'core.scheduler',
         'core.pipeline',
         'core.oracle',
+        'core.sql_db',
         'core.ftp',
         'ui',
         'ui.main_window',
@@ -50,11 +51,30 @@ a = Analysis(
         'qtpy',
         *collect_submodules('qtawesome'),
 
-        # ── SQLAlchemy ──
+        # ── SQLAlchemy (dialectes multi-moteurs) ──
         'sqlalchemy.dialects.sqlite',
         'sqlalchemy.dialects.sqlite.pysqlite',
+        'sqlalchemy.dialects.oracle',
+        'sqlalchemy.dialects.oracle.oracledb',
+        'sqlalchemy.dialects.mysql',
+        'sqlalchemy.dialects.mysql.pymysql',
+        'sqlalchemy.dialects.postgresql',
+        'sqlalchemy.dialects.postgresql.psycopg2',
+        'sqlalchemy.dialects.mssql',
+        'sqlalchemy.dialects.mssql.pyodbc',
+        'sqlalchemy.dialects.mssql.pymssql',
         'sqlalchemy.ext.baked',
         'sqlalchemy.pool',
+
+        # ── MySQL ──
+        *collect_submodules('pymysql'),
+
+        # ── PostgreSQL ──
+        *collect_submodules('psycopg2'),
+
+        # ── SQL Server (double pilote — pyodbc si disponible, sinon pymssql) ──
+        *collect_submodules('pyodbc'),
+        *collect_submodules('pymssql'),
 
         # ── APScheduler ──
         *collect_submodules('apscheduler'),

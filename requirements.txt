@@ -7,6 +7,16 @@ sqlalchemy==2.0.36
 # Oracle (pilote sans client Oracle requis)
 oracledb==2.4.1
 
+# MySQL
+pymysql==1.1.1
+
+# PostgreSQL
+psycopg2-binary==2.9.10
+
+# SQL Server (pyodbc si le driver ODBC est présent sur la machine, sinon repli pymssql)
+pyodbc==5.2.0
+pymssql==2.3.2
+
 # Manipulation de données + export CSV
 pandas==2.2.3
 

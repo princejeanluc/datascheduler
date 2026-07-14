@@ -1,13 +1,14 @@
 """
-DataScheduler — core/steps/oracle_load.py
-Étape : chargement du fichier de contexte (CSV) vers une table Oracle
-(association simple par en-tête CSV).
+DataScheduler — core/steps/db_load.py
+Étape : chargement du fichier de contexte (CSV) vers une table (tout moteur),
+association simple par en-tête CSV.
 """
 
 from .base import BaseStep, StepContext, StepResult
 
 
-class OracleLoadStep(BaseStep):
+class DbLoadStep(BaseStep):
+    REQUIRES = {"output_file"}
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
@@ -17,31 +18,31 @@ class OracleLoadStep(BaseStep):
                 on_progress(msg, pct)
 
         try:
-            from database import db_manager as db
-            from core.oracle import OracleConnector, OracleLoader, config_from_profile
+            from core.sql_db import SqlConnector, SqlLoader, config_from_profile, get_profile_object
 
             if not ctx.output_file or not ctx.output_file.exists():
                 result.error = "Aucun fichier source disponible dans le contexte."
                 return result
 
-            oracle_id  = self.config.get("oracle_profile_id")
+            db_type    = self.config.get("db_type", "ORACLE")
+            profile_id = self.config.get("profile_id")
             table_name = self.config.get("table_name", "")
 
-            oracle_profile = db.get_oracle_profile(oracle_id)
-            if not oracle_profile:
-                result.error = f"Profil Oracle ID {oracle_id} introuvable."
+            profile = get_profile_object(db_type, profile_id)
+            if not profile:
+                result.error = f"Profil {db_type} ID {profile_id} introuvable."
                 return result
             if not table_name:
                 result.error = "Table cible non configurée."
                 return result
 
-            ctx.log(f"Connexion Oracle : {oracle_profile.host}:{oracle_profile.port}")
-            progress("Connexion Oracle…", 10)
+            ctx.log(f"Connexion {db_type} : {profile.host}:{profile.port}")
+            progress("Connexion…", 10)
 
-            oracle_cfg = config_from_profile(oracle_profile)
-            connector  = OracleConnector(oracle_cfg)
+            cfg       = config_from_profile(db_type, profile)
+            connector = SqlConnector(cfg)
             connector.connect()
-            ctx.log("Connexion Oracle : OK")
+            ctx.log(f"Connexion {db_type} : OK")
 
             rows_done = [0]
 
@@ -49,7 +50,7 @@ class OracleLoadStep(BaseStep):
                 rows_done[0] = rows
                 progress(f"Chargement… {rows:,} lignes", min(25 + chunk_idx * 2, 90))
 
-            loader = OracleLoader(
+            loader = SqlLoader(
                 connector=connector,
                 csv_path=ctx.output_file,
                 table_name=table_name,
@@ -63,12 +64,12 @@ class OracleLoadStep(BaseStep):
             connector.disconnect()
 
             if not load_result.success:
-                result.error = f"Chargement Oracle : {load_result.error}"
+                result.error = f"Chargement : {load_result.error}"
                 return result
 
             ctx.extra["rows_loaded"] = load_result.rows_loaded
             ctx.log(
-                f"Chargement Oracle : OK — {load_result.rows_loaded:,} lignes "
+                f"Chargement : OK — {load_result.rows_loaded:,} lignes "
                 f"en {load_result.duration_s:.1f}s ({load_result.chunks_count} chunks)"
             )
             result.success = True

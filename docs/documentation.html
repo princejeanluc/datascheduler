@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataScheduler — Documentation technique</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --panel: #ffffff;
+    --card: #ffffff;
+    --card-hover: #fbfaf8;
+    --border: #e4ded5;
+    --text: #1c1a17;
+    --text-dim: #5b5650;
+    --text-muted: #8a8478;
+    --accent: #c25400;
+    --accent-pale: #FF7900;
+    --code-bg: #f1ede6;
+    --code-border: #e0d9cd;
+    --good: #1a7f37;
+    --mono: "Consolas", "SFMono-Regular", Consolas, monospace;
+    --ui: "Segoe UI", "Segoe UI Semibold", system-ui, sans-serif;
+  }
+  :root[data-theme="dark"] {
+    --bg: #141414;
+    --panel: #1a1a1a;
+    --card: #1e1e1e;
+    --card-hover: #242424;
+    --border: #2e2e2e;
+    --text: #f0f0f0;
+    --text-dim: #9a9a9a;
+    --text-muted: #6b6b6b;
+    --accent: #FF7900;
+    --accent-pale: #ff9933;
+    --code-bg: #141414;
+    --code-border: #2e2e2e;
+    --good: #3fb950;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141414;
+      --panel: #1a1a1a;
+      --card: #1e1e1e;
+      --card-hover: #242424;
+      --border: #2e2e2e;
+      --text: #f0f0f0;
+      --text-dim: #9a9a9a;
+      --text-muted: #6b6b6b;
+      --accent: #FF7900;
+      --accent-pale: #ff9933;
+      --code-bg: #141414;
+      --code-border: #2e2e2e;
+      --good: #3fb950;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 15px;
+    line-height: 1.6;
+  }
+  ::selection { background: var(--accent-pale); color: #000; }
+  a { color: var(--accent); }
+  code, .mono { font-family: var(--mono); }
+
+  .shell {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    min-height: 100vh;
+  }
+
+  /* ── Rail ── */
+  .rail {
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    padding: 22px 0 20px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+  }
+  .rail-brand {
+    padding: 0 20px 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .rail-brand .eyebrow {
+    font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .rail-brand h1 {
+    font-size: 16px; margin: 4px 0 0; font-weight: 700;
+    color: var(--accent); letter-spacing: 0.2px;
+  }
+  .theme-toggle {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-dim); font-size: 13px; padding: 4px 8px; cursor: pointer;
+    font-family: var(--ui);
+  }
+  .theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
+  .rail-search {
+    margin: 0 16px 14px;
+    position: relative;
+  }
+  .rail-search input {
+    width: 100%;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px 7px 28px;
+    color: var(--text);
+    font-family: var(--ui);
+    font-size: 12.5px;
+  }
+  .rail-search input:focus { outline: none; border-color: var(--accent); }
+  .rail-search::before {
+    content: "⌕";
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text-muted); font-size: 13px;
+  }
+  .rail-group { margin-top: 6px; }
+  .rail-doc-link {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 8px 20px; margin: 0 4px; border-radius: 6px;
+    font-size: 13px; font-weight: 700; color: var(--text);
+    text-decoration: none;
+  }
+  .rail-doc-link:hover { background: var(--card-hover); }
+  .rail-doc-link .n { color: var(--accent); font-family: var(--mono); font-size: 11px; }
+  .rail-heading-link {
+    display: block;
+    padding: 5px 20px 5px 34px;
+    font-size: 12.5px; color: var(--text-dim); text-decoration: none;
+    border-left: 2px solid transparent;
+    margin-left: 12px;
+  }
+  .rail-heading-link:hover { color: var(--text); background: var(--card-hover); }
+  .rail-heading-link.active {
+    color: var(--accent); border-left-color: var(--accent); font-weight: 600;
+    background: var(--card-hover);
+  }
+  .rail-empty {
+    padding: 10px 20px; font-size: 12px; color: var(--text-muted); font-style: italic;
+    display: none;
+  }
+
+  /* ── Main content ── */
+  main { padding: 44px 52px 100px; max-width: 860px; }
+
+  .doc-header .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.5px;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .doc-header h1 {
+    font-size: 30px; margin: 8px 0 10px; font-weight: 700;
+    text-wrap: balance; letter-spacing: -0.2px;
+  }
+  .doc-header p.lede { color: var(--text-dim); font-size: 15px; max-width: 64ch; margin: 0; }
+
+  hr.rule { border: none; border-top: 1px solid var(--border); margin: 44px 0; }
+
+  section.doc { margin-bottom: 8px; }
+  section.doc > .doc-intro {
+    color: var(--text-dim); font-size: 14px; max-width: 64ch; margin-bottom: 10px;
+  }
+  section.doc > .doc-intro blockquote {
+    margin: 14px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent);
+    background: var(--code-bg); border-radius: 0 6px 6px 0; font-size: 13.5px;
+    color: var(--text-dim);
+  }
+  section.doc > .doc-intro blockquote p { margin: 4px 0; }
+
+  h2.doc-title {
+    font-size: 24px; font-weight: 700; margin: 0 0 6px; scroll-margin-top: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2.doc-title .idx {
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 5px; padding: 1px 7px;
+  }
+
+  h3.sub {
+    font-size: 18px; font-weight: 700; margin: 34px 0 10px; scroll-margin-top: 20px;
+    padding-top: 4px;
+  }
+  article p { margin: 10px 0; color: var(--text-dim); }
+  article p strong { color: var(--text); }
+  article ul, article ol { margin: 10px 0; padding-left: 22px; color: var(--text-dim); }
+  article li { margin: 5px 0; }
+  article li strong { color: var(--text); }
+
+  .ref {
+    display: inline-block; font-family: var(--mono); font-size: 12px;
+    background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 4px;
+    padding: 1px 6px; color: var(--text-dim);
+  }
+
+  pre {
+    background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; margin: 12px 0 18px;
+    font-size: 12.5px; line-height: 1.55;
+  }
+  pre code { color: var(--text); font-family: var(--mono); white-space: pre; }
+
+  .diagram {
+    background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px;
+    padding: 16px 18px; margin: 14px 0 18px; overflow-x: auto;
+  }
+  .diagram pre { margin: 0; border: none; padding: 0; background: transparent; }
+
+  footer.doc-footer {
+    margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--border);
+    color: var(--text-muted); font-size: 12px;
+  }
+
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; }
+    .rail { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 28px 20px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="rail" id="rail">
+    <div class="rail-brand">
+      <div>
+        <div class="eyebrow">Documentation portable</div>
+        <h1>DataScheduler</h1>
+      </div>
+      <button class="theme-toggle" id="theme-toggle" title="Changer de thème">◐</button>
+    </div>
+    <div class="rail-search">
+      <input type="text" id="rail-filter" placeholder="Filtrer (ex: registre, thread, migration...)" autocomplete="off">
+    </div>
+    <div id="rail-groups"><!-- injected by JS from the same headings walked below --></div>
+    <p class="rail-empty" id="rail-empty">Aucun résultat.</p>
+  </nav>
+
+  <main>
+    <div class="doc-header">
+      <div class="eyebrow">Référence technique</div>
+      <h1>Comprendre, faire évoluer et maintenir DataScheduler</h1>
+      <p class="lede">
+        Quatre documents en un seul fichier portable : ouvrez-le dans n'importe quel navigateur,
+        hors-ligne, sans dépendance. Architecture d'abord, puis les librairies, les concepts, et
+        un cookbook de recettes pour les besoins qui reviendront.
+      </p>
+    </div>
+
+    <hr class="rule">
+
+    <!-- ══════════════════════════ 1. ARCHITECTURE ══════════════════════════ -->
+    <section class="doc" id="architecture" data-doc-title="Architecture">
+      <h2 class="doc-title"><span class="idx">01</span> Architecture de DataScheduler</h2>
+      <div class="doc-intro">
+        <blockquote>
+          <p>Public visé : vous, dans 6 mois, quand vous aurez oublié pourquoi c'est fait comme ça.</p>
+          <p>Ce document explique <strong>comment le projet est construit</strong>, pas ce qu'il fait pour
+          l'utilisateur (pour ça, voir <code>docs/Description.md</code> et
+          <code>docs/architecture_prod.md</code>, qui décrivent le besoin métier d'origine — un peu
+          datés depuis l'architecture à base de steps, mais toujours valables pour comprendre le
+          « pourquoi » initial).</p>
+        </blockquote>
+      </div>
+
+      <article>
+        <h3 class="sub" id="arch-phrase">En une phrase</h3>
+        <p>
+          Une appli desktop Windows (PySide6, packagée en <code>.exe</code> via PyInstaller) qui
+          exécute des <strong>pipelines</strong> — des suites d'étapes configurables (Oracle, FTP,
+          email, HTTP, scripts…) — à la demande ou selon une planification, avec un historique
+          complet en SQLite.
+        </p>
+
+        <h3 class="sub" id="arch-couches">Les 4 couches, et la règle qui les tient ensemble</h3>
+        <div class="diagram"><pre><code>ui/            ← présentation (PySide6) : fenêtres, dialogues, tableaux
+core/          ← logique métier : Oracle, FTP, email, HTTP, planification, exécuteur de pipeline
+core/steps/    ← les "briques" d'un pipeline (une classe par type d'étape)
+database/      ← persistance : modèles SQLAlchemy + CRUD SQLite</code></pre></div>
+        <p>
+          <strong>La règle à ne jamais casser</strong> : <code>ui/</code> importe <code>core/</code> et
+          <code>database/</code>, jamais l'inverse. <code>core/</code> importe <code>database/</code>,
+          jamais l'inverse. Un module de <code>core/</code> ou <code>database/</code> qui se met à
+          faire <code>from ui import ...</code> est un signe que quelque chose est mal placé — la
+          logique métier doit pouvoir tourner sans jamais ouvrir une fenêtre (c'est d'ailleurs
+          exactement ce qui a permis de vérifier chaque step ajouté cette session : les appeler
+          directement en script Python, sans lancer l'UI).
+        </p>
+        <p>Concrètement, un import typique :</p>
+        <pre><code># core/steps/oracle_execute.py
+from database import db_manager as db      # ✅ core → database
+from core.oracle import OracleConnector     # ✅ core → core
+
+# ui/main_window.py
+from database import db_manager as db      # ✅ ui → database
+from core.scheduler import get_scheduler    # ✅ ui → core</code></pre>
+
+        <h3 class="sub" id="arch-modele">Le modèle de données</h3>
+        <p>Tables SQLite (définies dans <span class="ref">database/models.py</span>), toutes gérées par SQLAlchemy :</p>
+        <div class="diagram"><pre><code>OracleProfile ──┐
+FtpProfile     ──┼──&lt; SqlQuery (optionnel, lié à un OracleProfile)
+SmtpProfile    ──┘
+                                    ┌──&lt; PipelineStep (step_type, config_json)
+Pipeline ───────────────────────────┤
+                                    └──&lt; PipelineRun (historique d'exécution)</code></pre></div>
+        <ul>
+          <li><strong>OracleProfile / FtpProfile / SmtpProfile</strong> — des identifiants de connexion
+            réutilisables entre plusieurs pipelines (host/port/user/password + spécificités par
+            protocole). Trois classes quasi identiques, volontairement : c'est plus simple à lire
+            que de les factoriser derrière une abstraction commune pour trois lignes de différence.</li>
+          <li><strong>SqlQuery</strong> — une requête SQL/PLSQL nommée et réutilisable, rattachée
+            (optionnellement) à un profil Oracle par défaut.</li>
+          <li><strong>Pipeline</strong> — le conteneur nommé, planifié (<code>frequency</code>,
+            <code>cron_expression</code>, <code>scheduled_time</code>...) et son dernier statut connu.
+            Les colonnes <code>oracle_profile_id</code>, <code>sql_query_id</code>,
+            <code>ftp_profile_id</code>, <code>remote_path_tpl</code>, <code>filename_tpl</code> sont
+            <strong>legacy</strong> : elles dataient de la v0.1.0 (Oracle→FTP figé) et restent en base
+            uniquement pour la migration automatique des anciens pipelines. Un pipeline moderne ne
+            les utilise pas — sa vraie configuration vit dans ses <code>PipelineStep</code>.</li>
+          <li><strong>PipelineStep</strong> — une étape d'un pipeline : <code>step_type</code> (une
+            valeur de l'enum <code>StepType</code>), <code>step_order</code> (ordre d'exécution),
+            <code>config_json</code> (un blob JSON libre, différent par type d'étape).
+            <strong>Important</strong> : <code>config_json</code> n'est pas structuré au niveau de la
+            base — SQLite ne sait pas qu'un <code>oracle_profile_id</code> dedans référence vraiment
+            un <code>OracleProfile</code>. C'est une clé étrangère « molle », vérifiée à la main quand
+            c'est utile (voir <code>find_pipelines_using_profile</code> dans
+            <span class="ref">database/db_manager.py</span>).</li>
+          <li><strong>PipelineRun</strong> — une ligne d'historique par exécution : statut, durée,
+            lignes exportées, log texte complet, message d'erreur.</li>
+        </ul>
+
+        <h3 class="sub" id="arch-steps">Le cœur du système : les steps</h3>
+        <p>
+          C'est l'idée qui a transformé DataScheduler d'un outil à fonction unique (Oracle→FTP) en
+          petit moteur d'orchestration générique. Trois pièces :
+        </p>
+        <p><strong>1. <code>BaseStep</code> et <code>StepContext</code></strong> (<span class="ref">core/steps/base.py</span>)</p>
+        <p>Chaque étape est une classe qui hérite de <code>BaseStep</code> et implémente une seule méthode :</p>
+        <pre><code>def run(self, ctx: StepContext, on_progress=None) -> StepResult: ...</code></pre>
+        <p>
+          <code>StepContext</code> est l'état partagé qui voyage d'étape en étape : le fichier produit
+          par l'étape précédente (<code>ctx.output_file</code>), le nombre de lignes, un dictionnaire
+          libre <code>ctx.extra</code> pour tout ce qui ne rentre pas ailleurs, et un log
+          (<code>ctx.log(...)</code>). Une étape lit ce que la précédente y a mis, et y écrit ce que
+          la suivante pourra lire — c'est le seul canal de communication entre étapes, il n'y en a
+          pas d'autre.
+        </p>
+        <p><strong>2. Le registre</strong> (<span class="ref">core/steps/__init__.py</span>)</p>
+        <pre><code>_REGISTRY = {
+    "ORACLE_EXTRACT": OracleExtractStep,
+    "FTP_UPLOAD":     FtpUploadStep,
+    ...
+}
+def get_step(step_type: str, config: dict) -> BaseStep:
+    return _REGISTRY[step_type](config)</code></pre>
+        <p>
+          Un dictionnaire qui associe un nom de type d'étape (string, stocké tel quel en base) à la
+          classe qui sait l'exécuter. Ajouter un type d'étape = ajouter une entrée ici (voir le
+          <a href="#recipe-new-step">cookbook</a>).
+        </p>
+        <p><strong>3. L'exécuteur</strong> (<span class="ref">core/pipeline.py</span>, fonction <code>run_pipeline</code>)</p>
+        <p>
+          Charge les <code>PipelineStep</code> d'un pipeline dans l'ordre, et pour chacune : résout
+          son type via le registre, l'exécute avec le <code>StepContext</code> courant, s'arrête au
+          premier échec. C'est une boucle <code>for</code> toute simple — pas de branchement
+          conditionnel, pas de parallélisme. Si un jour vous voulez du « si telle condition alors
+          sauter telle étape », c'est ici qu'il faudra toucher, et ça changera la nature de
+          l'exécuteur (voir <a href="#concept-registry">le pattern registre</a>).
+        </p>
+
+        <h3 class="sub" id="arch-cycle">Cycle de vie d'une exécution</h3>
+        <p>
+          Que ce soit un clic sur « Exécuter maintenant » ou un déclenchement planifié, le chemin
+          est le même à partir d'un moment :
+        </p>
+        <div class="diagram"><pre><code>[UI: clic "Exécuter"]  ou  [APScheduler: tick planifié]
+        │
+        ▼
+run_pipeline(pipeline_id)          core/pipeline.py
+        │
+        ├─ db.create_run(...)                    → PipelineRun "RUNNING"
+        ├─ pour chaque PipelineStep, dans l'ordre :
+        │     get_step(step_type, config).run(ctx, on_progress)
+        │     échec ? → on s'arrête, on enregistre l'erreur
+        ├─ db.finish_run(..., status, log_text)   → PipelineRun terminé
+        └─ met à jour Pipeline.last_status / last_run_at</code></pre></div>
+        <p>La différence entre les deux déclencheurs est <strong>qui</strong> appelle <code>run_pipeline</code> et <strong>sur quel thread</strong> :</p>
+        <ul>
+          <li>Un clic UI passe par <span class="ref">ui/dialogs.py</span> <code>RunProgressDialog</code>,
+            qui lance l'exécution dans un <code>QThread</code> dédié — sinon l'interface se
+            figerait pendant toute la durée du pipeline (surtout gênant pour un
+            <code>ORACLE_EXTRACT</code> de plusieurs minutes).</li>
+          <li>Un déclenchement planifié passe par <code>PipelineScheduler</code>
+            (<span class="ref">core/scheduler.py</span>), qui tourne déjà sur son propre thread de
+            fond (APScheduler <code>BackgroundScheduler</code>).</li>
+        </ul>
+
+        <h3 class="sub" id="arch-pont">Le pont thread-safe scheduler → UI</h3>
+        <p>
+          Un problème classique de toute UI graphique : on ne touche <strong>jamais</strong> un
+          widget Qt depuis un thread qui n'est pas le thread principal — ça plante ou ça corrompt
+          l'affichage de façon imprévisible. Or le scheduler tourne sur son propre thread et doit
+          prévenir l'UI qu'un run vient de se terminer (pour rafraîchir les tableaux, afficher un
+          message).
+        </p>
+        <p>
+          La solution, dans <span class="ref">ui/main_window.py</span> (<code>SchedulerNotifier</code>) :
+          une classe <code>QObject</code> avec des signaux Qt (<code>job_success</code>,
+          <code>job_error</code>). Le scheduler appelle un simple callback Python
+          (<code>on_job_success(pipeline_id, path)</code>) depuis son thread ; ce callback ne fait
+          qu'<code>emit</code> un signal Qt. Qt garantit que le code connecté à ce signal
+          (<code>_on_scheduler_success</code>) s'exécute sur le thread principal, même si le signal a
+          été émis depuis un thread différent. C'est le pattern standard pour tout thread de fond
+          qui doit parler à une UI Qt — retenez-le, vous le referez à chaque nouvelle source
+          d'événements asynchrones (un futur watcher de fichier, un websocket, etc.).
+        </p>
+
+        <h3 class="sub" id="arch-persistance">Persistance et migrations</h3>
+        <p>
+          SQLite, un seul fichier, situé dans <code>%APPDATA%/DataScheduler/datascheduler.db</code>
+          (<span class="ref">database/db_manager.py</span>, fonction <code>get_db_path</code>). Deux
+          chemins de création coexistent :
+        </p>
+        <ol>
+          <li><strong>Nouvelle installation</strong> : <code>Base.metadata.create_all(engine)</code>
+            crée toutes les tables depuis les classes SQLAlchemy de <code>models.py</code>.</li>
+          <li><strong>Mise à jour d'une base existante</strong> : la fonction <code>_migrate()</code>
+            applique des <code>ALTER TABLE</code> / <code>CREATE TABLE IF NOT EXISTS</code> bruts en
+            SQL, un par changement de schéma historique (ex : l'ajout de <code>pipeline_steps</code>,
+            puis de <code>smtp_profiles</code>).</li>
+        </ol>
+        <p>
+          C'est un choix pragmatique (pas d'Alembic, pas de système de migration versionné) qui
+          convient tant que les migrations restent additives (nouvelle colonne avec valeur par
+          défaut, nouvelle table). Le jour où il faudra une migration destructive (renommer/supprimer
+          une colonne), SQLite n'a pas d'<code>ALTER COLUMN</code> — il faut reconstruire la table
+          (déjà fait une fois pour <code>pipelines</code>, voir <code>_migrate()</code>).
+        </p>
+        <p>
+          La fonction <code>_migrate_legacy_pipelines()</code> mérite une mention : elle convertit
+          automatiquement, au démarrage, les anciens pipelines « v0.1.0 » (Oracle→FTP figé sur les
+          colonnes legacy de <code>Pipeline</code>) en <code>PipelineStep</code> équivalents — pour
+          qu'un utilisateur qui avait déjà des pipelines avant l'architecture à base de steps ne
+          perde rien en mettant à jour l'appli.
+        </p>
+
+        <h3 class="sub" id="arch-packaging">Packaging</h3>
+        <p>
+          <span class="ref">DataScheduler.spec</span> pilote PyInstaller en mode
+          <strong>one-folder</strong> (<code>dist/DataScheduler/DataScheduler.exe</code> + un dossier
+          <code>_internal/</code>), pas one-file — plus rapide au démarrage, plus facile à déboguer
+          si un import manque.
+        </p>
+        <p>
+          Point notable : <code>oracledb</code> tourne en <strong>mode thin</strong> — un pilote
+          Oracle 100% Python, qui ne nécessite pas d'installer le « Oracle Instant Client » sur
+          chaque poste. C'est ce qui permet de distribuer un simple dossier <code>.exe</code> sans
+          prérequis d'installation côté utilisateur final.
+        </p>
+        <p>
+          PyInstaller ne détecte pas toujours tout seul les imports « dynamiques » (ceux qui ne sont
+          pas des <code>import X</code> visibles statiquement dans le code — par exemple les plugins
+          internes d'<code>oracledb</code> ou de <code>paramiko</code>) : c'est pour ça que le
+          <code>.spec</code> liste des <code>hiddenimports</code> explicites. Si vous ajoutez une
+          nouvelle dépendance et que l'<code>.exe</code> plante au démarrage avec un
+          <code>ModuleNotFoundError</code> alors que <code>python main.py</code> fonctionne, c'est
+          presque toujours ça — ajoutez le module manquant à <code>hiddenimports</code> (voir
+          <a href="#recipe-build-exe">la recette correspondante</a>).
+        </p>
+
+        <h3 class="sub" id="arch-arborescence">Arborescence commentée</h3>
+        <div class="diagram"><pre><code>main.py                    Point d'entrée : init DB → démarre le scheduler → lance l'UI
+database/
+  models.py                Toutes les tables SQLAlchemy
+  db_manager.py            init_db(), migrations, et un helper CRUD par entité
+core/
+  oracle.py                Connexion Oracle + export CSV (OracleExporter) + chargement (OracleLoader)
+  ftp.py                   Upload/download FTP-FTPS-SFTP
+  email.py                 Envoi SMTP
+  pipeline.py              run_pipeline() — l'exécuteur séquentiel de steps
+  scheduler.py             PipelineScheduler — wrapper APScheduler
+  steps/
+    base.py                BaseStep, StepContext, StepResult
+    __init__.py             Le registre _REGISTRY + get_step()
+    &lt;nom&gt;.py                Une classe par type d'étape (9 aujourd'hui)
+ui/
+  main_window.py           Fenêtre principale, navigation, les 5 vues (Dashboard, Pipelines, ...)
+  step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
+  dialogs.py               Dialogues de profils (Oracle/FTP/SMTP) + requêtes SQL + run/log
+  styles.py                Palette de couleurs + feuilles de style Qt (QSS)
+DataScheduler.spec         Configuration PyInstaller
+requirements.txt           Dépendances Python
+docs/                      Vous êtes ici</code></pre></div>
+      </article>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════════════ 2. LIBRARIES ══════════════════════════ -->
+    <section class="doc" id="libraries" data-doc-title="Librairies">
+      <h2 class="doc-title"><span class="idx">02</span> Les librairies — à quoi chacune sert vraiment</h2>
+      <div class="doc-intro">
+        <p>
+          Ce document ne remplace pas la documentation officielle de chaque librairie — il donne
+          juste assez pour savoir <strong>pourquoi elle est là</strong> et <strong>où regarder dans
+          ce repo</strong> pour voir un exemple réel avant d'aller chercher plus loin. Liste
+          complète des versions figées : <span class="ref">requirements.txt</span>.
+        </p>
+      </div>
+
+      <article>
+        <h3 class="sub" id="lib-sqlalchemy">SQLAlchemy — parler à la base sans écrire de SQL à la main</h3>
+        <p><strong>Le problème qu'elle résout</strong> : sans elle, chaque lecture/écriture en base
+          serait une chaîne SQL manuscrite, fragile et pénible à maintenir dès que le schéma évolue.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : le mode « ORM » (voir <a href="#concept-orm">Concepts</a>).
+          Chaque table est une classe Python (<span class="ref">database/models.py</span>) :</p>
+        <pre><code>class Pipeline(Base):
+    __tablename__ = "pipelines"
+    id   = Column(Integer, primary_key=True)
+    name = Column(String(100), unique=True, nullable=False)
+    steps = relationship("PipelineStep", back_populates="pipeline")</code></pre>
+        <p>Et <span class="ref">database/db_manager.py</span> fait les requêtes en manipulant ces objets Python,
+          jamais en écrivant du SQL (sauf dans <code>_migrate()</code>, volontairement en SQL brut) :</p>
+        <pre><code>def get_pipeline(pipeline_id: int) -> Pipeline | None:
+    with get_session() as s:
+        return s.get(Pipeline, pipeline_id)</code></pre>
+        <p><strong>À retenir</strong> : une <code>Session</code> (voir <code>get_session()</code>) est
+          l'unité de travail. Ne gardez jamais un objet SQLAlchemy après que sa session soit fermée
+          si vous comptez accéder à ses relations (<code>.steps</code>, <code>.oracle_profile</code>...)
+          — elles peuvent ne plus être chargées (<code>DetachedInstanceError</code>). C'est pour ça
+          que <code>get_pipelines()</code> utilise <code>joinedload(...)</code> : ça précharge les
+          relations avant de fermer la session.</p>
+
+        <h3 class="sub" id="lib-oracledb">oracledb — parler à Oracle sans installer de client Oracle</h3>
+        <p><strong>Le problème qu'elle résout</strong> : historiquement, parler à Oracle depuis Python
+          demandait d'installer le lourd « Oracle Instant Client » sur chaque machine.
+          <code>oracledb</code> (le successeur de <code>cx_Oracle</code>) sait fonctionner en
+          <strong>mode thin</strong> : un pilote 100% Python, zéro dépendance système.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/oracle.py</span>,
+          classe <code>OracleConnector</code>. Le DSN se construit avec <code>oracledb.makedsn(...)</code>,
+          la connexion avec <code>oracledb.connect(...)</code>.</p>
+        <p><strong>Gotcha déjà rencontré dans ce projet</strong> : <code>pandas.read_sql()</code> attend
+          officiellement soit une connexion SQLAlchemy, soit <code>sqlite3</code>, soit une URI — pas
+          une connexion <code>oracledb</code> brute. Ça fonctionne quand même (oracledb respecte
+          l'interface DBAPI2 dont pandas a besoin), mais pandas émet un <code>UserWarning</code> à
+          chaque appel — cosmétique, pas un bug (voir <a href="#concept-dbapi2">DBAPI2</a>).</p>
+
+        <h3 class="sub" id="lib-pandas">pandas — lire un gros résultat SQL/CSV sans exploser la mémoire</h3>
+        <p><strong>Le problème qu'elle résout</strong> : charger 2 millions de lignes d'un coup en RAM
+          avant de les écrire en CSV serait dangereux sur une machine bureautique.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <code>chunksize=</code> partout où un
+          gros volume est en jeu — <span class="ref">core/oracle.py</span>,
+          <code>OracleExporter.export()</code> et <code>OracleLoader.load()</code>. Le résultat n'est
+          plus un seul <code>DataFrame</code> mais un itérateur de petits <code>DataFrame</code> (les
+          « chunks ») — on les traite un par un et on les jette, la mémoire reste plate quel que soit
+          le volume total.</p>
+
+        <h3 class="sub" id="lib-pyside6">PySide6 (Qt pour Python) — toute l'interface graphique</h3>
+        <p><strong>Le problème qu'elle résout</strong> : construire une fenêtre native Windows avec
+          des menus, tableaux, formulaires, sans réinventer le rendu graphique.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : partout dans <code>ui/</code>. Trois idées à connaître :</p>
+        <ol>
+          <li><strong>Widgets emboîtés</strong> : une fenêtre est un arbre de <code>QWidget</code>,
+            organisés par des <code>QLayout</code> qui gèrent l'espacement.</li>
+          <li><strong>Signaux et slots</strong> : un bouton émet un signal (<code>clicked</code>), et
+            vous connectez ce signal à une fonction — voir <a href="#concept-signals">Concepts</a>.</li>
+          <li><strong>QSS</strong> : une syntaxe très proche du CSS pour styler les widgets — voir
+            <span class="ref">ui/styles.py</span>.</li>
+        </ol>
+        <p><strong>qtawesome</strong> est une petite librairie complémentaire qui fournit les icônes (Font Awesome).</p>
+
+        <h3 class="sub" id="lib-paramiko">paramiko — SFTP (SSH File Transfer Protocol)</h3>
+        <p><strong>Le problème qu'elle résout</strong> : <code>ftplib</code> (bibliothèque standard) ne
+          sait faire que FTP/FTPS, pas SFTP (qui passe par SSH). <code>paramiko</code> implémente SSH
+          et son sous-protocole SFTP.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/ftp.py</span>,
+          <code>FtpUploader._upload_sftp</code> / <code>_download_sftp</code>.</p>
+
+        <h3 class="sub" id="lib-requests">requests — appeler une API HTTP</h3>
+        <p><strong>Le problème qu'elle résout</strong> : <code>urllib.request</code> existe déjà mais
+          son API est verbeuse. <code>requests</code> est l'équivalent ergonomique devenu standard de
+          facto.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/steps/http_request.py</span>,
+          un seul appel <code>requests.request(method, url, headers=..., data=..., files=...)</code>.</p>
+
+        <h3 class="sub" id="lib-smtplib">smtplib / email — envoyer un mail (bibliothèque standard)</h3>
+        <p><strong>Le problème qu'elle résout</strong> : notifier par email sans dépendance externe —
+          <code>smtplib</code> et <code>email.message.EmailMessage</code> font partie de Python
+          lui-même.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/email.py</span>, classe <code>EmailSender</code>.</p>
+
+        <h3 class="sub" id="lib-apscheduler">APScheduler — exécuter des tâches selon un planning</h3>
+        <p><strong>Le problème qu'elle résout</strong> : traduire « tous les jours à 6h » en « réveille-toi
+          et appelle cette fonction au bon moment », en tâche de fond, sans bloquer le reste du
+          programme.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/scheduler.py</span>,
+          <code>PipelineScheduler</code> encapsule un <code>BackgroundScheduler</code>.
+          <code>CronTrigger</code> traduit la fréquence (DAILY/WEEKLY/MONTHLY/CUSTOM) en expression
+          cron réelle.</p>
+
+        <h3 class="sub" id="lib-pyinstaller">PyInstaller — transformer le projet Python en .exe</h3>
+        <p><strong>Le problème qu'elle résout</strong> : un utilisateur final n'a pas Python installé —
+          PyInstaller regroupe l'interpréteur, les dépendances et le code dans un dossier autonome.</p>
+        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">DataScheduler.spec</span> —
+          voir <a href="#arch-packaging">Packaging</a> et <a href="#recipe-build-exe">la recette</a>.</p>
+      </article>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════════════ 3. CONCEPTS ══════════════════════════ -->
+    <section class="doc" id="concepts" data-doc-title="Concepts">
+      <h2 class="doc-title"><span class="idx">03</span> Concepts et paradigmes</h2>
+      <div class="doc-intro">
+        <p>
+          Les idées de programmation derrière le code — pas les librairies qui les implémentent
+          (ça, c'est la section précédente). L'objectif : reconnaître ces patterns la prochaine
+          fois que vous les croisez, ici ou ailleurs, et savoir quand les réutiliser.
+        </p>
+      </div>
+
+      <article>
+        <h3 class="sub" id="concept-registry">Le pattern registre — l'idée la plus importante du projet</h3>
+        <p><strong>Le problème</strong> : on veut pouvoir ajouter un nouveau type d'étape sans modifier
+          le code qui <em>exécute</em> les pipelines. Un <code>if/elif</code> en cascade obligerait à
+          retoucher cette fonction centrale à chaque ajout — risque de régression sur tout ce qui
+          existe déjà.</p>
+        <p><strong>La solution</strong> : un dictionnaire qui associe un nom à une classe, rempli une
+          fois, consulté partout (<span class="ref">core/steps/__init__.py</span>) :</p>
+        <pre><code>_REGISTRY = {"ORACLE_EXTRACT": OracleExtractStep, "FTP_UPLOAD": FtpUploadStep, ...}
+
+def get_step(step_type: str, config: dict) -> BaseStep:
+    return _REGISTRY[step_type](config)</code></pre>
+        <p>
+          L'exécuteur ne connaît qu'une seule ligne : <code>get_step(step_type, config)</code>. Il
+          n'a jamais besoin de savoir que 9 types d'étapes existent, ni lesquels. Ajouter un dixième
+          type = ajouter une ligne au dictionnaire, zéro ligne changée dans l'exécuteur. C'est
+          l'essence du <strong>principe ouvert/fermé</strong> (une des idées derrière « SOLID ») :
+          ouvert à l'extension, fermé à la modification.
+        </p>
+        <p><strong>Où le revoir ailleurs dans ce projet</strong> : <code>ui/step_editor.py</code>,
+          <code>_open_config_dialog()</code> fait exactement la même chose côté UI.</p>
+        <p><strong>Où vous le recroiserez</strong> : c'est le même principe derrière les « plugins » de
+          n'importe quel outil (extensions VS Code, middlewares Django, providers Terraform...). Dès
+          que vous voyez « comment ajouter un type de X sans toucher au moteur », pensez registre.</p>
+
+        <h3 class="sub" id="concept-interface">L'interface commune (pourquoi toutes les étapes ont la même forme)</h3>
+        <p>
+          Le registre ne fonctionne que parce que <strong>toutes</strong> les classes de step
+          respectent le même contrat : hériter de <code>BaseStep</code> et implémenter
+          <code>run(self, ctx, on_progress=None) -> StepResult</code>. L'exécuteur peut appeler
+          <code>.run(...)</code> sur n'importe laquelle sans savoir laquelle c'est vraiment — c'est
+          du <strong>polymorphisme</strong> : des objets de classes différentes, utilisés de façon
+          interchangeable parce qu'ils partagent la même interface.
+        </p>
+
+        <h3 class="sub" id="concept-oop">Programmation orientée objet — au minimum syndical, et c'est voulu</h3>
+        <p>
+          Ce projet n'utilise l'héritage que pour une seule chose : <code>BaseStep</code>. Pas de
+          hiérarchies de classes profondes ailleurs. <code>OracleProfile</code>, <code>FtpProfile</code>,
+          <code>SmtpProfile</code> sont trois classes séparées, presque identiques, plutôt qu'une
+          classe abstraite <code>Profile</code> — délibérément, parce que factoriser 3 champs communs
+          sur 6 aurait ajouté de l'indirection pour un gain minuscule. Retenez la leçon inverse de
+          « toujours factoriser dès que ça se ressemble » : dupliquer un peu est parfois plus lisible
+          que factoriser trop tôt.
+        </p>
+
+        <h3 class="sub" id="concept-orm">ORM — manipuler des lignes de base de données comme des objets Python</h3>
+        <p>
+          Un ORM (<em>Object-Relational Mapping</em>) fait correspondre une classe Python à une table
+          SQL, et une instance de cette classe à une ligne. <code>pipeline.name = "X"</code> puis un
+          commit, plutôt que <code>UPDATE pipelines SET name = 'X' WHERE id = ...</code>. Le gain :
+          des objets typés, pas besoin de connaître la syntaxe SQL exacte si la base change demain.
+          Le prix : une couche d'indirection en plus, et des sessions à gérer.
+        </p>
+
+        <h3 class="sub" id="concept-context">Context managers (<code>with ... as ...</code>)</h3>
+        <p>
+          Un context manager garantit qu'une ressource est correctement libérée, même si une
+          exception survient au milieu. <code>get_session()</code> en est un exemple :
+        </p>
+        <pre><code>@contextmanager
+def get_session():
+    session = _SessionFactory()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()</code></pre>
+        <p>
+          <code>with get_session() as s: ...</code> garantit que la session est toujours fermée, et
+          que toute exception dans le bloc annule les changements plutôt que de laisser la base dans
+          un état à moitié modifié. Le même principe protège les connexions Oracle/FTP et les
+          fichiers (<code>open(...)</code> est lui-même un context manager standard de Python).
+        </p>
+
+        <h3 class="sub" id="concept-dataclasses">Dataclasses — des structures de données sans cérémonie</h3>
+        <p>
+          <code>@dataclass</code> génère automatiquement <code>__init__</code>, <code>__repr__</code>
+          et l'égalité pour une classe qui ne sert qu'à porter des champs. Exemples :
+          <code>ExportResult</code>, <code>LoadResult</code>, <code>UploadResult</code>,
+          <code>SendResult</code> — le résultat d'une opération qui peut réussir ou échouer.
+        </p>
+        <pre><code>@dataclass
+class SendResult:
+    success: bool
+    error: str = ""</code></pre>
+
+        <h3 class="sub" id="concept-enums">Enums — une liste fermée de valeurs valides</h3>
+        <p>
+          <code>StepType</code>, <code>PipelineStatus</code>, <code>CronFrequency</code> sont des
+          <code>enum.Enum</code> : au lieu d'écrire <code>"SUCCESS"</code> en dur un peu partout
+          (risque de faute de frappe non détectée avant l'exécution), on écrit
+          <code>PipelineStatus.SUCCESS</code>. Hériter aussi de <code>str</code>
+          (<code>class StepType(str, enum.Enum)</code>) permet de comparer directement
+          <code>step_type == "ORACLE_EXTRACT"</code> sans conversion.
+        </p>
+
+        <h3 class="sub" id="concept-never-raise">« Ne jamais lever d'exception, toujours retourner un résultat »</h3>
+        <p>
+          <code>OracleConnector.test_connection()</code>, <code>FtpUploader.upload()</code>,
+          <code>EmailSender.send()</code> etc. ne laissent <strong>jamais</strong> remonter une
+          exception — elles l'attrapent en interne et retournent un objet
+          <code>...Result(success=False, error="...")</code>. Choix délibéré pour du code appelé
+          depuis l'UI ou un scheduler en tâche de fond : une exception non attrapée dans un thread
+          de fond peut faire planter l'application ou disparaître silencieusement. Retourner un
+          résultat oblige l'appelant à gérer explicitement l'échec.
+        </p>
+        <p>
+          Ce n'est pas absolu partout : le code interne à un <code>step.run()</code> utilise encore
+          des exceptions classiques, capturées une seule fois au bon endroit. La règle s'applique à
+          la <strong>frontière</strong> entre un module et son appelant, pas à l'intérieur.
+        </p>
+
+        <h3 class="sub" id="concept-signals">Signaux et slots (Qt) — une forme du patron Observateur</h3>
+        <p>
+          Un bouton n'exécute rien lui-même au clic — il <em>émet un signal</em>, et n'importe quel
+          code peut s'y abonner sans que le bouton ait besoin de le connaître :
+        </p>
+        <pre><code>btn_run.clicked.connect(self._on_run_pipeline)</code></pre>
+        <p>
+          C'est une instance du patron de conception <strong>Observateur</strong>. La variante la
+          plus intéressante du projet : <code>SchedulerNotifier</code> (voir
+          <a href="#arch-pont">le pont thread-safe</a>) utilise ce même mécanisme pour faire
+          communiquer un thread de fond avec le thread principal de l'UI.
+        </p>
+
+        <h3 class="sub" id="concept-threads">Threads et pourquoi l'UI ne doit jamais attendre</h3>
+        <p>
+          Une interface graphique tourne sur un seul thread qui dessine l'écran et réagit aux
+          clics. Si ce thread attend une réponse réseau qui prend 10 secondes, l'application entière
+          se fige pendant ces 10 secondes. La solution : déplacer le travail long dans un
+          <code>QThread</code> séparé (<code>OracleTestThread</code>, <code>FtpTestThread</code>,
+          <code>_OracleExecuteTestThread</code>), et laisser le résultat revenir via un signal Qt.
+          Règle simple : <strong>toute opération qui peut prendre plus qu'un instant perceptible ne
+          doit jamais s'exécuter directement dans un callback de clic</strong>.
+        </p>
+
+        <h3 class="sub" id="concept-dbapi2">DBAPI2 — le standard caché derrière tous les pilotes de base de données</h3>
+        <p>
+          Python définit une interface standard (PEP 249, « DBAPI2 ») que tout pilote de base de
+          données doit respecter : <code>connect()</code>, <code>cursor()</code>,
+          <code>execute()</code>, <code>fetchall()</code>... <code>oracledb</code> et
+          <code>sqlite3</code> la respectent tous, ce qui permet à du code générique (comme
+          <code>pandas.read_sql()</code>) de fonctionner avec l'un ou l'autre — même si pandas ne
+          « certifie » officiellement que certaines combinaisons et râle (un <code>UserWarning</code>,
+          pas une erreur) pour les autres.
+        </p>
+
+        <h3 class="sub" id="concept-migrations">Migrations de schéma — faire évoluer une base sans perdre les données</h3>
+        <p>
+          Contrairement à une nouvelle installation, une base existante contient déjà des données
+          réelles. <code>_migrate()</code> applique, au démarrage, une série de vérifications et
+          n'agit que si nécessaire — chaque migration ne s'exécute qu'une seule fois dans la vie
+          d'une base donnée. Voir <a href="#recipe-migration">la recette correspondante</a>.
+        </p>
+
+        <h3 class="sub" id="concept-separation">Séparation des responsabilités (pourquoi 4 dossiers et pas un seul fichier)</h3>
+        <p>
+          Le principe général derrière <code>database/</code> / <code>core/</code> /
+          <code>core/steps/</code> / <code>ui/</code> : chaque couche a une seule responsabilité, et
+          ne connaît que celle juste en-dessous d'elle. Le bénéfice concret vécu cette session : on a
+          pu écrire et <strong>tester</strong> chaque nouveau step en les important directement dans
+          un script Python, sans jamais lancer l'interface graphique.
+        </p>
+      </article>
+    </section>
+
+    <hr class="rule">
+
+    <!-- ══════════════════════════ 4. COOKBOOK ══════════════════════════ -->
+    <section class="doc" id="cookbook" data-doc-title="Cookbook">
+      <h2 class="doc-title"><span class="idx">04</span> Cookbook — recettes pour faire évoluer DataScheduler</h2>
+      <div class="doc-intro">
+        <p>
+          Des marches à suivre concrètes, pour les besoins qui reviendront. Chaque recette part du
+          principe que vous connaissez l'<a href="#architecture">architecture</a> (pour savoir où
+          sont les choses) — elle ne réexplique pas le « pourquoi », juste le « comment, dans quel
+          ordre, sans rien casser ».
+        </p>
+      </div>
+
+      <article>
+        <h3 class="sub" id="recipe-new-step">Recette : ajouter un nouveau type d'étape (step)</h3>
+        <p>
+          C'est l'opération la plus fréquente désormais que l'architecture est flexible. Reprenez
+          ce patron dans l'ordre — c'est exactement celui suivi pour les 5 derniers steps ajoutés
+          (<code>ORACLE_EXECUTE</code>, <code>FTP_DOWNLOAD</code>, <code>ORACLE_LOAD</code>,
+          <code>EMAIL_NOTIFY</code>, <code>HTTP_REQUEST</code>).
+        </p>
+        <ol>
+          <li><strong><span class="ref">database/models.py</span></strong> — ajouter la valeur dans l'enum <code>StepType</code> :
+            <pre><code>class StepType(str, enum.Enum):
+    ...
+    MON_NOUVEAU_STEP = "MON_NOUVEAU_STEP"</code></pre>
+            Aucune migration nécessaire pour ça seul : <code>pipeline_steps.step_type</code> est un
+            simple <code>VARCHAR</code>, pas de contrainte <code>CHECK</code>.
+          </li>
+          <li><strong><span class="ref">core/steps/mon_nouveau_step.py</span></strong> (nouveau fichier) — la classe qui fait le travail :
+            <pre><code>from .base import BaseStep, StepContext, StepResult
+
+class MonNouveauStep(BaseStep):
+    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+        result = StepResult()
+        try:
+            # ... votre logique, en utilisant self.config (dict) et ctx ...
+            result.success = True
+        except Exception as e:
+            result.error = str(e)
+        return result</code></pre>
+            Conventions à respecter : ne jamais lever d'exception hors de <code>run()</code>
+            (voir <a href="#concept-never-raise">Concepts</a>), lire la config via
+            <code>self.config.get("cle", valeur_par_defaut)</code>, résoudre les tokens de date avec
+            <code>ctx.resolve_tokens(...)</code> si votre step utilise un texte configurable par
+            l'utilisateur.
+          </li>
+          <li><strong><span class="ref">core/steps/__init__.py</span></strong> — importer et enregistrer :
+            <pre><code>from .mon_nouveau_step import MonNouveauStep
+_REGISTRY["MON_NOUVEAU_STEP"] = MonNouveauStep</code></pre>
+          </li>
+          <li><strong><span class="ref">ui/step_editor.py</span></strong> — 4 endroits à toucher, tous mécaniques :
+            <ul>
+              <li><code>STEP_META</code> : label affiché + couleur du badge.</li>
+              <li><code>StepTypeChooserDialog._build_ui</code>, dictionnaire <code>descriptions</code> : la phrase d'aide.</li>
+              <li>Une classe <code>_MonNouveauStepConfigDialog(_BaseStepConfigDialog)</code> — copiez la
+                classe d'un step existant qui ressemble le plus à votre besoin.</li>
+              <li><code>_step_summary()</code> : la ligne résumée dans la liste des étapes.</li>
+              <li><code>_open_config_dialog()</code>, dictionnaire <code>mapping</code> : enregistrer votre classe.</li>
+            </ul>
+          </li>
+          <li>Si votre step a besoin d'un nouveau type de profil réutilisable → voir la recette suivante d'abord.</li>
+          <li>Tester sans lancer l'UI (voir <a href="#recipe-test-safely">la recette</a>) — le plus rapide pour valider la logique avant les dialogues Qt.</li>
+        </ol>
+
+        <h3 class="sub" id="recipe-new-profile">Recette : ajouter un nouveau type de profil réutilisable</h3>
+        <p>Suivre le patron <code>SmtpProfile</code>, qui est le plus récent :</p>
+        <ol>
+          <li><strong><span class="ref">database/models.py</span></strong> — nouvelle classe héritant de <code>Base</code>, avec <code>__tablename__</code>.</li>
+          <li><strong><span class="ref">database/db_manager.py</span></strong> — dans <code>_migrate()</code>, ajouter la création de la table si absente
+            (copier le bloc <code>smtp_profiles</code>) ; 4 fonctions CRUD
+            (<code>create_X_profile</code>, <code>get_X_profiles</code>, <code>get_X_profile</code>,
+            <code>delete_X_profile</code>).</li>
+          <li><strong><span class="ref">ui/dialogs.py</span></strong> — une classe <code>XDialog(QDialog)</code> (copier <code>SmtpDialog</code>),
+            avec si pertinent un thread de test de connexion (copier <code>SmtpTestThread</code>).</li>
+          <li><strong><span class="ref">ui/main_window.py</span></strong>, <code>ConnectionsView</code> — un panneau de plus
+            (copier <code>_build_smtp_panel</code>/<code>_refresh_smtp</code>/callbacks).</li>
+          <li><strong><span class="ref">ui/step_editor.py</span></strong>, <code>PipelineEditorDialog._load_profiles()</code> —
+            charger la nouvelle liste et la propager partout où <code>smtp_profiles</code> circule déjà.</li>
+        </ol>
+
+        <h3 class="sub" id="recipe-migration">Recette : ajouter une migration de schéma</h3>
+        <p>Dans <span class="ref">database/db_manager.py</span>, fonction <code>_migrate()</code> :</p>
+        <pre><code>cols = {r[1] for r in conn.execute(text("PRAGMA table_info(ma_table)")).fetchall()}
+if "ma_nouvelle_colonne" not in cols:
+    conn.execute(text(
+        "ALTER TABLE ma_table ADD COLUMN ma_nouvelle_colonne VARCHAR(50) DEFAULT 'valeur'"
+    ))
+    conn.commit()</code></pre>
+        <p>Règles à respecter :</p>
+        <ul>
+          <li><strong>Toujours</strong> vérifier avant d'agir — la fonction tourne à chaque démarrage,
+            elle doit être idempotente.</li>
+          <li>SQLite ne sait pas modifier/supprimer une colonne avec <code>ALTER TABLE</code> — il faut
+            recréer la table entière si nécessaire (voir le bloc <code>pipelines_new</code> comme modèle).</li>
+          <li>N'oubliez pas d'ajouter aussi la colonne/table dans la classe SQLAlchemy correspondante —
+            sinon une <strong>nouvelle</strong> installation ne l'aura pas.</li>
+        </ul>
+
+        <h3 class="sub" id="recipe-test-safely">Recette : tester une modification sans polluer vos vraies données</h3>
+        <p>
+          <strong>Piège vécu pendant cette session</strong> : <code>db.init_db()</code> sans argument
+          pointe vers la vraie base de l'application — un script de test lancé tel quel insère ses
+          données au milieu des vraies. Toujours passer un chemin explicite :
+        </p>
+        <pre><code>import tempfile
+from pathlib import Path
+from database import db_manager as db
+
+tmp_db = Path(tempfile.mktemp(suffix=".db"))
+db.init_db(tmp_db)          # base jetable, jamais la vraie
+...</code></pre>
+        <p>Pour tester un step isolément (sans base du tout, avec des objets simulés) :</p>
+        <pre><code>from unittest.mock import MagicMock, patch
+from core.steps.mon_nouveau_step import MonNouveauStep
+from core.steps.base import StepContext
+
+with patch("database.db_manager.get_oracle_profile", return_value=MagicMock(host="h")):
+    step = MonNouveauStep({"cle": "valeur"})
+    result = step.run(StepContext())
+    print(result.success, result.error)</code></pre>
+        <p>
+          C'est ainsi qu'ont été validés <code>OracleExecuteStep</code> (résolution de tokens,
+          rowcount, garde-fou commit) et <code>OracleLoader</code> (construction du <code>INSERT</code>,
+          conversion NaN→None) sans jamais toucher à une vraie base Oracle ni au fichier applicatif réel.
+        </p>
+
+        <h3 class="sub" id="recipe-run-local">Recette : lancer et déboguer en local</h3>
+        <pre><code>python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+python main.py</code></pre>
+        <p>
+          Les logs (niveau <code>INFO</code>) s'affichent dans la console. Si l'UI plante
+          silencieusement, lancez toujours depuis un terminal (pas en double-cliquant) pour voir la
+          trace complète.
+        </p>
+
+        <h3 class="sub" id="recipe-build-exe">Recette : construire l'exécutable Windows</h3>
+        <pre><code>pyinstaller DataScheduler.spec</code></pre>
+        <p>
+          Le résultat est dans <code>dist/DataScheduler/</code>. Si l'<code>.exe</code> se lance puis
+          plante immédiatement avec un <code>ModuleNotFoundError</code> alors que
+          <code>python main.py</code> fonctionne : une nouvelle dépendance a des sous-modules que
+          PyInstaller n'a pas détectés automatiquement. Ajoutez le module manquant à
+          <code>hiddenimports</code> (modèle : <code>'requests', 'urllib3', 'certifi', 'idna',
+          'charset_normalizer'</code>).
+        </p>
+
+        <h3 class="sub" id="recipe-reset-db">Recette : inspecter ou remettre à zéro la base locale</h3>
+        <p>Le fichier vit dans <code>%APPDATA%\DataScheduler\datascheduler.db</code>. Pour l'inspecter sans rien casser :</p>
+        <pre><code>from database import db_manager as db
+db.init_db()
+print(db.get_pipelines())</code></pre>
+        <p>
+          Pour repartir de zéro (⚠️ perd tout l'historique et tous les profils) : fermez
+          l'application, supprimez le fichier <code>datascheduler.db</code>, relancez —
+          <code>init_db()</code> en recrée un vide.
+        </p>
+
+        <h3 class="sub" id="recipe-pitfalls">Pièges déjà rencontrés (pour ne pas les refaire)</h3>
+        <ul>
+          <li><strong><code>sys.executable</code> dans un <code>.exe</code> packagé</strong> n'est pas un
+            interpréteur Python — c'est le chemin du <code>.exe</code> lui-même. L'étape
+            <code>PYTHON_SCRIPT</code> doit toujours recevoir un <code>python_executable</code>
+            explicite une fois packagé.</li>
+          <li><strong><code>pandas.read_sql()</code> avec une connexion <code>oracledb</code> brute</strong>
+            émet un <code>UserWarning</code> — cosmétique, pas un bug.</li>
+          <li><strong><code>chunk.where(chunk.notnull(), None)</code></strong> ne convertit pas vraiment
+            les <code>NaN</code> en <code>None</code> sur une colonne numérique — il faut
+            <code>chunk.astype(object).where(...)</code> d'abord. Sinon <code>oracledb</code> reçoit un
+            <code>float('nan')</code> qu'une colonne <code>NUMBER</code> refuse.</li>
+          <li><strong><code>QHeaderView.ResizeToContents</code></strong> sur une colonne avec un widget
+            stylé peut sous-estimer sa largeur réelle — préférez une largeur fixe
+            (<code>setColumnWidth</code>) pour ces colonnes-là.</li>
+          <li><strong>Supprimer un profil ou une requête SQL</strong> ne vérifie pas par défaut qui
+            l'utilise, car la référence vit dans un <code>config_json</code> (pas une vraie clé
+            étrangère). Utilisez <code>db.find_pipelines_using_profile(cle, id)</code> avant de
+            supprimer si vous ajoutez un nouvel endroit de suppression.</li>
+          <li><strong><code>cursor.rowcount</code> après un bloc PL/SQL (<code>BEGIN ... END;</code>)
+            reste à 0 même si des lignes ont vraiment été insérées/modifiées</strong> — si le bloc
+            appelle une procédure stockée qui fait le DML en interne, oracledb ne remonte que le
+            résultat de l'appel du bloc lui-même, pas les lignes affectées par les instructions
+            exécutées à l'intérieur. Ce n'est pas un bug de DataScheduler, c'est un comportement du
+            pilote Oracle. <code>ORACLE_EXECUTE</code> détecte ce cas via
+            <code>core.oracle.is_plsql_block()</code> et log un message honnête au lieu d'afficher
+            un « 0 ligne(s) affectée(s) » trompeur. Pour obtenir le nombre réel de lignes affectées
+            par une procédure stockée, faites-le remonter explicitement via un paramètre
+            <code>OUT</code> dans la procédure elle-même (Oracle ne l'expose pas autrement côté
+            client).</li>
+        </ul>
+      </article>
+    </section>
+
+    <footer class="doc-footer">
+      Généré à partir de <code>docs/ARCHITECTURE.md</code>, <code>docs/LIBRARIES.md</code>,
+      <code>docs/CONCEPTS.md</code> et <code>docs/COOKBOOK.md</code> — fichier autonome, hors-ligne,
+      sans dépendance externe. Ouvrez-le en double-cliquant, aucune connexion internet requise.
+    </footer>
+  </main>
+</div>
+
+<script>
+(function () {
+  var main = document.querySelector('main');
+  var railGroups = document.getElementById('rail-groups');
+  var docs = main.querySelectorAll('section.doc');
+  var allHeadingLinks = [];
+
+  docs.forEach(function (doc) {
+    var docTitle = doc.getAttribute('data-doc-title');
+    var docTitleEl = doc.querySelector('h2.doc-title');
+    var idx = docTitleEl.querySelector('.idx').textContent;
+
+    var group = document.createElement('div');
+    group.className = 'rail-group';
+
+    var docLink = document.createElement('a');
+    docLink.className = 'rail-doc-link';
+    docLink.href = '#' + doc.id;
+    docLink.innerHTML = '<span class="n">' + idx + '</span><span>' + docTitle + '</span>';
+    group.appendChild(docLink);
+
+    var headings = doc.querySelectorAll('h3.sub');
+    headings.forEach(function (h) {
+      var a = document.createElement('a');
+      a.className = 'rail-heading-link';
+      a.href = '#' + h.id;
+      a.textContent = h.textContent;
+      a.dataset.target = h.id;
+      group.appendChild(a);
+      allHeadingLinks.push(a);
+    });
+
+    railGroups.appendChild(group);
+  });
+
+  /* Active heading highlighting on scroll */
+  var headingEls = Array.prototype.map.call(allHeadingLinks, function (a) {
+    return document.getElementById(a.dataset.target);
+  });
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      var link = document.querySelector('.rail-heading-link[data-target="' + entry.target.id + '"]');
+      if (!link) return;
+      if (entry.isIntersecting) {
+        allHeadingLinks.forEach(function (l) { l.classList.remove('active'); });
+        link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-10% 0px -75% 0px', threshold: 0 });
+  headingEls.forEach(function (el) { if (el) observer.observe(el); });
+
+  /* Filter box */
+  var filterInput = document.getElementById('rail-filter');
+  var emptyMsg = document.getElementById('rail-empty');
+  filterInput.addEventListener('input', function () {
+    var q = filterInput.value.trim().toLowerCase();
+    var groups = railGroups.querySelectorAll('.rail-group');
+    var anyVisible = false;
+    groups.forEach(function (group) {
+      var docLink = group.querySelector('.rail-doc-link');
+      var headingLinks = group.querySelectorAll('.rail-heading-link');
+      if (!q) {
+        docLink.style.display = '';
+        headingLinks.forEach(function (l) { l.style.display = ''; });
+        anyVisible = true;
+        return;
+      }
+      var docMatches = docLink.textContent.toLowerCase().indexOf(q) !== -1;
+      var anyHeadingMatch = false;
+      headingLinks.forEach(function (l) {
+        var match = l.textContent.toLowerCase().indexOf(q) !== -1;
+        l.style.display = match ? '' : 'none';
+        if (match) anyHeadingMatch = true;
+      });
+      var showGroup = docMatches || anyHeadingMatch;
+      docLink.style.display = showGroup ? '' : 'none';
+      if (docMatches) headingLinks.forEach(function (l) { l.style.display = ''; });
+      if (showGroup) anyVisible = true;
+    });
+    emptyMsg.style.display = anyVisible ? 'none' : 'block';
+  });
+
+  /* Theme toggle (manual override, persisted) */
+  var toggleBtn = document.getElementById('theme-toggle');
+  var root = document.documentElement;
+  var saved = localStorage.getItem('ds-docs-theme');
+  if (saved) root.setAttribute('data-theme', saved);
+  toggleBtn.addEventListener('click', function () {
+    var current = root.getAttribute('data-theme');
+    var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var isDark = current ? current === 'dark' : prefersDark;
+    var next = isDark ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('ds-docs-theme', next);
+  });
+})();
+</script>
+
+</body>
+</html>

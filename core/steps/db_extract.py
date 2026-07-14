@@ -1,6 +1,7 @@
 """
-DataScheduler — core/steps/oracle_extract.py
-Étape : connexion Oracle, exécution SQL, export CSV vers fichier temporaire.
+DataScheduler — core/steps/db_extract.py
+Étape : connexion à une base (Oracle, MySQL, PostgreSQL, SQL Server), exécution SQL,
+export CSV vers fichier temporaire.
 """
 
 import tempfile
@@ -9,7 +10,8 @@ from pathlib import Path
 from .base import BaseStep, StepContext, StepResult
 
 
-class OracleExtractStep(BaseStep):
+class DbExtractStep(BaseStep):
+    PRODUCES = {"output_file"}
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
@@ -20,28 +22,29 @@ class OracleExtractStep(BaseStep):
 
         try:
             from database import db_manager as db
-            from core.oracle import OracleConnector, OracleExporter, config_from_profile
+            from core.sql_db import SqlConnector, SqlExporter, config_from_profile, get_profile_object
 
-            oracle_id = self.config.get("oracle_profile_id")
-            query_id  = self.config.get("sql_query_id")
+            db_type    = self.config.get("db_type", "ORACLE")
+            profile_id = self.config.get("profile_id")
+            query_id   = self.config.get("sql_query_id")
 
-            oracle_profile = db.get_oracle_profile(oracle_id)
-            sql_query      = db.get_sql_query(query_id)
+            profile   = get_profile_object(db_type, profile_id)
+            sql_query = db.get_sql_query(query_id)
 
-            if not oracle_profile:
-                result.error = f"Profil Oracle ID {oracle_id} introuvable."
+            if not profile:
+                result.error = f"Profil {db_type} ID {profile_id} introuvable."
                 return result
             if not sql_query:
                 result.error = f"Requête SQL ID {query_id} introuvable."
                 return result
 
-            ctx.log(f"Connexion Oracle : {oracle_profile.host}:{oracle_profile.port}")
-            progress("Connexion Oracle…", 10)
+            ctx.log(f"Connexion {db_type} : {profile.host}:{profile.port}")
+            progress("Connexion…", 10)
 
-            oracle_cfg = config_from_profile(oracle_profile)
-            connector  = OracleConnector(oracle_cfg)
+            cfg       = config_from_profile(db_type, profile)
+            connector = SqlConnector(cfg)
             connector.connect()
-            ctx.log("Connexion Oracle : OK")
+            ctx.log(f"Connexion {db_type} : OK")
 
             tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, prefix="ds_")
             tmp_path = Path(tmp.name)
@@ -53,7 +56,7 @@ class OracleExtractStep(BaseStep):
                 rows_done[0] = rows
                 progress(f"Export… {rows:,} lignes", min(25 + chunk_idx * 2, 75))
 
-            exporter = OracleExporter(
+            exporter = SqlExporter(
                 connector=connector,
                 sql=sql_query.sql_text,
                 output_path=tmp_path,
