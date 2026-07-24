@@ -31,7 +31,6 @@ a = Analysis(
         'ui',
         'ui.main_window',
         'ui.dialogs',
-        'ui.pipeline_dialog',
         'ui.styles',
 
         # ── oracledb (thin mode — pas de client Oracle requis) ──
