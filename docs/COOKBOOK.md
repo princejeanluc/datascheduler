@@ -9,8 +9,9 @@ elle ne réexplique pas le "pourquoi", juste le "comment, dans quel ordre, sans 
 ## Recette : ajouter un nouveau type d'étape (step)
 
 C'est l'opération la plus fréquente désormais que l'architecture est flexible. Reprenez ce
-patron dans l'ordre — c'est exactement celui suivi pour les 5 derniers steps ajoutés
-(`ORACLE_EXECUTE`, `FTP_DOWNLOAD`, `ORACLE_LOAD`, `EMAIL_NOTIFY`, `HTTP_REQUEST`).
+patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajoutés
+(`FTP_DOWNLOAD`, `EMAIL_NOTIFY`, `HTTP_REQUEST`, puis la généralisation `DB_EXTRACT`/
+`DB_EXECUTE`/`DB_LOAD` qui a remplacé les anciens steps Oracle-only).
 
 1. **`database/models.py`** — ajouter la valeur dans l'enum `StepType` :
    ```python
@@ -51,7 +52,7 @@ patron dans l'ordre — c'est exactement celui suivi pour les 5 derniers steps a
    - `StepTypeChooserDialog._build_ui`, dictionnaire `descriptions` : la phrase d'aide.
    - Une classe `_MonNouveauStepConfigDialog(_BaseStepConfigDialog)` — copiez la classe d'un step
      existant qui ressemble le plus à votre besoin (`_LocalCopyConfigDialog` si c'est simple,
-     `_OracleExecuteConfigDialog` si ça touche Oracle...) et adaptez les champs.
+     `_DbExecuteConfigDialog` si ça touche une base de données...) et adaptez les champs.
    - `_step_summary()` : la ligne résumée affichée dans la liste des étapes du pipeline.
    - `_open_config_dialog()`, dictionnaire `mapping` : enregistrer votre classe de dialogue.
 
@@ -63,7 +64,9 @@ patron dans l'ordre — c'est exactement celui suivi pour les 5 derniers steps a
 
 ## Recette : ajouter un nouveau type de profil réutilisable
 
-Suivre le patron `SmtpProfile`, qui est le plus récent :
+Suivre le patron `SmtpProfile` (le plus simple à lire) ou `DatabaseProfile` (si votre profil doit
+couvrir plusieurs variantes proches d'un même besoin — c'est le patron le plus récent, utilisé
+pour fusionner MySQL/PostgreSQL/SQL Server en une seule table plutôt qu'une par moteur) :
 
 1. **`database/models.py`** — nouvelle classe héritant de `Base`, avec `__tablename__`.
 2. **`database/db_manager.py`** :
@@ -129,8 +132,8 @@ with patch("database.db_manager.get_oracle_profile", return_value=MagicMock(host
     result = step.run(StepContext())
     print(result.success, result.error)
 ```
-C'est ainsi qu'ont été validés `OracleExecuteStep` (résolution de tokens, rowcount, garde-fou
-commit) et `OracleLoader` (construction du `INSERT`, conversion NaN→None) sans jamais toucher à
+C'est ainsi qu'ont été validés `DbExecuteStep` (résolution de tokens, rowcount, garde-fou
+commit) et `SqlLoader` (construction du `INSERT`, conversion NaN→None) sans jamais toucher à
 une vraie base Oracle ni au fichier applicatif réel.
 
 ## Recette : lancer et déboguer en local
@@ -193,8 +196,9 @@ supprimez le fichier `datascheduler.db`, relancez — `init_db()` en recrée un 
   vraiment été insérées/modifiées** — si le bloc appelle une procédure stockée qui fait le DML en
   interne, oracledb ne remonte que le résultat de l'appel du bloc lui-même, pas les lignes
   affectées par les instructions exécutées à l'intérieur. Ce n'est pas un bug de DataScheduler,
-  c'est un comportement du pilote Oracle. `ORACLE_EXECUTE`
-  (`core/steps/oracle_execute.py`) détecte ce cas via `core.oracle.is_plsql_block()` et log un
-  message honnête au lieu d'afficher un « 0 ligne(s) affectée(s) » trompeur. Si vous avez besoin
+  c'est un comportement du pilote Oracle. `DB_EXECUTE`
+  (`core/steps/db_execute.py`) détecte ce cas via `core.sql_db.is_plsql_block()` (réexporté depuis
+  `core.oracle.is_plsql_block()`, seul le connecteur Oracle a cette notion de bloc PL/SQL) et log
+  un message honnête au lieu d'afficher un « 0 ligne(s) affectée(s) » trompeur. Si vous avez besoin
   du nombre réel de lignes affectées par une procédure stockée, faites-le remonter explicitement
   via un paramètre `OUT` dans la procédure elle-même (Oracle ne l'expose pas autrement côté client).

@@ -40,6 +40,13 @@ elles peuvent ne plus être chargées (`DetachedInstanceError`). C'est pour ça 
 `get_pipelines()` utilise `joinedload(...)` : ça précharge les relations avant de fermer la
 session.
 
+**Deuxième usage, sans rapport avec l'ORM** : [core/sql_db.py](../core/sql_db.py) se sert de
+SQLAlchemy comme **client SQL générique** vers les bases de données *cibles* des pipelines
+(Oracle/MySQL/PostgreSQL/SQL Server) — `create_engine(url)` + `engine.connect()` +
+`conn.execute(text(sql))`, sans classes ORM ni modèle. C'est ce qui permet à un seul connecteur
+(`SqlConnector`) de parler à quatre moteurs différents : seule l'URL de connexion change de forme
+selon `db_type`, SQLAlchemy s'occupe de charger le bon pilote (`pymysql`, `psycopg2-binary`...).
+
 ## oracledb — parler à Oracle sans installer de client Oracle
 
 **Le problème qu'elle résout** : historiquement, parler à Oracle depuis Python demandait
@@ -57,16 +64,32 @@ fonctionne quand même (oracledb respecte l'interface DBAPI2 dont pandas a besoi
 émet un `UserWarning` à chaque appel pour le signaler. C'est ce warning que vous avez vu à
 l'usage — cosmétique, pas un bug, mais expliqué dans `docs/CONCEPTS.md` (section DBAPI2).
 
+## pymysql / psycopg2-binary / pyodbc / pymssql — parler à MySQL, PostgreSQL et SQL Server
+
+**Le problème qu'elle résout** : chaque SGBD a son propre protocole réseau — il faut un pilote
+DBAPI2 par moteur. C'est ce que fournissent ces quatre paquets, chacun pour un moteur (SQL Server
+en a même deux : `pyodbc` s'il trouve un pilote ODBC installé sur la machine, sinon repli sur
+`pymssql`, qui parle le protocole TDS directement en Python sans rien installer côté système).
+
+**Comment DataScheduler l'utilise** : jamais directement — [core/sql_db.py](../core/sql_db.py),
+`SqlConnector`, construit une URL SQLAlchemy (`create_engine(...)`) dont le préfixe change selon
+`db_type` (`mysql+pymysql://`, `postgresql+psycopg2://`, `mssql+pyodbc://` ou
+`mssql+pymssql://`) ; c'est SQLAlchemy qui choisit et charge le bon pilote ensuite. Oracle est le
+seul moteur qui n'a **pas** ce détour : `oracledb` est appelé directement par
+[core/oracle.py](../core/oracle.py) (historique — c'était le premier moteur supporté, avant la
+généralisation multi-SGBD), pas via SQLAlchemy.
+
 ## pandas — lire un gros résultat SQL/CSV sans exploser la mémoire
 
 **Le problème qu'elle résout** : charger 2 millions de lignes d'un coup en RAM avant de les
 écrire en CSV serait dangereux sur une machine bureautique.
 
 **Comment DataScheduler l'utilise** : `chunksize=` partout où un gros volume est en jeu —
-[core/oracle.py](../core/oracle.py), `OracleExporter.export()` (`pd.read_sql(..., chunksize=...)`)
-et `OracleLoader.load()` (`pd.read_csv(..., chunksize=...)`). Le résultat n'est plus un seul
-`DataFrame` mais un itérateur de petits `DataFrame` (les "chunks") — on les traite un par un et on
-les jette, la mémoire reste plate quel que soit le volume total.
+[core/oracle.py](../core/oracle.py) (`OracleExporter`/`OracleLoader`, spécifique Oracle) et
+[core/sql_db.py](../core/sql_db.py) (`SqlExporter`/`SqlLoader`, générique multi-moteur), tous en
+`pd.read_sql(..., chunksize=...)` / `pd.read_csv(..., chunksize=...)`. Le résultat n'est plus un
+seul `DataFrame` mais un itérateur de petits `DataFrame` (les "chunks") — on les traite un par un
+et on les jette, la mémoire reste plate quel que soit le volume total.
 
 ## PySide6 (Qt pour Python) — toute l'interface graphique
 

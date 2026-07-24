@@ -1,8 +1,8 @@
 # DataScheduler
 
 Application de bureau Windows permettant d'automatiser des pipelines de données : extraction et
-exécution Oracle, transferts FTP/FTPS/SFTP, notifications email, appels HTTP, scripts Python —
-enchaînés dans l'ordre de votre choix.  
+exécution SQL multi-SGBD (Oracle, MySQL, PostgreSQL, SQL Server), transferts FTP/FTPS/SFTP,
+notifications email, appels HTTP, scripts Python — enchaînés dans l'ordre de votre choix.  
 Développée avec Python 3 + PySide6, elle offre une interface graphique sombre aux couleurs d'Orange SA.
 
 > Pour un tour d'horizon technique complet (couches, modèle de données, comment ajouter un type
@@ -24,9 +24,9 @@ consommer le fichier produit par la précédente :
 
 | Étape | Rôle |
 |---|---|
-| `ORACLE_EXTRACT` | Exécute une requête SELECT, exporte le résultat en CSV |
-| `ORACLE_EXECUTE` | Exécute une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction |
-| `ORACLE_LOAD` | Charge un CSV dans une table Oracle |
+| `DB_EXTRACT` | Exécute une requête SELECT (Oracle/MySQL/PostgreSQL/SQL Server), exporte le résultat en CSV |
+| `DB_EXECUTE` | Exécute une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction |
+| `DB_LOAD` | Charge un CSV dans une table du SGBD cible |
 | `FTP_UPLOAD` | Envoie un fichier vers un serveur FTP/FTPS/SFTP |
 | `FTP_DOWNLOAD` | Récupère un fichier distant (source d'un pipeline) |
 | `LOCAL_COPY` | Copie un fichier localement, avec tokens de date |
@@ -34,8 +34,14 @@ consommer le fichier produit par la précédente :
 | `EMAIL_NOTIFY` | Envoie un email, pièce jointe optionnelle |
 | `HTTP_REQUEST` | Appelle une API REST / un webhook |
 
-Chaque type d'étape réutilisant des identifiants (Oracle, FTP, SMTP) s'appuie sur un **profil**
-créé une fois et réutilisable dans plusieurs pipelines.
+> Les anciens types `ORACLE_EXTRACT`/`ORACLE_EXECUTE`/`ORACLE_LOAD` sont dépréciés : les pipelines
+> existants qui les utilisaient encore sont migrés automatiquement vers leurs équivalents `DB_*`
+> au démarrage (voir `_migrate_oracle_steps_to_generic()` dans `database/db_manager.py`).
+
+Chaque type d'étape réutilisant des identifiants (base de données, FTP, SMTP) s'appuie sur un
+**profil** créé une fois et réutilisable dans plusieurs pipelines. Les connexions base de données
+passent par un **profil unifié** (`DatabaseProfile`) couvrant Oracle, MySQL, PostgreSQL et SQL
+Server, affiché dans une page "Connexions" commune.
 
 ---
 
@@ -45,6 +51,7 @@ créé une fois et réutilisable dans plusieurs pipelines.
 |---|---|
 | Python | 3.11 |
 | Oracle Instant Client | non requis (`python-oracledb` mode thin) |
+| Client MySQL / PostgreSQL / SQL Server natif | non requis (pilotes 100% Python : `pymysql`, `psycopg2-binary`, `pymssql` ; `pyodbc` optionnel si un pilote ODBC est déjà présent) |
 | Windows | 10 / 11 |
 
 ---
@@ -79,7 +86,8 @@ DataScheduler/
 ├── main.py                  # Point d'entrée — init DB + scheduler + UI
 │
 ├── core/
-│   ├── oracle.py            # OracleConnector + OracleExporter/OracleLoader (CSV chunked)
+│   ├── oracle.py            # OracleConnector + OracleExporter/OracleLoader (CSV chunked, Oracle)
+│   ├── sql_db.py            # SqlConnector générique SQLAlchemy — Oracle/MySQL/PostgreSQL/SQL Server
 │   ├── ftp.py               # FtpUploader (upload + download, FTP / FTPS / SFTP)
 │   ├── email.py             # EmailSender (SMTP)
 │   ├── pipeline.py          # run_pipeline() — exécuteur séquentiel de steps
@@ -97,7 +105,7 @@ DataScheduler/
 ├── ui/
 │   ├── main_window.py       # Fenêtre principale + navigation latérale + vues
 │   ├── step_editor.py       # Éditeur de pipeline : liste d'étapes + dialogues de config
-│   ├── dialogs.py           # Dialogues de profils (Oracle/FTP/SMTP), SQL, progression
+│   ├── dialogs.py           # Dialogues de profils (DB unifié/FTP/SMTP), SQL, progression
 │   └── styles.py            # Palette couleurs (charte Orange SA #FF7900)
 │
 ├── docs/                    # Architecture, librairies, concepts, cookbook d'extension
@@ -158,9 +166,12 @@ pyinstaller DataScheduler.spec
 |---|---|
 | `PySide6` | Interface graphique Qt6 |
 | `qtawesome` | Icônes Font Awesome dans l'UI |
-| `sqlalchemy` | ORM + SQLite |
+| `sqlalchemy` | ORM + SQLite, et connecteur générique multi-SGBD (`core/sql_db.py`) |
 | `oracledb` | Pilote Oracle (mode thin, sans client Oracle) |
-| `pandas` | Export CSV chunked depuis Oracle |
+| `pymysql` | Pilote MySQL |
+| `psycopg2-binary` | Pilote PostgreSQL |
+| `pyodbc` / `pymssql` | Pilote SQL Server (ODBC si présent, sinon repli TDS pur Python) |
+| `pandas` | Export/chargement CSV chunked (`DB_EXTRACT`/`DB_LOAD`) |
 | `apscheduler` | Planificateur de tâches cron |
 | `paramiko` | SFTP sécurisé |
 | `requests` | Appels HTTP (étape `HTTP_REQUEST`) |

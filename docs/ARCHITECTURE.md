@@ -9,8 +9,8 @@
 ## En une phrase
 
 Une appli desktop Windows (PySide6, packagée en `.exe` via PyInstaller) qui exécute des
-**pipelines** — des suites d'étapes configurables (Oracle, FTP, email, HTTP, scripts…) — à la
-demande ou selon une planification, avec un historique complet en SQLite.
+**pipelines** — des suites d'étapes configurables (base de données multi-SGBD, FTP, email, HTTP,
+scripts…) — à la demande ou selon une planification, avec un historique complet en SQLite.
 
 ## Les 4 couches, et la règle qui les tient ensemble
 
@@ -30,9 +30,9 @@ sans lancer l'UI).
 
 Concrètement, un import typique :
 ```python
-# core/steps/oracle_execute.py
+# core/steps/db_execute.py
 from database import db_manager as db      # ✅ core → database
-from core.oracle import OracleConnector     # ✅ core → core
+from core.sql_db import SqlConnector        # ✅ core → core
 
 # ui/main_window.py
 from database import db_manager as db      # ✅ ui → database
@@ -45,9 +45,10 @@ Tables SQLite (définies dans [database/models.py](../database/models.py)), tout
 SQLAlchemy :
 
 ```
-OracleProfile ──┐
-FtpProfile     ──┼──< SqlQuery (optionnel, lié à un OracleProfile)
-SmtpProfile    ──┘
+OracleProfile     ──┐
+DatabaseProfile    ──┼──< SqlQuery (optionnel, lié à un OracleProfile)
+FtpProfile         ──┤
+SmtpProfile        ──┘
                                     ┌──< PipelineStep (step_type, config_json)
 Pipeline ───────────────────────────┤
                                     └──< PipelineRun (historique d'exécution)
@@ -57,6 +58,12 @@ Pipeline ───────────────────────�
   entre plusieurs pipelines (host/port/user/password + spécificités par protocole). Trois classes
   quasi identiques, volontairement : c'est plus simple à lire que de les factoriser derrière une
   abstraction commune pour trois lignes de différence.
+- **`DatabaseProfile`** — le profil de connexion **générique** pour les moteurs non-Oracle
+  (MySQL/PostgreSQL/SQL Server), ajouté avec la généralisation multi-SGBD des steps `DB_*`. Oracle
+  garde volontairement sa propre table (`OracleProfile`) : ses champs `service_name`/`sid`/
+  `auth_mode` sont trop spécifiques pour être généralisés proprement. Dans l'UI, les deux profils
+  sont fusionnés en une liste unique et légère (page "Connexions", voir
+  `db_manager.list_all_db_profiles()`), mais restent deux tables distinctes en base.
 - **`SqlQuery`** — une requête SQL/PLSQL nommée et réutilisable, rattachée (optionnellement) à un
   profil Oracle par défaut.
 - **`Pipeline`** — le conteneur nommé, planifié (`frequency`, `cron_expression`,
@@ -93,7 +100,7 @@ mis, et y écrit ce que la suivante pourra lire — c'est le seul canal de commu
 **2. Le registre** ([core/steps/\_\_init\_\_.py](../core/steps/__init__.py))
 ```python
 _REGISTRY = {
-    "ORACLE_EXTRACT": OracleExtractStep,
+    "DB_EXTRACT":     DbExtractStep,
     "FTP_UPLOAD":     FtpUploadStep,
     ...
 }
@@ -133,7 +140,7 @@ La différence entre les deux déclencheurs est **qui** appelle `run_pipeline` e
 thread** :
 - Un clic UI passe par [ui/dialogs.py](../ui/dialogs.py) `RunProgressDialog`, qui lance
   l'exécution dans un `QThread` dédié — sinon l'interface se figerait pendant toute la durée du
-  pipeline (surtout gênant pour un `ORACLE_EXTRACT` de plusieurs minutes).
+  pipeline (surtout gênant pour un `DB_EXTRACT` de plusieurs minutes).
 - Un déclenchement planifié passe par `PipelineScheduler` ([core/scheduler.py](../core/scheduler.py)),
   qui tourne déjà sur son propre thread de fond (APScheduler `BackgroundScheduler`).
 
@@ -170,10 +177,16 @@ table). Le jour où il faudra une migration destructive (renommer/supprimer une 
 n'a pas d'`ALTER COLUMN` — il faut reconstruire la table (déjà fait une fois pour `pipelines`,
 voir `_migrate()`).
 
-La fonction `_migrate_legacy_pipelines()` mérite une mention : elle convertit automatiquement,
-au démarrage, les anciens pipelines "v0.1.0" (Oracle→FTP figé sur les colonnes legacy de
-`Pipeline`) en `PipelineStep` équivalents — pour qu'un utilisateur qui avait déjà des pipelines
-avant l'architecture à base de steps ne perde rien en mettant à jour l'appli.
+Deux fonctions de migration au démarrage méritent une mention, toutes deux dans le même esprit
+"un utilisateur qui met à jour l'appli ne doit rien perdre ni rien reconfigurer" :
+- `_migrate_legacy_pipelines()` convertit les anciens pipelines "v0.1.0" (Oracle→FTP figé sur les
+  colonnes legacy de `Pipeline`) en `PipelineStep` équivalents, pour les utilisateurs qui avaient
+  déjà des pipelines avant l'architecture à base de steps.
+- `_migrate_oracle_steps_to_generic()` réécrit les `PipelineStep` encore sur les anciens types
+  `ORACLE_EXTRACT`/`ORACLE_EXECUTE`/`ORACLE_LOAD` (dépréciés depuis la généralisation multi-SGBD)
+  vers les types génériques `DB_EXTRACT`/`DB_EXECUTE`/`DB_LOAD`, en ajoutant `"db_type": "ORACLE"`
+  dans leur `config_json` pour que le connecteur générique (`core/sql_db.py`) sache quel moteur
+  utiliser.
 
 ## Packaging
 
@@ -201,6 +214,8 @@ database/
   db_manager.py            init_db(), migrations, et un helper CRUD par entité
 core/
   oracle.py                Connexion Oracle + export CSV (OracleExporter) + chargement (OracleLoader)
+  sql_db.py                SqlConnector générique SQLAlchemy — Oracle/MySQL/PostgreSQL/SQL Server,
+                            utilisé par les steps DB_EXTRACT/DB_EXECUTE/DB_LOAD
   ftp.py                   Upload/download FTP-FTPS-SFTP
   email.py                 Envoi SMTP
   pipeline.py              run_pipeline() — l'exécuteur séquentiel de steps
@@ -212,7 +227,7 @@ core/
 ui/
   main_window.py           Fenêtre principale, navigation, les 5 vues (Dashboard, Pipelines, ...)
   step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
-  dialogs.py               Dialogues de profils (Oracle/FTP/SMTP) + requêtes SQL + run/log
+  dialogs.py               Dialogues de profils (DB unifié/FTP/SMTP) + requêtes SQL + run/log
   styles.py                Palette de couleurs + feuilles de style Qt (QSS)
 DataScheduler.spec         Configuration PyInstaller
 requirements.txt           Dépendances Python

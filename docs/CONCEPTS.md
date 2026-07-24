@@ -9,15 +9,15 @@ vous-même.
 
 ## Le pattern registre (registry) — l'idée la plus importante du projet
 
-**Le problème** : on veut pouvoir ajouter un nouveau type d'étape (`ORACLE_EXECUTE`,
+**Le problème** : on veut pouvoir ajouter un nouveau type d'étape (`DB_EXECUTE`,
 `HTTP_REQUEST`...) sans modifier le code qui *exécute* les pipelines. Si l'exécuteur devait faire
-`if step_type == "ORACLE_EXTRACT": ... elif step_type == "FTP_UPLOAD": ...`, chaque ajout
+`if step_type == "DB_EXTRACT": ... elif step_type == "FTP_UPLOAD": ...`, chaque ajout
 obligerait à retoucher cette fonction centrale — risque de régression sur tout ce qui existe déjà.
 
 **La solution** : un dictionnaire qui associe un nom à une classe, rempli une fois, consulté
 partout ([core/steps/\_\_init\_\_.py](../core/steps/__init__.py)) :
 ```python
-_REGISTRY = {"ORACLE_EXTRACT": OracleExtractStep, "FTP_UPLOAD": FtpUploadStep, ...}
+_REGISTRY = {"DB_EXTRACT": DbExtractStep, "FTP_UPLOAD": FtpUploadStep, ...}
 
 def get_step(step_type: str, config: dict) -> BaseStep:
     return _REGISTRY[step_type](config)
@@ -50,9 +50,13 @@ chaque type différemment.
 
 Vous remarquerez que ce projet n'utilise l'héritage que pour une seule chose : `BaseStep`. Pas de
 hiérarchies de classes profondes ailleurs, pas d'abstraction pour l'abstraction. `OracleProfile`,
-`FtpProfile`, `SmtpProfile` sont trois classes séparées, presque identiques, plutôt qu'une classe
-abstraite `Profile` dont elles hériteraient — délibérément, parce que factoriser 3 champs communs
-sur 6 aurait ajouté de l'indirection pour un gain minuscule. Retenez la leçon inverse de
+`DatabaseProfile`, `FtpProfile`, `SmtpProfile` sont des classes séparées, presque identiques,
+plutôt qu'une classe abstraite `Profile` dont elles hériteraient — délibérément, parce que
+factoriser 3-4 champs communs aurait ajouté de l'indirection pour un gain minuscule. `DatabaseProfile`
+va même plus loin dans cette logique : plutôt qu'une classe par moteur (MySQL, PostgreSQL, SQL
+Server), une seule table couvre les trois car leur forme de connexion (host/port/user/password/
+nom de base) est réellement identique — seul Oracle, dont le DSN a une forme différente
+(service_name/SID), garde sa propre table. Retenez la leçon inverse de
 "toujours factoriser dès que ça se ressemble" : dupliquer un peu est parfois plus lisible que
 factoriser trop tôt. Le code du projet lui-même applique ce principe (voir la règle donnée à
 l'assistant : "trois lignes similaires valent mieux qu'une abstraction prématurée").
@@ -113,7 +117,10 @@ des `enum.Enum` : au lieu d'écrire `"SUCCESS"` en dur un peu partout (avec le r
 faute de frappe qui ne sera détectée qu'à l'exécution), on écrit `PipelineStatus.SUCCESS` — un nom
 que l'éditeur peut autocompléter et vérifier. Le fait d'hériter aussi de `str`
 (`class StepType(str, enum.Enum)`) est un détail pratique : ça permet de comparer directement
-`step_type == "ORACLE_EXTRACT"` sans conversion, tout en gardant les avantages de l'enum.
+`step_type == "DB_EXTRACT"` sans conversion, tout en gardant les avantages de l'enum. C'est aussi
+ce qui permet à `StepType` de porter les anciennes valeurs dépréciées (`ORACLE_EXTRACT` &
+consorts) sans casser leur lecture depuis une base existante — voir `docs/ARCHITECTURE.md`,
+section migrations.
 
 ## « Ne jamais lever d'exception, toujours retourner un résultat »
 
@@ -183,6 +190,6 @@ recette d'ajout d'une nouvelle migration.
 Le principe général derrière la structure `database/` / `core/` / `core/steps/` / `ui/` (détaillé
 dans `docs/ARCHITECTURE.md`) : chaque couche a une seule responsabilité, et ne connaît que celle
 juste en-dessous d'elle. Le bénéfice concret que vous avez vu cette session : on a pu écrire et
-**tester** chaque nouveau step (`ORACLE_EXECUTE`, `HTTP_REQUEST`...) en les important
+**tester** chaque nouveau step (`DB_EXECUTE`, `HTTP_REQUEST`...) en les important
 directement dans un script Python, sans jamais lancer l'interface graphique — impossible si
 la logique métier était mélangée avec le code Qt.
