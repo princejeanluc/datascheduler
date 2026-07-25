@@ -53,6 +53,11 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
    - Une classe `_MonNouveauStepConfigDialog(_BaseStepConfigDialog)` — copiez la classe d'un step
      existant qui ressemble le plus à votre besoin (`_LocalCopyConfigDialog` si c'est simple,
      `_DbExecuteConfigDialog` si ça touche une base de données...) et adaptez les champs.
+     **Piège déjà rencontré** : `_open_config_dialog()` passe un seul dict `kwargs` partagé,
+     identique, à toutes les classes de dialogue — la vôtre doit soit accepter `**_` en fin de
+     signature (le plus simple, voir `_LocalCopyConfigDialog`), soit lister explicitement tous les
+     paramètres du dict (`prior_steps` compris). Une signature explicite qui en oublie un lève un
+     `TypeError: unexpected keyword argument` à la première ouverture du dialogue.
    - `_step_summary()` : la ligne résumée affichée dans la liste des étapes du pipeline.
    - `_open_config_dialog()`, dictionnaire `mapping` : enregistrer votre classe de dialogue.
 
@@ -61,6 +66,45 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
 
 6. **Tester sans lancer l'UI** (voir la recette "tester sans polluer vos vraies données" plus
    bas) — c'est la façon la plus rapide de valider la logique avant de toucher aux dialogues Qt.
+
+## Recette : lire/écrire le contexte depuis un script (PYTHON_SCRIPT)
+
+Un script lancé par l'étape `PYTHON_SCRIPT` tourne dans son propre process, avec son propre
+interpréteur/environnement — voulu, pour ne jamais mélanger ses dépendances avec celles de
+DataScheduler. Il n'a donc pas d'accès direct à `ctx` (l'objet Python `StepContext` ne franchit
+jamais la frontière du process). Le pont : deux tokens facultatifs, `{ds_context_in}` et
+`{ds_context_out}`, à placer dans le champ "Arguments" du step exactement comme `{output_file}` ou
+`{yyyy}` — voir `core/steps/python_script.py`, `PythonScriptStep.run()`.
+
+**Toujours passés en argument de ligne de commande, jamais en variable d'environnement** —
+certains postes cibles nécessitent un accès admin/helpdesk pour modifier une variable
+d'environnement système, même si un `env=` passé à un unique sous-processus ne l'exigerait pas
+techniquement ; l'argument évite toute ambiguïté.
+
+Si votre script référence `{ds_context_in}`, il reçoit le chemin d'un fichier JSON à lire :
+```json
+{
+  "artifacts": {"output_file": "C:/tmp/ds_xxx.csv", "b18f...": "C:/tmp/ds_yyy.csv"},
+  "rows_count": 12345
+}
+```
+`artifacts` contient tout ce que les étapes précédentes ont déjà produit, par nom. Si votre script
+référence `{ds_context_out}`, vous pouvez (facultatif) y écrire un JSON similaire — chaque entrée de
+son `artifacts` est fusionnée dans le contexte réel après l'exécution :
+```json
+{"artifacts": {"output_file": "C:/tmp/mon_resultat.csv"}}
+```
+Publier sous la clé `"output_file"` fait consommer votre résultat par l'étape suivante exactement
+comme n'importe quel autre step producteur (comportement par défaut du sélecteur "Source" —
+voir `docs/ARCHITECTURE.md`, section StepContext). Publier sous un autre nom fonctionne aussi (le
+contexte le retient), mais ce nom n'apparaîtra pas dans le sélecteur "Source" des dialogues suivants
+tant qu'aucune interface ne l'expose — à récupérer pour l'instant via un autre `PYTHON_SCRIPT` qui
+lit ce même nom dans son propre `{ds_context_in}`.
+
+Un script qui ne référence ni l'un ni l'autre token n'est pas concerné : son `argv` est strictement
+identique à ce qu'il aurait reçu avant l'existence de ce contrat. Un JSON de sortie absent ou
+invalide n'échoue pas le step (juste un avertissement loggé) — le code de retour du process reste
+le seul signal d'échec/réussite.
 
 ## Recette : ajouter un nouveau type de profil réutilisable
 

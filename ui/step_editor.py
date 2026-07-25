@@ -1396,7 +1396,8 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         self.txt_args = QPlainTextEdit()
         self.txt_args.setFont(QFont("Consolas", 11))
         self.txt_args.setPlaceholderText(
-            "--date {yyyyMMdd}\n--input {output_file}\n--mode production"
+            "--date {yyyyMMdd}\n--input {output_file}\n--mode production\n"
+            "--context-in {ds_context_in}\n--context-out {ds_context_out}"
         )
         self.txt_args.setFixedHeight(110)
         self.txt_args.setStyleSheet(
@@ -1405,12 +1406,24 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         )
         root.addWidget(self.txt_args)
 
-        hint = QLabel("Tokens disponibles : " + TOKENS_HINT)
+        hint = QLabel("Tokens disponibles : " + TOKENS_HINT + "  {ds_context_in}  {ds_context_out}")
         hint.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 10px; font-family: Consolas; font-style: italic;"
         )
         hint.setWordWrap(True)
         root.addWidget(hint)
+
+        context_hint = QLabel(
+            "{ds_context_in} / {ds_context_out} : chemins de fichiers JSON facultatifs pour lire "
+            "les artefacts déjà produits et en publier de nouveaux vers les étapes suivantes "
+            "(voir docs/COOKBOOK.md). Ignorés si non référencés — aucun changement pour un script "
+            "existant."
+        )
+        context_hint.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;"
+        )
+        context_hint.setWordWrap(True)
+        root.addWidget(context_hint)
 
         form2 = self._form()
         self.inp_workdir = self._input("Dossier de travail (optionnel)")
