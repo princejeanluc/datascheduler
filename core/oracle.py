@@ -427,11 +427,12 @@ def config_from_profile(profile) -> OracleConfig:
         cfg = config_from_profile(db_profile)
         connector = OracleConnector(cfg)
     """
+    from database import crypto
     return OracleConfig(
         host=profile.host,
         port=profile.port,
         username=profile.username,
-        password=profile.password,
+        password=crypto.decrypt(profile.password),
         service_name=profile.service_name,
         sid=profile.sid,
         auth_mode=getattr(profile, "auth_mode", "DEFAULT") or "DEFAULT",

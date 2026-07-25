@@ -317,12 +317,13 @@ class FtpUploader:
 # ──────────────────────────────────────────────
 
 def config_from_profile(profile) -> FtpConfig:
+    from database import crypto
     proto = profile.protocol.value if hasattr(profile.protocol, "value") else str(profile.protocol)
     return FtpConfig(
         host=profile.host,
         port=profile.port,
         username=profile.username,
-        password=profile.password,
+        password=crypto.decrypt(profile.password),
         protocol=proto,
     )
 

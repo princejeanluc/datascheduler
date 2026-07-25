@@ -33,5 +33,19 @@ paramiko==3.5.0
 # Appels HTTP (étape HTTP_REQUEST)
 requests==2.32.3
 
+# Chiffrement des mots de passe stockés en base (déjà présent en transitif via
+# paramiko, épinglé en direct car database/crypto.py en dépend explicitement).
+# Borne minimale plutôt que version exacte : l'API Fernet utilisée ici est stable
+# depuis longtemps, et une version exacte trop récente peut être absente d'un
+# miroir PyPI d'entreprise qui n'a pas encore synchronisé les toutes dernières sorties.
+cryptography>=41.0.0
+
+# Stockage de la clé maître dans le Gestionnaire d'identification Windows (DPAPI).
+# Même remarque : borne minimale, l'API get_password/set_password est stable.
+keyring>=24.0.0
+
 # Packaging Windows
 pyinstaller==6.11.1
+
+# Tests — borne minimale, l'API de fixtures utilisée est stable de longue date.
+pytest>=7.0.0
