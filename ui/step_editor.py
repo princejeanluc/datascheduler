@@ -1040,7 +1040,8 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
-                 retry_count: int = 0, run_always: bool = False):
+                 retry_count: int = 0, run_always: bool = False,
+                 prior_steps=None):
         super().__init__(config, parent, label, retry_count, run_always)
         self._db_profiles = db_profiles or []
         self._sql_queries  = sql_queries or []
@@ -1518,7 +1519,8 @@ class _DbExecuteConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
-                 retry_count: int = 0, run_always: bool = False):
+                 retry_count: int = 0, run_always: bool = False,
+                 prior_steps=None):
         super().__init__(config, parent, label, retry_count, run_always)
         self._db_profiles = db_profiles or []
         self._sql_queries  = sql_queries or []
