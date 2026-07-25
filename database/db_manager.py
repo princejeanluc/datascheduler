@@ -7,6 +7,7 @@ Fournit :
 """
 
 import os
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -195,6 +196,27 @@ def _migrate(engine) -> None:
                     )
             if rows:
                 conn.commit()
+
+        # Identité stable (UUID) — prérequis à l'export/import (chantier 5). Chacune des
+        # trois étapes (colonne / backfill / index) est indépendamment idempotente.
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles",
+                      "database_profiles", "sql_queries", "pipelines"):
+            cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+            if "uuid" not in cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN uuid VARCHAR(36)"))
+                conn.commit()
+
+            rows = conn.execute(text(f"SELECT id FROM {table} WHERE uuid IS NULL")).fetchall()
+            for (row_id,) in rows:
+                conn.execute(
+                    text(f"UPDATE {table} SET uuid = :u WHERE id = :id"),
+                    {"u": str(uuid.uuid4()), "id": row_id},
+                )
+            if rows:
+                conn.commit()
+
+            conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"))
+            conn.commit()
 
 
 def init_db(db_path: Path = None) -> None:

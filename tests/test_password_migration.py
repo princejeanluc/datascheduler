@@ -7,17 +7,32 @@ clair d'une base créée avant l'introduction du chiffrement au repos.
 from sqlalchemy import create_engine, text
 
 from database import crypto, db_manager as db
-from database.models import Base
 
 
 def test_migrate_encrypts_plaintext_passwords(tmp_path):
     db_path = tmp_path / "legacy.db"
     engine = create_engine(f"sqlite:///{db_path}")
-    Base.metadata.create_all(engine)
 
-    # Simule une base pré-chiffrement : mot de passe inséré directement en clair,
-    # en contournant crypto.encrypt().
+    # Simule une vraie base pré-chiffrement (et pré-UUID) : table dans sa forme d'origine,
+    # mot de passe inséré directement en clair, en contournant crypto.encrypt(). On ne
+    # passe pas par Base.metadata.create_all() ici, qui reflète le schéma actuel (uuid
+    # NOT NULL compris) — ce test isole spécifiquement la migration de chiffrement.
     with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE oracle_profiles (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         VARCHAR(100) NOT NULL UNIQUE,
+                host         VARCHAR(255) NOT NULL,
+                port         INTEGER NOT NULL DEFAULT 1521,
+                service_name VARCHAR(100),
+                sid          VARCHAR(100),
+                username     VARCHAR(100) NOT NULL,
+                password     VARCHAR(255) NOT NULL,
+                auth_mode    VARCHAR(20) NOT NULL DEFAULT 'DEFAULT',
+                created_at   DATETIME,
+                updated_at   DATETIME
+            )
+        """))
         conn.execute(text(
             "INSERT INTO oracle_profiles (name, host, port, username, password, auth_mode) "
             "VALUES ('LEGACY', 'h', 1521, 'u', 'plain_secret', 'DEFAULT')"
