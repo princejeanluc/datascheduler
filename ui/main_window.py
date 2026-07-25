@@ -590,7 +590,7 @@ class PipelinesView(QWidget):
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
-        self.table.setColumnWidth(5, 150)
+        self.table.setColumnWidth(5, 186)
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
@@ -658,14 +658,16 @@ class PipelinesView(QWidget):
                     f"border-radius: 4px; background: transparent; }}"
                     f"QPushButton:hover {{ background: {COLORS['success']}; color: #000; }}"
                 )
-            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
-            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit   = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_export = _action_btn("fa5s.file-export", object_name="secondary", tooltip="Exporter")
+            btn_del    = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
             btn_toggle.clicked.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_pipeline(i))
+            btn_export.clicked.connect(lambda _, i=pid: self._on_export_pipeline(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             al.addWidget(btn_run); al.addWidget(btn_toggle)
-            al.addWidget(btn_edit); al.addWidget(btn_del); al.addStretch()
+            al.addWidget(btn_edit); al.addWidget(btn_export); al.addWidget(btn_del); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
 
@@ -682,6 +684,13 @@ class PipelinesView(QWidget):
         p = db.get_pipeline(pipeline_id)
         if p and PipelineEditorDialog(self, pipeline=p).exec():
             self.refresh()
+
+    def _on_export_pipeline(self, pipeline_id: int):
+        from database import db_manager as db
+        from ui.dialogs import PipelineExportDialog
+        p = db.get_pipeline(pipeline_id)
+        if p:
+            PipelineExportDialog(self, pipeline=p).exec()
 
     def _on_run_pipeline(self, pipeline_id: int):
         from database import db_manager as db

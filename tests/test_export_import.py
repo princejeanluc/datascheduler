@@ -1,0 +1,129 @@
+"""
+DataScheduler — tests/test_export_import.py
+Vérifie l'export de pipeline (chantier 5a) : forme du bundle, traduction des références de
+profil en UUID, chiffrement des secrets, et dégradation propre en cas de référence manquante.
+L'import n'existe pas encore (chantier 5b) — ces tests ne couvrent que l'export.
+"""
+
+import base64
+import json
+
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.fernet import Fernet
+
+from database import db_manager as db
+from database.export_import import export_pipeline, export_pipeline_to_file, CURRENT_SCHEMA_VERSION
+
+
+def _make_pipeline_with_oracle_extract(test_db):
+    profile = db.create_oracle_profile(
+        name="ORACLE_PROD", host="10.0.0.1", port=1521,
+        username="scott", password="tiger", service_name="PROD",
+    )
+    query = db.create_sql_query(name="VENTES", sql_text="SELECT * FROM ventes")
+    pipeline = db.create_pipeline(name="export-test", frequency="DAILY", scheduled_time="06:00")
+    db.save_steps(pipeline.id, [{
+        "step_type": "DB_EXTRACT",
+        "label": "Extraction ventes",
+        "config": {"db_type": "ORACLE", "profile_id": profile.id, "sql_query_id": query.id},
+        "retry_count": 0,
+        "run_always": False,
+    }])
+    return pipeline, profile, query
+
+
+def test_export_bundle_shape(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    bundle = result.bundle
+    assert bundle["schema_version"] == CURRENT_SCHEMA_VERSION
+    assert bundle["kind"] == "pipeline"
+    assert "app_version" in bundle and "exported_at" in bundle
+    assert bundle["pipeline"]["uuid"] == pipeline.uuid
+    assert bundle["pipeline"]["name"] == "export-test"
+    assert len(bundle["pipeline"]["steps"]) == 1
+    assert len(bundle["profiles"]["oracle"]) == 1
+    assert bundle["profiles"]["oracle"][0]["uuid"] == profile.uuid
+    assert len(bundle["sql_queries"]) == 1
+    assert bundle["sql_queries"][0]["uuid"] == query.uuid
+
+
+def test_export_translates_profile_references_to_uuid(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    step_config = result.bundle["pipeline"]["steps"][0]["config"]
+    assert step_config["profile_uuid"] == profile.uuid
+    assert step_config["sql_query_uuid"] == query.uuid
+    assert "profile_id" not in step_config
+    assert "sql_query_id" not in step_config
+    # La base locale, elle, ne doit jamais être modifiée par l'export.
+    assert json.loads(db.get_steps(pipeline.id)[0].config_json)["profile_id"] == profile.id
+
+
+def test_export_with_password_encrypts_only_password_field(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id, password="correct horse battery staple")
+
+    oracle_entry = result.bundle["profiles"]["oracle"][0]
+    assert oracle_entry["password_status"] == "encrypted"
+    assert oracle_entry["host"] == "10.0.0.1"          # en clair
+    assert oracle_entry["username"] == "scott"          # en clair
+    assert "tiger" not in json.dumps(result.bundle)     # le mot de passe en clair ne fuite nulle part
+
+    kdf_meta = result.bundle["kdf"]
+    salt = base64.b64decode(kdf_meta["salt"])
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=kdf_meta["iterations"])
+    key = base64.urlsafe_b64encode(kdf.derive(b"correct horse battery staple"))
+    fernet = Fernet(key)
+    assert fernet.decrypt(oracle_entry["encrypted_password"].encode()).decode() == "tiger"
+
+
+def test_export_without_password_omits_secrets(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    oracle_entry = result.bundle["profiles"]["oracle"][0]
+    assert oracle_entry["password_status"] == "omitted"
+    assert "encrypted_password" not in oracle_entry
+    assert "kdf" not in result.bundle
+
+
+def test_export_flags_dangling_profile_reference(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+    db.delete_oracle_profile(profile.id)
+
+    result = export_pipeline(pipeline.id)
+
+    assert result.success
+    assert len(result.warnings) == 1
+    assert "introuvable" in result.warnings[0]
+    step_config = result.bundle["pipeline"]["steps"][0]["config"]
+    assert step_config["profile_uuid"] is None
+    assert result.bundle["profiles"]["oracle"] == []
+
+
+def test_export_nonexistent_pipeline_fails_cleanly(test_db):
+    result = export_pipeline(999_999)
+    assert not result.success
+    assert result.bundle is None
+    assert "introuvable" in result.error
+
+
+def test_export_pipeline_to_file_writes_readable_json(test_db, tmp_path):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+    out_path = tmp_path / "export-test.dspipeline"
+
+    result = export_pipeline_to_file(pipeline.id, out_path, password="hunter2")
+
+    assert result.success
+    assert out_path.exists()
+    on_disk = json.loads(out_path.read_text(encoding="utf-8"))
+    assert on_disk["pipeline"]["uuid"] == pipeline.uuid
