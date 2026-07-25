@@ -28,15 +28,15 @@ a = Analysis(
         'core.oracle',
         'core.sql_db',
         'core.ftp',
+        'core.email',
         'ui',
         'ui.main_window',
         'ui.dialogs',
+        'ui.step_editor',
         'ui.styles',
 
         # ── oracledb (thin mode — pas de client Oracle requis) ──
         *oracledb_hidden,
-        'oracledb.impl',
-        'oracledb.impl.python',
         *collect_submodules('oracledb'),
 
         # ── SSL / crypto (requis par oracledb thin mode) ──
@@ -82,7 +82,8 @@ a = Analysis(
         *collect_submodules('paramiko'),
         *collect_submodules('cryptography'),
         'bcrypt',
-        'pynacl',
+        'nacl',
+        *collect_submodules('nacl'),
 
         # ── Requests (étape HTTP_REQUEST) ──
         'requests',
