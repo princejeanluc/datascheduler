@@ -4,6 +4,7 @@ DataScheduler — ui/step_editor.py
 """
 
 import json
+import uuid
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea,
@@ -427,6 +428,7 @@ class PipelineEditorDialog(QDialog):
             step_type, {}, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles, self._db_profiles,
+            prior_steps=self._steps_data,
         )
         if config_dlg and config_dlg.exec():
             self._steps_data.append(config_dlg.result_step())
@@ -442,6 +444,7 @@ class PipelineEditorDialog(QDialog):
             label=step.get("label", ""),
             retry_count=step.get("retry_count", 0),
             run_always=step.get("run_always", False),
+            prior_steps=self._steps_data[:idx],
         )
         if config_dlg and config_dlg.exec():
             self._steps_data[idx] = config_dlg.result_step()
@@ -799,10 +802,17 @@ class _BaseStepConfigDialog(QDialog):
         self.setStyleSheet(DIALOG_STYLE)
 
     def result_step(self) -> dict:
+        config = self._collect_config()
+        # Clé stable de l'étape, conservée à travers les réenregistrements — voir
+        # docs/ARCHITECTURE.md. Contrairement à PipelineStep.id (réattribué à chaque
+        # save_steps()), cette clé voyage avec le config_json, donc survit au cycle
+        # delete/recreate. Utilisée pour cibler explicitement "la sortie de cette
+        # étape précise" depuis une étape consommatrice ultérieure (voir _source_row).
+        config["_step_key"] = self._config.get("_step_key") or str(uuid.uuid4())
         return {
             "step_type":   self.STEP_TYPE,
             "label":       self._get_label(),
-            "config":      self._collect_config(),
+            "config":      config,
             "retry_count": self.inp_retry.value() if hasattr(self, "inp_retry") else 0,
             "run_always":  self.chk_run_always.isChecked() if hasattr(self, "chk_run_always") else False,
         }
@@ -880,6 +890,29 @@ class _BaseStepConfigDialog(QDialog):
         row.addWidget(btn_new)
         w = QWidget(); w.setLayout(row)
         form.addRow(self._lbl(label), w)
+        return cb
+
+    def _source_row(self, form: QFormLayout, prior_steps: list) -> QComboBox:
+        """
+        Sélecteur de source explicite : par défaut "étape précédente" (comportement
+        historique, ctx.output_file tel que rempli par la dernière étape productrice),
+        ou une étape productrice antérieure précise (ctx.artifacts[son _step_key]) —
+        utile dès qu'un pipeline contient plusieurs étapes productrices (ex: deux
+        DB_EXTRACT) et qu'une étape en aval doit choisir laquelle consommer.
+        """
+        from core.steps import get_step_requirements
+        cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+        cb.addItem("Étape précédente (par défaut)", None)
+        for i, s in enumerate(prior_steps or []):
+            _, produces = get_step_requirements(s.get("step_type", ""))
+            if "output_file" not in produces:
+                continue
+            key = (s.get("config") or {}).get("_step_key")
+            if not key:
+                continue
+            label = s.get("label") or f"Étape {i + 1} — {STEP_META.get(s['step_type'], {}).get('label', s['step_type'])}"
+            cb.addItem(label, key)
+        form.addRow(self._lbl("Source"), cb)
         return cb
 
     @staticmethod
@@ -1130,9 +1163,11 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
-                 retry_count: int = 0, run_always: bool = False):
+                 retry_count: int = 0, run_always: bool = False,
+                 prior_steps=None):
         super().__init__(config, parent, label, retry_count, run_always)
         self._ftp_profiles = ftp_profiles or []
+        self._prior_steps  = prior_steps or []
         self.setWindowTitle("Étape — Envoi FTP")
         self._build_ui()
         self._prefill()
@@ -1151,6 +1186,7 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
             self._ftp_profiles, "— Sélectionner un profil FTP —",
             self._new_ftp_profile,
         )
+        self.cb_source = self._source_row(form, self._prior_steps)
         self.inp_path = self._input("ex : /export/{yyyy}/{MM}/")
         self.inp_file = self._input("ex : ventes_{yyyyMMdd}.csv")
         form.addRow(self._lbl("Dossier distant *"), self.inp_path)
@@ -1185,6 +1221,7 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
     def _prefill(self):
         c = self._config
         self._set_combo(self.cb_ftp, c.get("ftp_profile_id"))
+        self._set_combo(self.cb_source, c.get("reads_from_step_key"))
         self.inp_path.setText(c.get("remote_path_tpl", ""))
         self.inp_file.setText(c.get("filename_tpl", ""))
         self._refresh_preview()
@@ -1200,9 +1237,10 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
 
     def _collect_config(self) -> dict:
         return {
-            "ftp_profile_id":  self.cb_ftp.currentData(),
-            "remote_path_tpl": self.inp_path.text().strip(),
-            "filename_tpl":    self.inp_file.text().strip(),
+            "ftp_profile_id":     self.cb_ftp.currentData(),
+            "remote_path_tpl":    self.inp_path.text().strip(),
+            "filename_tpl":       self.inp_file.text().strip(),
+            "reads_from_step_key": self.cb_source.currentData(),
         }
 
     def _on_ok(self):
@@ -1229,6 +1267,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
                           run_always=_.get("run_always", False))
+        self._prior_steps = _.get("prior_steps") or []
         self.setWindowTitle("Étape — Copie locale")
         self._build_ui()
         self._prefill()
@@ -1242,6 +1281,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         form = self._form()
         self._add_label_row(form)
         self._add_execution_policy_row(form)
+        self.cb_source = self._source_row(form, self._prior_steps)
 
         # Dossier destination
         self.inp_dest = self._input("ex : C:/backup/{yyyy}/{MM}/")
@@ -1286,6 +1326,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
 
     def _prefill(self):
         c = self._config
+        self._set_combo(self.cb_source, c.get("reads_from_step_key"))
         self.inp_dest.setText(c.get("dest_dir", ""))
         self.inp_file.setText(c.get("filename_tpl", ""))
         self._refresh_preview()
@@ -1294,6 +1335,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         return {
             "dest_dir":     self.inp_dest.text().strip(),
             "filename_tpl": self.inp_file.text().strip(),
+            "reads_from_step_key": self.cb_source.currentData(),
         }
 
     def _on_ok(self):
@@ -1692,9 +1734,11 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
-                 retry_count: int = 0, run_always: bool = False):
+                 retry_count: int = 0, run_always: bool = False,
+                 prior_steps=None):
         super().__init__(config, parent, label, retry_count, run_always)
         self._db_profiles = db_profiles or []
+        self._prior_steps = prior_steps or []
         self.setWindowTitle("Étape — Chargement base de données")
         self._build_ui()
         self._prefill()
@@ -1709,6 +1753,7 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         self._add_label_row(form)
         self._add_execution_policy_row(form)
         self.cb_profile = self._db_profile_row(form, "Profil *", self._db_profiles)
+        self.cb_source = self._source_row(form, self._prior_steps)
         self.inp_table = self._input("ex : VENTES_STAGING")
         form.addRow(self._lbl("Table cible *"), self.inp_table)
 
@@ -1734,6 +1779,7 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         c = self._config
         if c.get("db_type"):
             self._set_combo(self.cb_profile, (c.get("db_type"), c.get("profile_id")))
+        self._set_combo(self.cb_source, c.get("reads_from_step_key"))
         self.inp_table.setText(c.get("table_name", ""))
         self.chk_truncate.setChecked(c.get("truncate_before_load", False))
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
@@ -1747,6 +1793,7 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
             "table_name":           self.inp_table.text().strip(),
             "truncate_before_load": self.chk_truncate.isChecked(),
             "csv_chunk_size":       self.inp_chunk.value(),
+            "reads_from_step_key":  self.cb_source.currentData(),
         }
 
     def _on_ok(self):
@@ -1771,6 +1818,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
                           retry_count=_.get("retry_count", 0),
                           run_always=_.get("run_always", False))
         self._smtp_profiles = _.get("smtp_profiles") or []
+        self._prior_steps   = _.get("prior_steps") or []
         self.setWindowTitle("Étape — Notification email")
         self.setMinimumSize(540, 480)
         self._build_ui()
@@ -1815,6 +1863,10 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
         root.addWidget(self.chk_attach)
 
+        attach_form = self._form()
+        self.cb_source = self._source_row(attach_form, self._prior_steps)
+        root.addLayout(attach_form)
+
         root.addStretch()
         self._buttons(root)
 
@@ -1825,6 +1877,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         self.inp_subject.setText(c.get("subject_tpl", ""))
         self.txt_body.setPlainText(c.get("body_tpl", ""))
         self.chk_attach.setChecked(c.get("attach_output_file", False))
+        self._set_combo(self.cb_source, c.get("reads_from_step_key"))
 
     def _new_smtp_profile(self, cb: QComboBox):
         from ui.dialogs import SmtpDialog
@@ -1842,6 +1895,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
             "subject_tpl":        self.inp_subject.text().strip(),
             "body_tpl":           self.txt_body.toPlainText(),
             "attach_output_file": self.chk_attach.isChecked(),
+            "reads_from_step_key": self.cb_source.currentData(),
         }
 
     def _on_ok(self):
@@ -1870,6 +1924,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
                           run_always=_.get("run_always", False))
+        self._prior_steps = _.get("prior_steps") or []
         self.setWindowTitle("Étape — Appel HTTP")
         self.setMinimumSize(540, 560)
         self._build_ui()
@@ -1930,6 +1985,10 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
         root.addWidget(self.chk_attach)
 
+        attach_form = self._form()
+        self.cb_source = self._source_row(attach_form, self._prior_steps)
+        root.addLayout(attach_form)
+
         root.addStretch()
         self._buttons(root)
 
@@ -1943,6 +2002,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.txt_headers.setPlainText(c.get("headers", ""))
         self.txt_body.setPlainText(c.get("body_tpl", ""))
         self.chk_attach.setChecked(c.get("attach_output_file", False))
+        self._set_combo(self.cb_source, c.get("reads_from_step_key"))
 
     def _collect_config(self) -> dict:
         return {
@@ -1952,6 +2012,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
             "headers":            self.txt_headers.toPlainText(),
             "body_tpl":           self.txt_body.toPlainText(),
             "attach_output_file": self.chk_attach.isChecked(),
+            "reads_from_step_key": self.cb_source.currentData(),
         }
 
     def _on_ok(self):
@@ -1969,7 +2030,8 @@ def _open_config_dialog(step_type: str, config: dict, parent,
                         oracle_profiles, ftp_profiles, sql_queries,
                         smtp_profiles=None, db_profiles=None,
                         label: str = "", retry_count: int = 0,
-                        run_always: bool = False) -> _BaseStepConfigDialog | None:
+                        run_always: bool = False,
+                        prior_steps: list | None = None) -> _BaseStepConfigDialog | None:
     kwargs = dict(
         config=config, parent=parent, label=label,
         oracle_profiles=oracle_profiles,
@@ -1979,6 +2041,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         db_profiles=db_profiles,
         retry_count=retry_count,
         run_always=run_always,
+        prior_steps=prior_steps,
     )
     mapping = {
         "DB_EXTRACT":     _DbExtractConfigDialog,

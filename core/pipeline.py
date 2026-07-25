@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from database import db_manager as db
 from core.steps import get_step, get_step_requirements, StepContext
@@ -91,6 +92,11 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
     Simule la séquence d'étapes (sans rien exécuter) et vérifie que chaque étape trouve
     dans le contexte ce qu'elle REQUIRES, d'après ce que les étapes précédentes PRODUCES.
 
+    Une étape peut cibler explicitement une source antérieure précise via
+    config["reads_from_step_key"] (sélecteur "Source" de l'éditeur) — dans ce cas la
+    vérification porte sur cette clé spécifique plutôt que sur le tag générique
+    "output_file" (comportement par défaut, inchangé, quand aucune cible n'est choisie).
+
     Retourne (erreurs_bloquantes, avertissements) :
       - une étape normale dont un REQUIRES n'est pas satisfait → erreur bloquante.
       - une étape "toujours exécutée" (run_always) dans le même cas → avertissement
@@ -100,22 +106,38 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
     available: set[str] = set()
+    available_keys: set[str] = set()
 
     for i, step in enumerate(steps):
         step_type  = step.get("step_type", "")
         label      = step.get("label") or step_type
         run_always = bool(step.get("run_always"))
+        config     = step.get("config") or {}
 
         requires, produces = get_step_requirements(step_type)
-        missing = requires - available
-        if missing:
-            msg = f"Étape {i + 1} ({label}) : nécessite {', '.join(sorted(missing))}, non garanti par les étapes précédentes."
-            if run_always:
-                warnings.append(msg)
+        target_key = config.get("reads_from_step_key")
+
+        if requires:
+            if target_key:
+                missing = target_key not in available_keys
+                msg = (
+                    f"Étape {i + 1} ({label}) : la source ciblée n'a pas encore été produite "
+                    "à ce stade (étape supprimée, déplacée après, ou jamais réenregistrée)."
+                )
             else:
-                errors.append(msg)
+                missing = bool(requires - available)
+                msg = f"Étape {i + 1} ({label}) : nécessite {', '.join(sorted(requires))}, non garanti par les étapes précédentes."
+
+            if missing:
+                if run_always:
+                    warnings.append(msg)
+                else:
+                    errors.append(msg)
 
         available |= produces
+        step_key = config.get("_step_key")
+        if produces and step_key:
+            available_keys.add(step_key)
 
     return errors, warnings
 
@@ -194,6 +216,13 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
             if pipeline_failed and not step.run_always:
                 continue
 
+            # Ciblage explicite d'une source antérieure (sélecteur "Source" de l'éditeur) —
+            # réoriente le slot par défaut avant l'exécution ; l'étape elle-même lit
+            # ctx.output_file sans rien savoir de ce réaiguillage.
+            target_key = config.get("reads_from_step_key")
+            if target_key:
+                ctx.output_file = ctx.artifacts.get(target_key)
+
             base_pct = int(i * 90 / total)       # 0 → 90 %
             next_pct = int((i + 1) * 90 / total)
 
@@ -221,6 +250,16 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
                 result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
                 time.sleep(RETRY_DELAY_S)
 
+            if step_result.success:
+                # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
+                # consommatrice ultérieure puisse cibler explicitement "la sortie de
+                # cette étape précise" plutôt que "la dernière produite" (voir
+                # docs/ARCHITECTURE.md, section StepContext).
+                _, produces = get_step_requirements(step_type)
+                step_key = config.get("_step_key")
+                if "output_file" in produces and step_key:
+                    ctx.artifacts[step_key] = ctx.output_file
+
             if not step_result.success:
                 if not pipeline_failed:
                     ctx.extra["failed_step_label"] = step_label
@@ -230,13 +269,19 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
                 elif step.run_always:
                     result.log(f"Étape 'toujours exécutée' {i + 1} ({step_label}) en échec : {step_result.error}")
 
-        # ── Nettoyage du fichier temporaire (inconditionnel) ──
-        if ctx.output_file and ctx.output_file.exists():
-            try:
-                ctx.output_file.unlink()
-                result.log("Fichier temporaire supprimé.")
-            except Exception as e:
-                result.log(f"Avertissement : impossible de supprimer le tmp : {e}")
+        # ── Nettoyage des fichiers temporaires (inconditionnel) ──
+        # Plusieurs artefacts nommés peuvent désormais être vivants simultanément (ex : deux
+        # DB_EXTRACT en amont de deux consommateurs différents) — le set déduplique le cas
+        # courant où le même Path apparaît à la fois sous "output_file" et sous une clé
+        # d'étape spécifique.
+        temp_paths = {p for p in ctx.artifacts.values() if isinstance(p, Path)}
+        for p in temp_paths:
+            if p.exists():
+                try:
+                    p.unlink()
+                    result.log(f"Fichier temporaire supprimé : {p}")
+                except Exception as e:
+                    result.log(f"Avertissement : impossible de supprimer le tmp {p} : {e}")
 
         with _active_runs_lock:
             _active_runs.pop(pipeline_id, None)

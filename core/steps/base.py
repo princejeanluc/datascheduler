@@ -10,13 +10,32 @@ from pathlib import Path
 
 @dataclass
 class StepContext:
-    """État transmis d'étape en étape lors d'une exécution de pipeline."""
+    """
+    État transmis d'étape en étape lors d'une exécution de pipeline.
+
+    `artifacts` est un dict nommé/adressable (ex: plusieurs fichiers produits par
+    plusieurs étapes, vivants simultanément) — `output_file` reste une propriété de
+    compatibilité pointant vers artifacts["output_file"], le nom par défaut sous
+    lequel une étape publie sa sortie tant qu'aucune clé spécifique n'est demandée.
+    Les steps eux-mêmes n'ont pas à changer : ils continuent de lire/écrire
+    ctx.output_file exactement comme avant — c'est l'exécuteur (core/pipeline.py)
+    qui republie en plus sous une clé stable par étape et qui réoriente ce même
+    slot quand une étape consommatrice cible explicitement une source antérieure.
+    """
 
     started_at:  datetime      = field(default_factory=datetime.utcnow)
-    output_file: Path | None   = None    # fichier produit par l'étape précédente
+    artifacts:   dict          = field(default_factory=dict)
     rows_count:  int           = 0
     log_lines:   list[str]     = field(default_factory=list)
     extra:       dict          = field(default_factory=dict)
+
+    @property
+    def output_file(self) -> Path | None:
+        return self.artifacts.get("output_file")
+
+    @output_file.setter
+    def output_file(self, value: Path | None) -> None:
+        self.artifacts["output_file"] = value
 
     def log(self, msg: str) -> None:
         ts = datetime.utcnow().strftime("%H:%M:%S")
