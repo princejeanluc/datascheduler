@@ -7,12 +7,14 @@ Fournit :
 """
 
 import os
+import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
+from . import crypto
 from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
 
 
@@ -179,6 +181,43 @@ def _migrate(engine) -> None:
             conn.execute(text("PRAGMA foreign_keys = ON"))
             conn.commit()
 
+        # Chiffrement one-shot des mots de passe encore en clair (bases antérieures au
+        # chiffrement au repos). Idempotent : is_encrypted() détecte les lignes déjà
+        # migrées et les laisse intactes.
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles"):
+            rows = conn.execute(text(
+                f"SELECT id, password FROM {table} WHERE password IS NOT NULL AND password != ''"
+            )).fetchall()
+            for row_id, pwd in rows:
+                if not crypto.is_encrypted(pwd):
+                    conn.execute(
+                        text(f"UPDATE {table} SET password = :pwd WHERE id = :id"),
+                        {"pwd": crypto.encrypt(pwd), "id": row_id},
+                    )
+            if rows:
+                conn.commit()
+
+        # Identité stable (UUID) — prérequis à l'export/import (chantier 5). Chacune des
+        # trois étapes (colonne / backfill / index) est indépendamment idempotente.
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles",
+                      "database_profiles", "sql_queries", "pipelines"):
+            cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+            if "uuid" not in cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN uuid VARCHAR(36)"))
+                conn.commit()
+
+            rows = conn.execute(text(f"SELECT id FROM {table} WHERE uuid IS NULL")).fetchall()
+            for (row_id,) in rows:
+                conn.execute(
+                    text(f"UPDATE {table} SET uuid = :u WHERE id = :id"),
+                    {"u": str(uuid.uuid4()), "id": row_id},
+                )
+            if rows:
+                conn.commit()
+
+            conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -223,12 +262,30 @@ def create_oracle_profile(name, host, port, username, password,
     with get_session() as s:
         profile = OracleProfile(
             name=name, host=host, port=port,
-            username=username, password=password,
+            username=username, password=crypto.encrypt(password),
             service_name=service_name, sid=sid,
             auth_mode=auth_mode,
         )
         s.add(profile)
     return profile
+
+
+def update_oracle_profile(profile_id, name, host, port, username, password=None,
+                           service_name=None, sid=None,
+                           auth_mode="DEFAULT") -> OracleProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(OracleProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.host = host; p.port = port
+        p.username = username
+        if password:
+            p.password = crypto.encrypt(password)
+        p.service_name = service_name
+        p.sid = sid
+        p.auth_mode = auth_mode
+    return p
 
 
 def get_oracle_profiles() -> list[OracleProfile]:
@@ -258,11 +315,26 @@ def create_ftp_profile(name, host, port, username, password, protocol="FTP") -> 
     with get_session() as s:
         profile = FtpProfile(
             name=name, host=host, port=port,
-            username=username, password=password,
+            username=username, password=crypto.encrypt(password),
             protocol=protocol,
         )
         s.add(profile)
     return profile
+
+
+def update_ftp_profile(profile_id, name, host, port, username, password=None,
+                        protocol="FTP") -> FtpProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(FtpProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.host = host; p.port = port
+        p.username = username
+        if password:
+            p.password = crypto.encrypt(password)
+        p.protocol = protocol
+    return p
 
 
 def get_ftp_profiles() -> list[FtpProfile]:
@@ -293,11 +365,27 @@ def create_smtp_profile(name, host, port, from_address,
     with get_session() as s:
         profile = SmtpProfile(
             name=name, host=host, port=port,
-            username=username, password=password,
+            username=username, password=crypto.encrypt(password) if password else password,
             use_tls=use_tls, from_address=from_address,
         )
         s.add(profile)
     return profile
+
+
+def update_smtp_profile(profile_id, name, host, port, from_address,
+                         username=None, password=None, use_tls=True) -> SmtpProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(SmtpProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.host = host; p.port = port
+        p.username = username
+        if password:
+            p.password = crypto.encrypt(password)
+        p.use_tls = use_tls
+        p.from_address = from_address
+    return p
 
 
 def get_smtp_profiles() -> list[SmtpProfile]:
@@ -329,12 +417,29 @@ def create_database_profile(name, db_type, host, port, username, password,
     with get_session() as s:
         profile = DatabaseProfile(
             name=name, db_type=db_type, host=host, port=port,
-            username=username, password=password,
+            username=username, password=crypto.encrypt(password),
             database_name=database_name,
             extra_json=json.dumps(extra or {}),
         )
         s.add(profile)
     return profile
+
+
+def update_database_profile(profile_id, name, db_type, host, port, username, password=None,
+                             database_name=None, extra=None) -> DatabaseProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    import json
+    with get_session() as s:
+        p = s.get(DatabaseProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.db_type = db_type; p.host = host; p.port = port
+        p.username = username
+        if password:
+            p.password = crypto.encrypt(password)
+        p.database_name = database_name
+        p.extra_json = json.dumps(extra or {})
+    return p
 
 
 def get_database_profiles() -> list[DatabaseProfile]:

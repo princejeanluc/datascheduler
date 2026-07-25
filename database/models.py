@@ -9,8 +9,14 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship, Session
 import enum
+import uuid as _uuid_module
 
 Base = declarative_base()
+
+
+def _new_uuid() -> str:
+    """Identifiant stable, indépendant du nom (mutable) — prérequis à l'export/import."""
+    return str(_uuid_module.uuid4())
 
 
 # ──────────────────────────────────────────────
@@ -72,6 +78,7 @@ class OracleProfile(Base):
     __tablename__ = "oracle_profiles"
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
+    uuid         = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name         = Column(String(100), unique=True, nullable=False)
     host         = Column(String(255), nullable=False)
     port         = Column(Integer, default=1521, nullable=False)
@@ -99,6 +106,7 @@ class FtpProfile(Base):
     __tablename__ = "ftp_profiles"
 
     id         = Column(Integer, primary_key=True, autoincrement=True)
+    uuid       = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name       = Column(String(100), unique=True, nullable=False)
     host       = Column(String(255), nullable=False)
     port       = Column(Integer, default=21, nullable=False)
@@ -123,6 +131,7 @@ class SmtpProfile(Base):
     __tablename__ = "smtp_profiles"
 
     id           = Column(Integer, primary_key=True, autoincrement=True)
+    uuid         = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name         = Column(String(100), unique=True, nullable=False)
     host         = Column(String(255), nullable=False)
     port         = Column(Integer, default=587, nullable=False)
@@ -150,6 +159,7 @@ class DatabaseProfile(Base):
     __tablename__ = "database_profiles"
 
     id            = Column(Integer, primary_key=True, autoincrement=True)
+    uuid          = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name          = Column(String(100), unique=True, nullable=False)
     db_type       = Column(Enum(DbType), nullable=False)
     host          = Column(String(255), nullable=False)
@@ -173,6 +183,7 @@ class SqlQuery(Base):
     __tablename__ = "sql_queries"
 
     id                = Column(Integer, primary_key=True, autoincrement=True)
+    uuid              = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name              = Column(String(100), unique=True, nullable=False)
     sql_text          = Column(Text, nullable=False)
     description       = Column(Text, nullable=True)
@@ -196,6 +207,7 @@ class Pipeline(Base):
     __tablename__ = "pipelines"
 
     id                = Column(Integer, primary_key=True, autoincrement=True)
+    uuid              = Column(String(36), unique=True, nullable=False, default=_new_uuid)
     name              = Column(String(100), unique=True, nullable=False)
     description       = Column(Text, nullable=True)
 

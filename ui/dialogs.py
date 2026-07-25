@@ -260,18 +260,14 @@ class OracleDialog(QDialog):
         sid     = self.inp_sid.text().strip()     if self.rb_sid.isChecked()     else None
 
         if self._profile:
-            # Mise à jour
-            with db.get_session() as s:
-                from database.models import OracleProfile
-                p = s.get(OracleProfile, self._profile.id)
-                p.name         = name
-                p.host         = host
-                p.port         = port
-                p.username     = user
-                p.password     = pwd
-                p.service_name = service
-                p.sid          = sid
-                p.auth_mode    = self.cb_auth_mode.currentData()
+            # Mise à jour — mot de passe vide = conserver l'existant sans le toucher
+            db.update_oracle_profile(
+                self._profile.id,
+                name=name, host=host, port=port,
+                username=user, password=pwd or None,
+                service_name=service, sid=sid,
+                auth_mode=self.cb_auth_mode.currentData(),
+            )
         else:
             db.create_oracle_profile(
                 name=name, host=host, port=port,
@@ -287,8 +283,11 @@ class OracleDialog(QDialog):
             (self.inp_name, "Nom du profil"),
             (self.inp_host, "Hôte"),
             (self.inp_user, "Utilisateur"),
-            (self.inp_pass, "Mot de passe"),
         ]
+        # Le mot de passe n'est obligatoire qu'à la création — en édition, un champ
+        # vide signifie "conserver le mot de passe existant".
+        if self._profile is None:
+            required.append((self.inp_pass, "Mot de passe"))
         for inp, label in required:
             if not inp.text().strip():
                 self._flash_error(inp, f"{label} requis")
@@ -310,9 +309,13 @@ class OracleDialog(QDialog):
     def _build_config(self):
         """Construit un OracleConfig depuis les champs — None si incomplet."""
         from core.oracle import OracleConfig
+        from database import crypto
         host = self.inp_host.text().strip()
         user = self.inp_user.text().strip()
         pwd  = self.inp_pass.text().strip()
+        if not pwd and self._profile:
+            # Champ laissé vide en édition : on teste avec le mot de passe déjà enregistré.
+            pwd = crypto.decrypt(self._profile.password)
         if not host or not user or not pwd:
             self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
             self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
@@ -331,7 +334,7 @@ class OracleDialog(QDialog):
         self.inp_host.setText(profile.host)
         self.inp_port.setValue(profile.port)
         self.inp_user.setText(profile.username)
-        self.inp_pass.setText(profile.password)
+        self.inp_pass.setPlaceholderText("•••••••• (laisser vide pour conserver)")
         if profile.service_name:
             self.rb_service.setChecked(True)
             self.inp_service.setText(profile.service_name)
@@ -551,19 +554,18 @@ class FtpDialog(QDialog):
         protocol = self.cb_protocol.currentData()
 
         if self._profile:
-            with db.get_session() as s:
-                from database.models import FtpProfile
-                p = s.get(FtpProfile, self._profile.id)
-                p.name = name; p.host = host; p.port = port
-                p.username = user; p.password = pwd; p.protocol = protocol
+            db.update_ftp_profile(self._profile.id, name=name, host=host, port=port,
+                                  username=user, password=pwd or None, protocol=protocol)
         else:
             db.create_ftp_profile(name=name, host=host, port=port,
                                   username=user, password=pwd, protocol=protocol)
         self.accept()
 
     def _validate(self) -> bool:
-        for inp, label in [(self.inp_name, "Nom"), (self.inp_host, "Hôte"),
-                           (self.inp_user, "Utilisateur"), (self.inp_pass, "Mot de passe")]:
+        required = [(self.inp_name, "Nom"), (self.inp_host, "Hôte"), (self.inp_user, "Utilisateur")]
+        if self._profile is None:
+            required.append((self.inp_pass, "Mot de passe"))
+        for inp, label in required:
             if not inp.text().strip():
                 inp.setStyleSheet(self._input_style(error=True))
                 inp.setPlaceholderText(f"{label} requis")
@@ -573,9 +575,12 @@ class FtpDialog(QDialog):
 
     def _build_config(self):
         from core.ftp import FtpConfig
+        from database import crypto
         host = self.inp_host.text().strip()
         user = self.inp_user.text().strip()
         pwd  = self.inp_pass.text().strip()
+        if not pwd and self._profile:
+            pwd = crypto.decrypt(self._profile.password)
         if not host or not user or not pwd:
             self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
             self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
@@ -591,7 +596,7 @@ class FtpDialog(QDialog):
         self.inp_host.setText(profile.host)
         self.inp_port.setValue(profile.port)
         self.inp_user.setText(profile.username)
-        self.inp_pass.setText(profile.password)
+        self.inp_pass.setPlaceholderText("•••••••• (laisser vide pour conserver)")
         proto = _status_str(profile.protocol) if hasattr(profile.protocol, 'value') else str(profile.protocol)
         idx = self.cb_protocol.findData(proto)
         if idx >= 0:
@@ -786,12 +791,9 @@ class SmtpDialog(QDialog):
         from_addr = self.inp_from.text().strip()
 
         if self._profile:
-            with db.get_session() as s:
-                from database.models import SmtpProfile
-                p = s.get(SmtpProfile, self._profile.id)
-                p.name = name; p.host = host; p.port = port
-                p.username = user; p.password = pwd
-                p.use_tls = use_tls; p.from_address = from_addr
+            db.update_smtp_profile(self._profile.id, name=name, host=host, port=port,
+                                   from_address=from_addr,
+                                   username=user, password=pwd, use_tls=use_tls)
         else:
             db.create_smtp_profile(name=name, host=host, port=port,
                                    from_address=from_addr,
@@ -810,8 +812,12 @@ class SmtpDialog(QDialog):
 
     def _build_config(self):
         from core.email import SmtpConfig
+        from database import crypto
         host = self.inp_host.text().strip()
         from_addr = self.inp_from.text().strip()
+        pwd = self.inp_pass.text().strip()
+        if not pwd and self._profile and self._profile.password:
+            pwd = crypto.decrypt(self._profile.password)
         if not host or not from_addr:
             self.lbl_test_result.setText("⚠  Remplir Hôte / Adresse expéditeur")
             self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
@@ -819,7 +825,7 @@ class SmtpDialog(QDialog):
         return SmtpConfig(
             host=host, port=self.inp_port.value(),
             username=self.inp_user.text().strip() or None,
-            password=self.inp_pass.text().strip() or None,
+            password=pwd or None,
             use_tls=self.chk_tls.isChecked(),
             from_address=from_addr,
         )
@@ -829,7 +835,7 @@ class SmtpDialog(QDialog):
         self.inp_host.setText(profile.host)
         self.inp_port.setValue(profile.port)
         self.inp_user.setText(profile.username or "")
-        self.inp_pass.setText(profile.password or "")
+        self.inp_pass.setPlaceholderText("•••••••• (laisser vide pour conserver)" if profile.password else "")
         self.chk_tls.setChecked(bool(profile.use_tls))
         self.inp_from.setText(profile.from_address)
 
@@ -1076,7 +1082,6 @@ class DatabaseProfileDialog(QDialog):
     def _on_save(self):
         if not self._validate():
             return
-        import json
         from database import db_manager as db
         name = self.inp_name.text().strip()
         host = self.inp_host.text().strip()
@@ -1087,13 +1092,11 @@ class DatabaseProfileDialog(QDialog):
         extra = self._collect_extra()
 
         if self._profile:
-            with db.get_session() as s:
-                from database.models import DatabaseProfile
-                p = s.get(DatabaseProfile, self._profile.id)
-                p.name = name; p.host = host; p.port = port
-                p.username = user; p.password = pwd
-                p.database_name = database_name
-                p.extra_json = json.dumps(extra)
+            db.update_database_profile(
+                self._profile.id,
+                name=name, db_type=self._db_type, host=host, port=port,
+                username=user, password=pwd or None, database_name=database_name, extra=extra,
+            )
         else:
             db.create_database_profile(
                 name=name, db_type=self._db_type, host=host, port=port,
@@ -1110,8 +1113,10 @@ class DatabaseProfileDialog(QDialog):
         return {}
 
     def _validate(self) -> bool:
-        for inp, label in [(self.inp_name, "Nom"), (self.inp_host, "Hôte"),
-                           (self.inp_user, "Utilisateur"), (self.inp_pass, "Mot de passe")]:
+        required = [(self.inp_name, "Nom"), (self.inp_host, "Hôte"), (self.inp_user, "Utilisateur")]
+        if self._profile is None:
+            required.append((self.inp_pass, "Mot de passe"))
+        for inp, label in required:
             if not inp.text().strip():
                 inp.setStyleSheet(self._input_style(error=True))
                 inp.setPlaceholderText(f"{label} requis")
@@ -1121,9 +1126,12 @@ class DatabaseProfileDialog(QDialog):
 
     def _build_config(self):
         from core.sql_db import SqlDbConfig
+        from database import crypto
         host = self.inp_host.text().strip()
         user = self.inp_user.text().strip()
         pwd  = self.inp_pass.text().strip()
+        if not pwd and self._profile:
+            pwd = crypto.decrypt(self._profile.password)
         if not host or not user or not pwd:
             self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
             self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
@@ -1141,7 +1149,7 @@ class DatabaseProfileDialog(QDialog):
         self.inp_host.setText(profile.host)
         self.inp_port.setValue(profile.port)
         self.inp_user.setText(profile.username)
-        self.inp_pass.setText(profile.password)
+        self.inp_pass.setPlaceholderText("•••••••• (laisser vide pour conserver)")
         self.inp_database.setText(profile.database_name or "")
         if self._db_type == "SQLSERVER" and profile.extra_json:
             try:

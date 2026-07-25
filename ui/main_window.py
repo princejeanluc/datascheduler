@@ -25,6 +25,7 @@ from PySide6.QtCore import Qt, QSize, Signal, QThread, QTimer, QObject
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QShortcut, QKeySequence
 
 from ui.styles import COLORS
+from version import __version__
 
 # ──────────────────────────────────────────────
 #  HELPERS ICÔNES
@@ -1297,7 +1298,7 @@ def _make_subtitle(text: str) -> QLabel:
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DataScheduler")
+        self.setWindowTitle(f"DataScheduler v{__version__}")
         self.setMinimumSize(1100, 680)
         self.resize(1280, 760)
         self._build_ui()

@@ -59,10 +59,11 @@ def config_from_profile(db_type: str, profile) -> SqlDbConfig:
     Construit un SqlDbConfig depuis un OracleProfile ou un DatabaseProfile SQLAlchemy,
     selon db_type.
     """
+    from database import crypto
     if db_type == "ORACLE":
         return SqlDbConfig(
             db_type=db_type, host=profile.host, port=profile.port,
-            username=profile.username, password=profile.password,
+            username=profile.username, password=crypto.decrypt(profile.password),
             service_name=profile.service_name, sid=profile.sid,
             auth_mode=getattr(profile, "auth_mode", "DEFAULT") or "DEFAULT",
         )
@@ -74,7 +75,7 @@ def config_from_profile(db_type: str, profile) -> SqlDbConfig:
             extra = {}
     return SqlDbConfig(
         db_type=db_type, host=profile.host, port=profile.port,
-        username=profile.username, password=profile.password,
+        username=profile.username, password=crypto.decrypt(profile.password),
         database_name=profile.database_name, extra=extra,
     )
 

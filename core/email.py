@@ -121,11 +121,12 @@ class EmailSender:
 # ──────────────────────────────────────────────
 
 def config_from_profile(profile) -> SmtpConfig:
+    from database import crypto
     return SmtpConfig(
         host=profile.host,
         port=profile.port,
         username=profile.username,
-        password=profile.password,
+        password=crypto.decrypt(profile.password) if profile.password else profile.password,
         use_tls=profile.use_tls,
         from_address=profile.from_address,
     )
