@@ -127,7 +127,7 @@ pour fusionner MySQL/PostgreSQL/SQL Server en une seule table plutôt qu'une par
 3. **`ui/dialogs/`** — nouveau fichier `x_dialog.py`, une classe `XDialog(QDialog)` (copier
    `smtp_dialog.py`), avec si pertinent un thread de test de connexion (copier `SmtpTestThread`) ;
    réexporter la classe dans `ui/dialogs/__init__.py`.
-4. **`ui/main_window.py`**, `ConnectionsView` — un panneau de plus (copier
+4. **`ui/main_window/connections_view.py`**, `ConnectionsView` — un panneau de plus (copier
    `_build_smtp_panel`/`_refresh_smtp`/callbacks), et l'ajouter à la pile verticale dans
    `_build_ui`.
 5. **`ui/step_editor/pipeline_editor_dialog.py`**, `PipelineEditorDialog._load_profiles()` — charger

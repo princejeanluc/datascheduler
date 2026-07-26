@@ -3,8 +3,6 @@ DataScheduler — ui/step_editor/http_request_config_dialog.py
 Dialogue de configuration d'une étape HTTP_REQUEST.
 """
 
-import json
-
 from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QSpinBox, QComboBox, QPlainTextEdit, QCheckBox,
     QMessageBox,
