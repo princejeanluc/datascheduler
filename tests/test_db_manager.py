@@ -97,6 +97,23 @@ def test_pipeline(test_db):
     assert pipelines[0].filename_tpl == "ventes_{yyyyMMdd}.csv"
 
 
+def test_update_pipeline(test_db):
+    created = db.create_pipeline(name="ORIGINAL", scheduled_time="06:00")
+
+    updated = db.update_pipeline(
+        created.id, name="RENAMED", description="nouvelle description",
+        frequency="WEEKLY", scheduled_time="08:00", scheduled_day=2,
+    )
+    assert updated is not None
+    reloaded = db.get_pipeline(created.id)
+    assert reloaded.name == "RENAMED"
+    assert reloaded.description == "nouvelle description"
+    assert reloaded.scheduled_time == "08:00"
+    assert reloaded.uuid == created.uuid   # l'UUID ne bouge jamais sur une mise à jour
+
+    assert db.update_pipeline(999_999, name="X") is None
+
+
 def test_run(test_db):
     pipeline_id = db.create_pipeline(name="EXPORT_VENTES_QUOTIDIEN").id
 

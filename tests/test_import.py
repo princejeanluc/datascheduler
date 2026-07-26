@@ -152,6 +152,61 @@ def test_name_collision_with_unrelated_local_profile_is_disambiguated(tmp_path):
         db._SessionFactory = None
 
 
+def test_apply_import_with_overwrite_updates_existing_pipeline_in_place(test_db):
+    pipeline, profile, query = _make_pipeline_with_oracle_extract()
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+    assert plan.pipeline_action == "collision"
+
+    plan.pipeline_action = "overwrite"   # ce que fait PipelineImportReviewDialog._on_confirm()
+    result = apply_import(plan)
+
+    assert result.success, result.error
+    assert result.pipeline_id == pipeline.id   # même id, pas de copie
+
+    pipelines = db.get_pipelines()
+    names = {p.name for p in pipelines}
+    assert names == {"import-test"}   # aucune copie "(import)" créée
+    reloaded = db.get_pipeline(pipeline.id)
+    assert reloaded.uuid == pipeline.uuid   # UUID inchangé
+
+
+def test_apply_import_with_manual_remap_reuses_chosen_profile(tmp_path):
+    db.init_db(tmp_path / "a.db")
+    pipeline, profile, query = _make_pipeline_with_oracle_extract()
+    export_result = export_pipeline(pipeline.id)
+    bundle = export_result.bundle
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        other_profile = db.create_oracle_profile(
+            name="AUTRE_PROFIL", host="other-host", port=1521,
+            username="x", password="y", service_name="OTHER",
+        )
+
+        plan = plan_import(bundle)
+        oracle_decision = next(d for d in plan.profile_decisions if d.category == "oracle")
+        assert oracle_decision.action == "create"
+
+        # Ce que fait PipelineImportReviewDialog._on_confirm() quand on choisit "Remapper vers".
+        oracle_decision.action = "reuse"
+        oracle_decision.existing_id = other_profile.id
+
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        assert len(db.get_oracle_profiles()) == 1   # aucun nouveau profil créé
+        imported_pipeline = db.get_pipeline(result.pipeline_id)
+        steps = db.get_steps(imported_pipeline.id)
+        config = json.loads(steps[0].config_json)
+        assert config["profile_id"] == other_profile.id
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
 def test_step_targeting_preserved_across_export_import(tmp_path):
     """
     _step_key/reads_from_step_key (chantier 3) voyagent tels quels dans le bundle — après

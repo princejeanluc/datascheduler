@@ -627,6 +627,25 @@ def get_pipeline_by_uuid(uuid: str) -> Pipeline | None:
         return s.query(Pipeline).filter_by(uuid=uuid).first()
 
 
+def update_pipeline(pipeline_id, name, description=None,
+                     frequency="DAILY", cron_expression=None,
+                     scheduled_time="06:00", scheduled_day=None,
+                     prevent_overlap=False) -> Pipeline | None:
+    """Ne touche pas aux étapes — voir save_steps() pour ça (chantier 5c : écrasement à l'import)."""
+    with get_session() as s:
+        p = s.get(Pipeline, pipeline_id)
+        if not p:
+            return None
+        p.name = name
+        p.description = description
+        p.frequency = frequency
+        p.cron_expression = cron_expression
+        p.scheduled_time = scheduled_time
+        p.scheduled_day = scheduled_day
+        p.prevent_overlap = prevent_overlap
+    return p
+
+
 def set_pipeline_active(pipeline_id: int, active: bool) -> bool:
     with get_session() as s:
         obj = s.get(Pipeline, pipeline_id)

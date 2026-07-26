@@ -531,27 +531,45 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 "run_always":  step.get("run_always", False),
             })
 
-        if plan.pipeline_action == "create":
-            name = _unique_name(pipeline_data["name"], taken_names["pipeline"])
-            pipeline_uuid = pipeline_data["uuid"]
+        if plan.pipeline_action == "overwrite" and plan.pipeline_existing_id:
+            # Choix explicite de l'écran de revue (chantier 5c) — remplace le pipeline local
+            # existant en place (même id/UUID, c'est justement pour ça qu'il y avait collision).
+            db.update_pipeline(
+                plan.pipeline_existing_id,
+                name=pipeline_data["name"],
+                description=pipeline_data.get("description"),
+                frequency=pipeline_data.get("frequency", "DAILY"),
+                cron_expression=pipeline_data.get("cron_expression"),
+                scheduled_time=pipeline_data.get("scheduled_time"),
+                scheduled_day=pipeline_data.get("scheduled_day"),
+                prevent_overlap=pipeline_data.get("prevent_overlap", False),
+            )
+            db.save_steps(plan.pipeline_existing_id, translated_steps)
+            new_pipeline_id = plan.pipeline_existing_id
         else:
-            # Collision : jamais d'écrasement silencieux — copie renommée, nouvel UUID généré.
-            name = _unique_name(f"{pipeline_data['name']} (import)", taken_names["pipeline"])
-            pipeline_uuid = None
+            if plan.pipeline_action == "create":
+                name = _unique_name(pipeline_data["name"], taken_names["pipeline"])
+                pipeline_uuid = pipeline_data["uuid"]
+            else:
+                # "collision" non résolu (pas passé par l'écran de revue) ou "rename" (choix
+                # explicite) : jamais d'écrasement silencieux — copie renommée, nouvel UUID généré.
+                name = _unique_name(f"{pipeline_data['name']} (import)", taken_names["pipeline"])
+                pipeline_uuid = None
 
-        new_pipeline = db.create_pipeline(
-            name=name,
-            description=pipeline_data.get("description"),
-            frequency=pipeline_data.get("frequency", "DAILY"),
-            cron_expression=pipeline_data.get("cron_expression"),
-            scheduled_time=pipeline_data.get("scheduled_time"),
-            scheduled_day=pipeline_data.get("scheduled_day"),
-            prevent_overlap=pipeline_data.get("prevent_overlap", False),
-            uuid=pipeline_uuid,
-        )
-        db.save_steps(new_pipeline.id, translated_steps)
+            new_pipeline = db.create_pipeline(
+                name=name,
+                description=pipeline_data.get("description"),
+                frequency=pipeline_data.get("frequency", "DAILY"),
+                cron_expression=pipeline_data.get("cron_expression"),
+                scheduled_time=pipeline_data.get("scheduled_time"),
+                scheduled_day=pipeline_data.get("scheduled_day"),
+                prevent_overlap=pipeline_data.get("prevent_overlap", False),
+                uuid=pipeline_uuid,
+            )
+            db.save_steps(new_pipeline.id, translated_steps)
+            new_pipeline_id = new_pipeline.id
 
-        return ApplyResult(success=True, pipeline_id=new_pipeline.id, warnings=list(plan.warnings))
+        return ApplyResult(success=True, pipeline_id=new_pipeline_id, warnings=list(plan.warnings))
 
     except Exception as e:
         return ApplyResult(success=False, error=str(e))

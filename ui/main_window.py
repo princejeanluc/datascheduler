@@ -686,7 +686,7 @@ class PipelinesView(QWidget):
 
     def _on_import_pipeline(self):
         from database.export_import import plan_import_from_file, apply_import
-        from ui.dialogs import PipelineImportPasswordDialog
+        from ui.dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
 
         path, _ = QFileDialog.getOpenFileName(
             self, "Importer un pipeline", "", "Pipeline DataScheduler (*.dspipeline)",
@@ -704,6 +704,10 @@ class PipelinesView(QWidget):
 
         if not plan.success:
             QMessageBox.critical(self, "Échec de l'import", plan.error or "Erreur inconnue.")
+            return
+
+        review_dlg = PipelineImportReviewDialog(self, plan=plan)
+        if not review_dlg.exec():
             return
 
         result = apply_import(plan)
