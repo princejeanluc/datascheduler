@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton, QStackedWidget,
     QFrame, QSizePolicy, QSpacerItem, QScrollArea, QLineEdit,
     QTableWidget, QTableWidgetItem, QHeaderView,
-    QAbstractItemView, QMessageBox, QStatusBar,
+    QAbstractItemView, QMessageBox, QStatusBar, QFileDialog,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QThread, QTimer, QObject
 from PySide6.QtGui import QFont, QColor, QPalette, QIcon, QPixmap, QShortcut, QKeySequence
@@ -571,6 +571,12 @@ class PipelinesView(QWidget):
         self.inp_search = _make_search_input("Rechercher un pipeline…  (Ctrl+N : nouveau)")
         self.inp_search.textChanged.connect(self._on_search_changed)
         header.addWidget(self.inp_search)
+        btn_import = QPushButton("  Importer"); btn_import.setObjectName("secondary")
+        btn_import.setFixedHeight(36)
+        btn_import.setIcon(_icon("fa5s.file-import", COLORS["text_main"]))
+        btn_import.setIconSize(QSize(13, 13))
+        btn_import.clicked.connect(self._on_import_pipeline)
+        header.addWidget(btn_import)
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
         btn_new.clicked.connect(self._on_new_pipeline)
@@ -677,6 +683,44 @@ class PipelinesView(QWidget):
         from ui.step_editor import PipelineEditorDialog
         if PipelineEditorDialog(self).exec():
             self.refresh()
+
+    def _on_import_pipeline(self):
+        from database.export_import import plan_import_from_file, apply_import
+        from ui.dialogs import PipelineImportPasswordDialog
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Importer un pipeline", "", "Pipeline DataScheduler (*.dspipeline)",
+        )
+        if not path:
+            return
+
+        plan = plan_import_from_file(path)
+
+        if plan.needs_password:
+            pwd_dlg = PipelineImportPasswordDialog(self)
+            if not pwd_dlg.exec():
+                return
+            plan = plan_import_from_file(path, password=pwd_dlg.password())
+
+        if not plan.success:
+            QMessageBox.critical(self, "Échec de l'import", plan.error or "Erreur inconnue.")
+            return
+
+        result = apply_import(plan)
+        if not result.success:
+            QMessageBox.critical(self, "Échec de l'import", result.error or "Erreur inconnue.")
+            return
+
+        if result.warnings:
+            QMessageBox.warning(
+                self, "Import terminé avec avertissements",
+                "Le pipeline a été importé, mais :\n\n"
+                + "\n".join(f"• {w}" for w in result.warnings),
+            )
+        else:
+            QMessageBox.information(self, "Import réussi", "Le pipeline a été importé avec succès.")
+
+        self.refresh()
 
     def _on_edit_pipeline(self, pipeline_id: int):
         from database import db_manager as db

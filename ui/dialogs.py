@@ -1636,3 +1636,75 @@ class PipelineExportDialog(QDialog):
         f = QFrame(); f.setFrameShape(QFrame.HLine)
         f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
         return f
+
+
+# ──────────────────────────────────────────────
+#  DIALOGUE : MOT DE PASSE D'IMPORT
+# ──────────────────────────────────────────────
+
+class PipelineImportPasswordDialog(QDialog):
+    """Prompt du mot de passe nécessaire pour déchiffrer un bundle .dspipeline importé."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mot de passe requis")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(DIALOG_STYLE)
+        self._build_ui()
+
+    def _build_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(28, 24, 28, 24)
+        root.setSpacing(16)
+
+        title = QLabel("Mot de passe requis")
+        title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")
+        root.addWidget(title)
+        root.addWidget(self._sep())
+
+        note = QLabel(
+            "Ce fichier contient des identifiants chiffrés. Saisissez le mot de passe utilisé "
+            "au moment de l'export pour les déchiffrer."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
+        root.addWidget(note)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        self.inp_password = QLineEdit()
+        self.inp_password.setEchoMode(QLineEdit.Password)
+        self.inp_password.setFixedHeight(34)
+        self.inp_password.setStyleSheet(self._input_style())
+        form.addRow(self._label("Mot de passe"), self.inp_password)
+        root.addLayout(form)
+
+        root.addWidget(self._sep())
+        btn_row = QHBoxLayout(); btn_row.setSpacing(10); btn_row.addStretch()
+        btn_cancel = QPushButton("Annuler"); btn_cancel.setObjectName("secondary")
+        btn_cancel.setFixedHeight(36); btn_cancel.clicked.connect(self.reject)
+        btn_ok = QPushButton("Valider")
+        btn_ok.setFixedHeight(36); btn_ok.clicked.connect(self.accept)
+        btn_row.addWidget(btn_cancel); btn_row.addWidget(btn_ok)
+        root.addLayout(btn_row)
+
+    def password(self) -> str:
+        return self.inp_password.text()
+
+    def _input_style(self, error=False) -> str:
+        border = COLORS["danger"] if error else COLORS["border"]
+        return (f"QLineEdit {{ background: {COLORS['bg_card']}; border: 1px solid {border}; "
+                f"border-radius: 4px; padding: 6px 10px; color: {COLORS['text_main']}; font-size: 13px; }}"
+                f"QLineEdit:focus {{ border-color: {COLORS['accent']}; }}")
+
+    def _label(self, text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
+        return lbl
+
+    def _sep(self) -> QFrame:
+        f = QFrame(); f.setFrameShape(QFrame.HLine)
+        f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
+        return f

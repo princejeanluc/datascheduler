@@ -258,14 +258,17 @@ def get_session() -> Session:
 
 def create_oracle_profile(name, host, port, username, password,
                            service_name=None, sid=None,
-                           auth_mode="DEFAULT") -> OracleProfile:
+                           auth_mode="DEFAULT", uuid=None) -> OracleProfile:
     with get_session() as s:
-        profile = OracleProfile(
+        kwargs = dict(
             name=name, host=host, port=port,
             username=username, password=crypto.encrypt(password),
             service_name=service_name, sid=sid,
             auth_mode=auth_mode,
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = OracleProfile(**kwargs)
         s.add(profile)
     return profile
 
@@ -298,6 +301,11 @@ def get_oracle_profile(profile_id: int) -> OracleProfile | None:
         return s.get(OracleProfile, profile_id)
 
 
+def get_oracle_profile_by_uuid(uuid: str) -> OracleProfile | None:
+    with get_session() as s:
+        return s.query(OracleProfile).filter_by(uuid=uuid).first()
+
+
 def delete_oracle_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(OracleProfile, profile_id)
@@ -311,13 +319,16 @@ def delete_oracle_profile(profile_id: int) -> bool:
 #  HELPERS FTP PROFILE
 # ──────────────────────────────────────────────
 
-def create_ftp_profile(name, host, port, username, password, protocol="FTP") -> FtpProfile:
+def create_ftp_profile(name, host, port, username, password, protocol="FTP", uuid=None) -> FtpProfile:
     with get_session() as s:
-        profile = FtpProfile(
+        kwargs = dict(
             name=name, host=host, port=port,
             username=username, password=crypto.encrypt(password),
             protocol=protocol,
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = FtpProfile(**kwargs)
         s.add(profile)
     return profile
 
@@ -347,6 +358,11 @@ def get_ftp_profile(profile_id: int) -> FtpProfile | None:
         return s.get(FtpProfile, profile_id)
 
 
+def get_ftp_profile_by_uuid(uuid: str) -> FtpProfile | None:
+    with get_session() as s:
+        return s.query(FtpProfile).filter_by(uuid=uuid).first()
+
+
 def delete_ftp_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(FtpProfile, profile_id)
@@ -361,13 +377,16 @@ def delete_ftp_profile(profile_id: int) -> bool:
 # ──────────────────────────────────────────────
 
 def create_smtp_profile(name, host, port, from_address,
-                         username=None, password=None, use_tls=True) -> SmtpProfile:
+                         username=None, password=None, use_tls=True, uuid=None) -> SmtpProfile:
     with get_session() as s:
-        profile = SmtpProfile(
+        kwargs = dict(
             name=name, host=host, port=port,
             username=username, password=crypto.encrypt(password) if password else password,
             use_tls=use_tls, from_address=from_address,
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = SmtpProfile(**kwargs)
         s.add(profile)
     return profile
 
@@ -398,6 +417,11 @@ def get_smtp_profile(profile_id: int) -> SmtpProfile | None:
         return s.get(SmtpProfile, profile_id)
 
 
+def get_smtp_profile_by_uuid(uuid: str) -> SmtpProfile | None:
+    with get_session() as s:
+        return s.query(SmtpProfile).filter_by(uuid=uuid).first()
+
+
 def delete_smtp_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(SmtpProfile, profile_id)
@@ -412,15 +436,18 @@ def delete_smtp_profile(profile_id: int) -> bool:
 # ──────────────────────────────────────────────
 
 def create_database_profile(name, db_type, host, port, username, password,
-                             database_name=None, extra=None) -> DatabaseProfile:
+                             database_name=None, extra=None, uuid=None) -> DatabaseProfile:
     import json
     with get_session() as s:
-        profile = DatabaseProfile(
+        kwargs = dict(
             name=name, db_type=db_type, host=host, port=port,
             username=username, password=crypto.encrypt(password),
             database_name=database_name,
             extra_json=json.dumps(extra or {}),
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = DatabaseProfile(**kwargs)
         s.add(profile)
     return profile
 
@@ -450,6 +477,11 @@ def get_database_profiles() -> list[DatabaseProfile]:
 def get_database_profile(profile_id: int) -> DatabaseProfile | None:
     with get_session() as s:
         return s.get(DatabaseProfile, profile_id)
+
+
+def get_database_profile_by_uuid(uuid: str) -> DatabaseProfile | None:
+    with get_session() as s:
+        return s.query(DatabaseProfile).filter_by(uuid=uuid).first()
 
 
 def delete_database_profile(profile_id: int) -> bool:
@@ -491,13 +523,16 @@ def _status_str(val) -> str:
 #  HELPERS SQL QUERY
 # ──────────────────────────────────────────────
 
-def create_sql_query(name, sql_text, description=None, oracle_profile_id=None) -> SqlQuery:
+def create_sql_query(name, sql_text, description=None, oracle_profile_id=None, uuid=None) -> SqlQuery:
     with get_session() as s:
-        q = SqlQuery(
+        kwargs = dict(
             name=name, sql_text=sql_text,
             description=description,
             oracle_profile_id=oracle_profile_id,
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        q = SqlQuery(**kwargs)
         s.add(q)
     return q
 
@@ -513,6 +548,11 @@ def get_sql_queries() -> list[SqlQuery]:
 def get_sql_query(query_id: int) -> SqlQuery | None:
     with get_session() as s:
         return s.get(SqlQuery, query_id)
+
+
+def get_sql_query_by_uuid(uuid: str) -> SqlQuery | None:
+    with get_session() as s:
+        return s.query(SqlQuery).filter_by(uuid=uuid).first()
 
 
 def delete_sql_query(query_id: int) -> bool:
@@ -536,9 +576,9 @@ def create_pipeline(name, description=None,
                     oracle_profile_id=None, sql_query_id=None, ftp_profile_id=None,
                     remote_path_tpl=None, filename_tpl=None,
                     csv_separator=";", csv_encoding="utf-8", csv_chunk_size=50000,
-                    csv_quoting="QUOTE_NONNUMERIC") -> Pipeline:
+                    csv_quoting="QUOTE_NONNUMERIC", uuid=None) -> Pipeline:
     with get_session() as s:
-        p = Pipeline(
+        kwargs = dict(
             name=name, description=description,
             oracle_profile_id=oracle_profile_id,
             sql_query_id=sql_query_id,
@@ -555,6 +595,9 @@ def create_pipeline(name, description=None,
             scheduled_day=scheduled_day,
             prevent_overlap=prevent_overlap,
         )
+        if uuid:
+            kwargs["uuid"] = uuid
+        p = Pipeline(**kwargs)
         s.add(p)
     return p
 
@@ -577,6 +620,11 @@ def get_pipelines(active_only=False) -> list[Pipeline]:
 def get_pipeline(pipeline_id: int) -> Pipeline | None:
     with get_session() as s:
         return s.get(Pipeline, pipeline_id)
+
+
+def get_pipeline_by_uuid(uuid: str) -> Pipeline | None:
+    with get_session() as s:
+        return s.query(Pipeline).filter_by(uuid=uuid).first()
 
 
 def set_pipeline_active(pipeline_id: int, active: bool) -> bool:

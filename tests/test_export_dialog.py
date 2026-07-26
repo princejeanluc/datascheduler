@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from PySide6.QtWidgets import QApplication
 
-from ui.dialogs import PipelineExportDialog
+from ui.dialogs import PipelineExportDialog, PipelineImportPasswordDialog
 
 
 class _FakePipeline:
@@ -29,3 +29,9 @@ def test_export_dialog_opens_without_error(qapp):
     dlg = PipelineExportDialog(None, pipeline=_FakePipeline())
     assert dlg.windowTitle()
     assert dlg.inp_password.text() == ""
+
+
+def test_import_password_dialog_opens_without_error(qapp):
+    dlg = PipelineImportPasswordDialog(None)
+    assert dlg.windowTitle()
+    assert dlg.password() == ""
