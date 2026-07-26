@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, StepType
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType
 
 
 # ──────────────────────────────────────────────
@@ -134,6 +134,14 @@ def _migrate(engine) -> None:
                 "ALTER TABLE pipeline_steps ADD COLUMN run_always BOOLEAN NOT NULL DEFAULT 0"
             ))
             conn.commit()
+        # Position sur le canevas (chantier 6a/6b) — DEFAULT 0 constant pour toutes les lignes,
+        # pas besoin d'un backfill ligne par ligne comme pour uuid (valeurs devant être distinctes).
+        for col in ("pos_x", "pos_y"):
+            if col not in step_cols:
+                conn.execute(text(
+                    f"ALTER TABLE pipeline_steps ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                ))
+                conn.commit()
 
         # Rendre oracle_profile_id / sql_query_id / ftp_profile_id / remote_path_tpl / filename_tpl
         # nullable (requis par l'architecture flexible à base d'étapes).
@@ -791,6 +799,51 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
+            ))
+
+
+# ──────────────────────────────────────────────
+#  GRAPHE DE PIPELINE (chantier 6a) — arêtes + positions
+# ──────────────────────────────────────────────
+
+def get_edges(pipeline_id: int) -> list[PipelineEdge]:
+    with get_session() as s:
+        return s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).all()
+
+
+def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) -> None:
+    """
+    Comme save_steps(), mais persiste aussi la position sur le canevas (pos_x/pos_y, 0 par
+    défaut si absente du dict) et remplace intégralement les PipelineEdge du pipeline.
+
+    N'est appelée que par le futur éditeur graphique (chantier 6b) — save_steps() reste le
+    chemin de l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
+
+    Chaque edge dict : {"from_step_key": str, "from_port": str, "to_step_key": str, "to_port": str}.
+    """
+    import json
+    with get_session() as s:
+        s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).delete()
+        for i, step in enumerate(steps):
+            s.add(PipelineStep(
+                pipeline_id=pipeline_id,
+                step_order=i,
+                step_type=step["step_type"],
+                label=step.get("label"),
+                config_json=json.dumps(step.get("config", {})),
+                retry_count=step.get("retry_count") or 0,
+                run_always=step.get("run_always") or False,
+                pos_x=step.get("pos_x", 0),
+                pos_y=step.get("pos_y", 0),
+            ))
+        s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).delete()
+        for e in edges:
+            s.add(PipelineEdge(
+                pipeline_id=pipeline_id,
+                from_step_key=e["from_step_key"],
+                from_port=e.get("from_port") or "output_file",
+                to_step_key=e["to_step_key"],
+                to_port=e.get("to_port") or "input",
             ))
 
 

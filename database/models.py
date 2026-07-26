@@ -68,6 +68,7 @@ class StepType(str, enum.Enum):
     DB_EXTRACT     = "DB_EXTRACT"      # Base de données (tout moteur) → CSV temporaire
     DB_EXECUTE     = "DB_EXECUTE"      # Exécution SQL/PLSQL sans extraction (tout moteur)
     DB_LOAD        = "DB_LOAD"         # Chargement d'un CSV vers une table (tout moteur)
+    CONDITION      = "CONDITION"       # Routeur conditionnel (ports de sortie nommés) — chantier 6a
 
 
 # ──────────────────────────────────────────────
@@ -252,6 +253,8 @@ class Pipeline(Base):
     steps          = relationship("PipelineStep",  back_populates="pipeline",
                                   cascade="all, delete-orphan",
                                   order_by="PipelineStep.step_order")
+    edges          = relationship("PipelineEdge",  back_populates="pipeline",
+                                  cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Pipeline name={self.name} active={self.is_active}>"
@@ -272,11 +275,41 @@ class PipelineStep(Base):
     config_json = Column(Text, nullable=False, default="{}")
     retry_count = Column(Integer, default=0, nullable=False)
     run_always  = Column(Boolean, default=False, nullable=False)
+    pos_x       = Column(Integer, nullable=False, default=0)   # position canevas — chantier 6a/6b
+    pos_y       = Column(Integer, nullable=False, default=0)
 
     pipeline = relationship("Pipeline", back_populates="steps")
 
     def __repr__(self):
         return f"<PipelineStep pipeline_id={self.pipeline_id} order={self.step_order} type={self.step_type}>"
+
+
+# ──────────────────────────────────────────────
+#  ARÊTE DE GRAPHE (chantier 6a)
+# ──────────────────────────────────────────────
+
+class PipelineEdge(Base):
+    """
+    Connexion entre le port de sortie d'une étape et le port d'entrée d'une autre, dans le
+    modèle de graphe (chantier 6a/6b). Référence les étapes par leur `_step_key` stable (vivant
+    dans PipelineStep.config_json depuis le chantier 3) et non par PipelineStep.id, qui n'est
+    pas stable — save_steps()/save_pipeline_graph() suppriment et recréent toutes les lignes à
+    chaque sauvegarde. Mécanisme parallèle à `reads_from_step_key` (chantier 3, propre à
+    l'éditeur linéaire) — pas un remplacement, les deux coexistent, chacun pour son éditeur.
+    """
+    __tablename__ = "pipeline_edges"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id   = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    from_step_key = Column(String(36), nullable=False)
+    from_port     = Column(String(50), nullable=False, default="output_file")
+    to_step_key   = Column(String(36), nullable=False)
+    to_port       = Column(String(50), nullable=False, default="input")
+
+    pipeline = relationship("Pipeline", back_populates="edges")
+
+    def __repr__(self):
+        return f"<PipelineEdge {self.from_step_key}:{self.from_port} -> {self.to_step_key}:{self.to_port}>"
 
 
 # ──────────────────────────────────────────────

@@ -64,8 +64,11 @@ class StepContext:
 
 @dataclass
 class StepResult:
-    success: bool       = False
-    error:   str | None = None
+    success:     bool       = False
+    error:       str | None = None
+    # Port de sortie actif pour les nœuds à ports multiples (ex: ConditionStep, "true"/"false") —
+    # None pour tous les steps existants, qui n'ont qu'un seul port de sortie implicite.
+    active_port: str | None = None
 
 
 class BaseStep:
@@ -74,6 +77,9 @@ class BaseStep:
     REQUIRES: set[str] = set()
     # Ce que ce type d'étape garantit avoir rempli dans ctx en cas de succès.
     PRODUCES: set[str] = set()
+    # Ports de sortie nommés (chantier 6a) — un seul port implicite pour tous les steps
+    # existants ; un nœud à ports multiples (ex: ConditionStep) le redéfinit ("true", "false").
+    OUTPUT_PORTS: tuple[str, ...] = ("output_file",)
 
     def __init__(self, config: dict):
         self.config = config

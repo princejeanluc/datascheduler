@@ -143,6 +143,318 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
 
 
 # ──────────────────────────────────────────────
+#  EXÉCUTION LINÉAIRE (comportement historique, inchangé)
+# ──────────────────────────────────────────────
+
+def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, bool]:
+    """
+    Boucle d'exécution actuelle, extraite telle quelle de run_pipeline() — chemin emprunté
+    pour tout pipeline sans arête explicite (`db.get_edges()` vide), donc pour tous les
+    pipelines existants et pour l'éditeur linéaire (PipelineEditorDialog), inchangés par le
+    chantier 6a. Retourne (pipeline_failed, pipeline_cancelled).
+    """
+    total = len(steps)
+    pipeline_failed  = False
+    pipeline_cancelled = False
+
+    for i, step in enumerate(steps):
+        if cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = json.loads(step.config_json or "{}")
+
+        if pipeline_failed and not step.run_always:
+            continue
+
+        # Ciblage explicite d'une source antérieure (sélecteur "Source" de l'éditeur) —
+        # réoriente le slot par défaut avant l'exécution ; l'étape elle-même lit
+        # ctx.output_file sans rien savoir de ce réaiguillage.
+        target_key = config.get("reads_from_step_key")
+        if target_key:
+            ctx.output_file = ctx.artifacts.get(target_key)
+
+        base_pct = int(i * 90 / total)       # 0 → 90 %
+        next_pct = int((i + 1) * 90 / total)
+
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+            scaled = _bp + int(pct * (_np - _bp) / 100)
+            progress(msg, scaled)
+
+        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
+        result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
+
+        executor    = get_step(step_type, config)
+        retry_count = step.retry_count or 0
+        attempt     = 0
+        while True:
+            step_result = executor.run(ctx, on_progress=step_progress)
+
+            # Récupération des logs accumulés dans le contexte
+            for line in ctx.log_lines:
+                result.log_lines.append(line)
+            ctx.log_lines.clear()
+
+            if step_result.success or attempt >= retry_count:
+                break
+            attempt += 1
+            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
+            time.sleep(RETRY_DELAY_S)
+
+        if step_result.success:
+            # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
+            # consommatrice ultérieure puisse cibler explicitement "la sortie de
+            # cette étape précise" plutôt que "la dernière produite" (voir
+            # docs/ARCHITECTURE.md, section StepContext).
+            _, produces = get_step_requirements(step_type)
+            step_key = config.get("_step_key")
+            if "output_file" in produces and step_key:
+                ctx.artifacts[step_key] = ctx.output_file
+
+        if not step_result.success:
+            if not pipeline_failed:
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+                pipeline_failed = True
+            elif step.run_always:
+                result.log(f"Étape 'toujours exécutée' {i + 1} ({step_label}) en échec : {step_result.error}")
+
+    return pipeline_failed, pipeline_cancelled
+
+
+# ──────────────────────────────────────────────
+#  EXÉCUTION EN GRAPHE (chantier 6a)
+# ──────────────────────────────────────────────
+
+def _topological_order(steps, edges):
+    """
+    Ordre topologique des étapes (algorithme de Kahn) sur les `_step_key` référencés par les
+    arêtes. Tie-break déterministe par `step_order` (ordre d'édition/création). Les étapes sans
+    `_step_key` (ne peuvent avoir aucune arête) sont ajoutées à la fin dans leur step_order
+    d'origine — cas résiduel, chaque étape enregistrée via _BaseStepConfigDialog.result_step()
+    reçoit toujours une clé.
+
+    Retourne None si le graphe contient un cycle.
+    """
+    configs = {id(s): json.loads(s.config_json or "{}") for s in steps}
+    by_key  = {}
+    key_order = {}
+    for s in steps:
+        key = configs[id(s)].get("_step_key")
+        if key:
+            by_key[key] = s
+            key_order[key] = s.step_order
+
+    incoming: dict = {k: [] for k in by_key}
+    outgoing: dict = {k: [] for k in by_key}
+    for e in edges:
+        if e.from_step_key in by_key and e.to_step_key in by_key:
+            incoming[e.to_step_key].append(e.from_step_key)
+            outgoing[e.from_step_key].append(e.to_step_key)
+
+    in_degree = {k: len(v) for k, v in incoming.items()}
+    ready = [k for k, d in in_degree.items() if d == 0]
+    ordered_keys: list[str] = []
+
+    while ready:
+        ready.sort(key=lambda k: key_order[k])
+        k = ready.pop(0)
+        ordered_keys.append(k)
+        for nxt in outgoing[k]:
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                ready.append(nxt)
+
+    if len(ordered_keys) != len(by_key):
+        return None   # cycle détecté
+
+    keyless = sorted(
+        (s for s in steps if not configs[id(s)].get("_step_key")),
+        key=lambda s: s.step_order,
+    )
+    return [by_key[k] for k in ordered_keys] + keyless
+
+
+def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[bool, bool]:
+    """
+    Exécution en ordre topologique. L'échec d'une étape ne bloque que ses dépendants (directs ou
+    indirects) — les branches indépendantes continuent. Un nœud à ports multiples (ex:
+    ConditionStep) détermine, via `StepResult.active_port`, quelle(s) arête(s) sortante(s) sont
+    actives — les autres sont traitées comme une branche non sélectionnée (skip, pas un échec).
+    """
+    order = _topological_order(steps, edges)
+    if order is None:
+        result.fail("Le graphe de ce pipeline contient un cycle — exécution impossible.")
+        return True, False
+
+    total = len(order)
+    configs  = {id(s): json.loads(s.config_json or "{}") for s in order}
+    key_of   = {id(s): configs[id(s)].get("_step_key") for s in order}
+
+    incoming_by_key: dict = {}
+    for e in edges:
+        incoming_by_key.setdefault(e.to_step_key, []).append(e)
+
+    step_status: dict = {}    # step_key -> "success" | "failed" | "skipped"
+    active_port: dict = {}    # step_key -> port actif (steps à ports multiples)
+    pipeline_failed    = False
+    pipeline_cancelled = False
+
+    for i, step in enumerate(order):
+        if cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = configs[id(step)]
+        step_key   = key_of[id(step)]
+
+        incoming    = incoming_by_key.get(step_key, []) if step_key else []
+        unavailable = []
+        for e in incoming:
+            src_status = step_status.get(e.from_step_key)
+            if src_status in ("failed", "skipped"):
+                unavailable.append(e)
+                continue
+            src_active_port = active_port.get(e.from_step_key)
+            if src_active_port is not None and e.from_port != src_active_port:
+                unavailable.append(e)   # branche non sélectionnée par un nœud Condition en amont
+
+        base_pct = int(i * 90 / total)
+        next_pct = int((i + 1) * 90 / total)
+
+        should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
+        if should_skip:
+            if step_key:
+                step_status[step_key] = "skipped"
+            failed_upstream = any(
+                step_status.get(e.from_step_key) in ("failed", "skipped") for e in unavailable
+            )
+            reason = "dépendance en échec" if failed_upstream else "branche non sélectionnée"
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} ignorée ({reason}) ---")
+            progress(f"Étape {i + 1}/{total} : {step_label} (ignorée)", next_pct)
+            continue
+
+        # Réoriente ctx.output_file vers l'artefact de la source, si une unique arête de donnée
+        # entrante active existe — généralisation exacte de reads_from_step_key (chantier 3),
+        # pilotée ici par la table d'arêtes plutôt que par le champ de config.
+        data_incoming = [e for e in incoming if e not in unavailable]
+        if len(data_incoming) == 1:
+            ctx.output_file = ctx.artifacts.get(data_incoming[0].from_step_key)
+
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+            scaled = _bp + int(pct * (_np - _bp) / 100)
+            progress(msg, scaled)
+
+        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
+        result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
+
+        executor    = get_step(step_type, config)
+        retry_count = step.retry_count or 0
+        attempt     = 0
+        while True:
+            step_result = executor.run(ctx, on_progress=step_progress)
+
+            for line in ctx.log_lines:
+                result.log_lines.append(line)
+            ctx.log_lines.clear()
+
+            if step_result.success or attempt >= retry_count:
+                break
+            attempt += 1
+            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
+            time.sleep(RETRY_DELAY_S)
+
+        if step_result.success:
+            _, produces = get_step_requirements(step_type)
+            if "output_file" in produces and step_key:
+                ctx.artifacts[step_key] = ctx.output_file
+            if step_key:
+                step_status[step_key] = "success"
+                if step_result.active_port:
+                    active_port[step_key] = step_result.active_port
+        else:
+            if step_key:
+                step_status[step_key] = "failed"
+            pipeline_failed = True
+            result.log(f"Étape {i + 1} ({step_label}) en échec : {step_result.error}")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+
+    return pipeline_failed, pipeline_cancelled
+
+
+# ──────────────────────────────────────────────
+#  VALIDATION STATIQUE D'UN GRAPHE (chantier 6a)
+# ──────────────────────────────────────────────
+
+def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[str], list[str]]:
+    """
+    Équivalent graphe de validate_step_sequence(), pour le futur éditeur graphique (6b) — steps
+    et edges en dicts en mémoire, avant toute sauvegarde en base (même moment d'appel que
+    validate_step_sequence() dans PipelineEditorDialog._on_save()).
+
+    Détecte les cycles (algorithme de Kahn — si tous les nœuds n'atteignent pas un in-degree de
+    0, cycle) puis vérifie que chaque étape dont REQUIRES est non vide a au moins une arête
+    entrante — plus besoin du repli heuristique "dernière production" de validate_step_sequence :
+    dans un graphe, l'arête EST la déclaration explicite de la source.
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    by_key = {}
+    for s in steps:
+        key = (s.get("config") or {}).get("_step_key")
+        if key:
+            by_key[key] = s
+
+    incoming: dict = {k: [] for k in by_key}
+    in_degree: dict = {k: 0 for k in by_key}
+    for e in edges:
+        if e.get("from_step_key") in by_key and e.get("to_step_key") in by_key:
+            incoming[e["to_step_key"]].append(e)
+            in_degree[e["to_step_key"]] += 1
+
+    ready = [k for k, d in in_degree.items() if d == 0]
+    visited = 0
+    outgoing: dict = {k: [] for k in by_key}
+    for e in edges:
+        if e.get("from_step_key") in by_key and e.get("to_step_key") in by_key:
+            outgoing[e["from_step_key"]].append(e["to_step_key"])
+    remaining = dict(in_degree)
+    while ready:
+        k = ready.pop()
+        visited += 1
+        for nxt in outgoing[k]:
+            remaining[nxt] -= 1
+            if remaining[nxt] == 0:
+                ready.append(nxt)
+
+    if visited != len(by_key):
+        errors.append("Le graphe contient un cycle — impossible de déterminer un ordre d'exécution.")
+        return errors, warnings
+
+    for key, step in by_key.items():
+        step_type  = step.get("step_type", "")
+        label      = step.get("label") or step_type
+        run_always = bool(step.get("run_always"))
+        requires, _ = get_step_requirements(step_type)
+        if requires and not incoming.get(key):
+            msg = f"Étape « {label} » : nécessite {', '.join(sorted(requires))}, aucune arête entrante."
+            (warnings if run_always else errors).append(msg)
+
+    return errors, warnings
+
+
+# ──────────────────────────────────────────────
 #  EXÉCUTEUR PRINCIPAL
 # ──────────────────────────────────────────────
 
@@ -194,80 +506,23 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
 
         # ── Contexte partagé + enregistrement du verrou ──
         ctx    = StepContext()
-        total  = len(steps)
         cancel_event = threading.Event()
         with _active_runs_lock:
             _active_runs[pipeline_id] = cancel_event
 
-        pipeline_failed  = False
-        pipeline_cancelled = False
-
         # ── Exécution des étapes ──────────────────
-        for i, step in enumerate(steps):
-            if cancel_event.is_set():
-                pipeline_cancelled = True
-                result.fail("Exécution interrompue par l'utilisateur.")
-                break
-
-            step_type  = str(step.step_type).replace("StepType.", "")
-            step_label = step.label or step_type
-            config     = json.loads(step.config_json or "{}")
-
-            if pipeline_failed and not step.run_always:
-                continue
-
-            # Ciblage explicite d'une source antérieure (sélecteur "Source" de l'éditeur) —
-            # réoriente le slot par défaut avant l'exécution ; l'étape elle-même lit
-            # ctx.output_file sans rien savoir de ce réaiguillage.
-            target_key = config.get("reads_from_step_key")
-            if target_key:
-                ctx.output_file = ctx.artifacts.get(target_key)
-
-            base_pct = int(i * 90 / total)       # 0 → 90 %
-            next_pct = int((i + 1) * 90 / total)
-
-            def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
-                scaled = _bp + int(pct * (_np - _bp) / 100)
-                progress(msg, scaled)
-
-            progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
-            result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
-
-            executor    = get_step(step_type, config)
-            retry_count = step.retry_count or 0
-            attempt     = 0
-            while True:
-                step_result = executor.run(ctx, on_progress=step_progress)
-
-                # Récupération des logs accumulés dans le contexte
-                for line in ctx.log_lines:
-                    result.log_lines.append(line)
-                ctx.log_lines.clear()
-
-                if step_result.success or attempt >= retry_count:
-                    break
-                attempt += 1
-                result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-                time.sleep(RETRY_DELAY_S)
-
-            if step_result.success:
-                # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
-                # consommatrice ultérieure puisse cibler explicitement "la sortie de
-                # cette étape précise" plutôt que "la dernière produite" (voir
-                # docs/ARCHITECTURE.md, section StepContext).
-                _, produces = get_step_requirements(step_type)
-                step_key = config.get("_step_key")
-                if "output_file" in produces and step_key:
-                    ctx.artifacts[step_key] = ctx.output_file
-
-            if not step_result.success:
-                if not pipeline_failed:
-                    ctx.extra["failed_step_label"] = step_label
-                    ctx.extra["error_message"]     = step_result.error
-                    result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
-                    pipeline_failed = True
-                elif step.run_always:
-                    result.log(f"Étape 'toujours exécutée' {i + 1} ({step_label}) en échec : {step_result.error}")
+        # Chemin DAG (chantier 6a) seulement si ce pipeline a des arêtes explicites (enregistré
+        # au moins une fois via le futur éditeur graphique) — sinon la boucle linéaire actuelle,
+        # inchangée : zéro changement de comportement pour tous les pipelines existants.
+        edges = db.get_edges(pipeline_id)
+        if edges:
+            pipeline_failed, pipeline_cancelled = _execute_graph(
+                steps, edges, ctx, progress, result, cancel_event
+            )
+        else:
+            pipeline_failed, pipeline_cancelled = _execute_linear(
+                steps, ctx, progress, result, cancel_event
+            )
 
         # ── Nettoyage des fichiers temporaires (inconditionnel) ──
         # Plusieurs artefacts nommés peuvent désormais être vivants simultanément (ex : deux
