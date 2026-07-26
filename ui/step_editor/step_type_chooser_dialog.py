@@ -14,9 +14,10 @@ from .common import STEP_META
 class StepTypeChooserDialog(QDialog):
     """Dialogue de sélection du type d'étape à ajouter."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, include_condition: bool = False):
         super().__init__(parent)
         self.chosen_type: str = ""
+        self._include_condition = include_condition
         self.setWindowTitle("Ajouter une étape")
         self.setFixedWidth(420)
         self.setStyleSheet(DIALOG_STYLE)
@@ -48,6 +49,11 @@ class StepTypeChooserDialog(QDialog):
             "EMAIL_NOTIFY":   "Envoi d'un email, avec le fichier produit en pièce jointe optionnelle.",
             "HTTP_REQUEST":   "Appel d'une API REST / webhook, avec le fichier produit en option.",
         }
+        if self._include_condition:
+            descriptions["CONDITION"] = (
+                "Évalue une expression sur le contexte et route vers l'une de ses deux sorties "
+                "(Vrai/Faux) — à connecter dans le canevas."
+            )
 
         for step_type, desc in descriptions.items():
             meta = STEP_META[step_type]

@@ -26,6 +26,7 @@ STEP_META = {
     "DB_LOAD":        {"label": "Chargement base de données", "color": "#26a69a"},
     "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350"},
     "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc"},
+    "CONDITION":      {"label": "Condition / Routeur", "color": "#7e57c2"},
 }
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]

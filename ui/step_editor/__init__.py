@@ -17,6 +17,7 @@ from .ftp_download_config_dialog import _FtpDownloadConfigDialog
 from .db_load_config_dialog import _DbLoadConfigDialog
 from .email_notify_config_dialog import _EmailNotifyConfigDialog
 from .http_request_config_dialog import _HttpRequestConfigDialog
+from .condition_config_dialog import _ConditionConfigDialog
 
 __all__ = ["STEP_META", "PipelineEditorDialog", "_open_config_dialog"]
 
@@ -48,6 +49,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         "DB_LOAD":        _DbLoadConfigDialog,
         "EMAIL_NOTIFY":   _EmailNotifyConfigDialog,
         "HTTP_REQUEST":   _HttpRequestConfigDialog,
+        "CONDITION":      _ConditionConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None
