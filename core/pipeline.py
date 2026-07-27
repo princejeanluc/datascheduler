@@ -83,6 +83,18 @@ def request_cancel(pipeline_id: int) -> bool:
     return True
 
 
+def is_cancel_requested(pipeline_id: int) -> bool:
+    """
+    Indique si un arrêt a été demandé pour le run en cours de ce pipeline mais n'a pas
+    encore abouti (l'étape en cours n'a pas encore atteint sa prochaine limite) — utilisé
+    par l'UI pour afficher un état "Arrêt en cours" plutôt que de laisser l'utilisateur
+    sans retour visuel après avoir demandé une interruption (voir PipelinesView.refresh()).
+    """
+    with _active_runs_lock:
+        event = _active_runs.get(pipeline_id)
+    return bool(event and event.is_set())
+
+
 # ──────────────────────────────────────────────
 #  VALIDATION STATIQUE D'UNE SÉQUENCE D'ÉTAPES
 # ──────────────────────────────────────────────

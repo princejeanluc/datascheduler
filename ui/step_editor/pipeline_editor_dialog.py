@@ -428,6 +428,15 @@ class PipelineEditorDialog(QDialog):
             self._rebuild_step_list()
 
     def _delete_step(self, idx: int):
+        step = self._steps_data[idx]
+        name = step.get("label") or STEP_META.get(step["step_type"], {}).get("label", step["step_type"])
+        reply = QMessageBox.question(
+            self, "Supprimer l'étape",
+            f"Supprimer l'étape « {name} » ? Cette action est immédiate et ne peut pas être annulée.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
         self._steps_data.pop(idx)
         self._rebuild_step_list()
 
