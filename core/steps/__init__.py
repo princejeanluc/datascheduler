@@ -8,6 +8,7 @@ from .http_request   import HttpRequestStep
 from .db_extract     import DbExtractStep
 from .db_execute     import DbExecuteStep
 from .db_load        import DbLoadStep
+from .condition      import ConditionStep
 
 _REGISTRY: dict[str, type[BaseStep]] = {
     "FTP_UPLOAD":     FtpUploadStep,
@@ -19,6 +20,7 @@ _REGISTRY: dict[str, type[BaseStep]] = {
     "DB_EXTRACT":     DbExtractStep,
     "DB_EXECUTE":     DbExecuteStep,
     "DB_LOAD":        DbLoadStep,
+    "CONDITION":      ConditionStep,
 }
 
 
@@ -35,3 +37,11 @@ def get_step_requirements(step_type: str) -> tuple[set[str], set[str]]:
     if cls is None:
         return set(), set()
     return set(cls.REQUIRES), set(cls.PRODUCES)
+
+
+def get_step_output_ports(step_type: str) -> tuple[str, ...]:
+    """Retourne les ports de sortie nommés d'un type d'étape (chantier 6a) — un seul port
+    implicite ("output_file") pour tous les steps existants ; plusieurs pour un nœud comme
+    ConditionStep ("true", "false")."""
+    cls = _REGISTRY.get(step_type)
+    return cls.OUTPUT_PORTS if cls is not None else ("output_file",)

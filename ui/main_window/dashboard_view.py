@@ -1,0 +1,149 @@
+"""
+DataScheduler — ui/main_window/dashboard_view.py
+Vue Dashboard : état des pipelines + dernières exécutions.
+"""
+
+from PySide6.QtWidgets import (
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QMessageBox,
+)
+from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtGui import QFont, QColor
+from ui.styles import COLORS
+from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
+
+
+class DashboardView(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._build_ui()
+        self._timer = QTimer(self)
+        self._timer.setInterval(30_000)   # 30 secondes
+        self._timer.timeout.connect(self.refresh)
+        self._timer.start()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(24)
+
+        header = QWidget()
+        h_layout = QHBoxLayout(header)
+        h_layout.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Dashboard"); title.setObjectName("section_title")
+        sub   = QLabel("Vue d'ensemble des pipelines"); sub.setObjectName("subtitle")
+        title_col = QVBoxLayout(); title_col.setSpacing(2)
+        title_col.addWidget(title); title_col.addWidget(sub)
+        h_layout.addLayout(title_col); h_layout.addStretch()
+        btn_run_all = QPushButton("  Tout exécuter"); btn_run_all.setFixedHeight(36)
+        btn_run_all.setIcon(_icon("fa5s.bolt", "#000000")); btn_run_all.setIconSize(QSize(14, 14))
+        btn_run_all.clicked.connect(self._on_run_all)
+        h_layout.addWidget(btn_run_all)
+        layout.addWidget(header)
+
+        stats_row = QHBoxLayout(); stats_row.setSpacing(16)
+        self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
+        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"])
+        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"])
+        self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline")
+        for c in (self._card_active, self._card_success, self._card_failed, self._card_next):
+            stats_row.addWidget(c)
+        layout.addLayout(stats_row)
+
+        sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep)
+
+        lbl_recent = QLabel("Dernières exécutions")
+        lbl_recent.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
+        layout.addWidget(lbl_recent)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Pipeline", "Statut", "Lignes", "Durée", "Date", "Fichier déposé"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        _configure_columns(self.table, stretch_cols={0, 5})
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 130)
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)
+        self.table.setFixedHeight(200)
+        layout.addWidget(self.table)
+
+        self._empty_label = _make_empty_label(
+            "Aucune exécution pour l'instant — les runs planifiés ou manuels apparaîtront ici."
+        )
+        self._empty_label.setFixedHeight(200)
+        self._empty_label.setVisible(False)
+        layout.addWidget(self._empty_label)
+
+        self.refresh()
+
+    def refresh(self):
+        from database import db_manager as db
+        from datetime import datetime, timedelta, timezone
+
+        pipelines = db.get_pipelines()
+        self._card_active.set_value(str(len(pipelines)))
+
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+        all_runs = db.get_recent_runs(limit=500)
+        recent = [r for r in all_runs if r.started_at and r.started_at >= cutoff]
+        self._card_success.set_value(str(sum(1 for r in recent if _status_str(r.status) == "SUCCESS")))
+        self._card_failed.set_value(str(sum(1 for r in recent if _status_str(r.status) == "FAILED")))
+
+        upcoming = [p for p in pipelines if p.next_run_at]
+        if upcoming:
+            nxt = min(upcoming, key=lambda p: p.next_run_at)
+            self._card_next.set_value(nxt.next_run_at.strftime("%H:%M"))
+            self._card_next.set_subtitle(nxt.name)
+        else:
+            self._card_next.set_value("—")
+            self._card_next.set_subtitle("aucun planifié")
+
+        latest = db.get_recent_runs(limit=20)
+        self.table.setVisible(bool(latest))
+        self._empty_label.setVisible(not latest)
+        self.table.setRowCount(len(latest))
+        for r_idx, run in enumerate(latest):
+            pname = run.pipeline.name if run.pipeline else str(run.pipeline_id)
+            st    = _status_str(run.status)
+            dur   = "—"
+            if run.duration_seconds is not None:
+                m, s = divmod(int(run.duration_seconds), 60)
+                dur  = f"{m}m {s:02d}s"
+            date_s = run.started_at.strftime("%d/%m/%Y %H:%M") if run.started_at else "—"
+            rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
+            cells  = [pname, st, rows_s, dur, date_s, run.remote_path or "—"]
+            for c_idx, cell in enumerate(cells):
+                if c_idx == 1:
+                    badge = QLabel(st); badge.setObjectName(_STATUS_BADGE.get(st, "badge_idle"))
+                    badge.setAlignment(Qt.AlignCenter)
+                    self.table.setCellWidget(r_idx, c_idx, badge)
+                else:
+                    item = QTableWidgetItem(cell)
+                    item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
+                    if c_idx == 5:
+                        item.setFont(QFont(FONT_MONO, 11))
+                    self.table.setItem(r_idx, c_idx, item)
+            self.table.setRowHeight(r_idx, 44)
+
+
+    def _on_run_all(self):
+        try:
+            from core.scheduler import get_scheduler
+            from database import db_manager as db
+            pipelines = db.get_pipelines(active_only=True)
+            if not pipelines:
+                QMessageBox.information(self, "Tout exécuter", "Aucun pipeline actif à lancer.")
+                return
+            sched = get_scheduler()
+            for p in pipelines:
+                sched.trigger_now(p.id)
+            QMessageBox.information(
+                self, "Tout exécuter",
+                f"{len(pipelines)} pipeline(s) lancé(s) en arrière-plan."
+            )
+        except RuntimeError:
+            QMessageBox.warning(self, "Scheduler", "Le scheduler n'est pas encore démarré.")

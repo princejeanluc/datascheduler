@@ -3,6 +3,8 @@ DataScheduler — core/steps/ftp_upload.py
 Étape : upload du fichier de contexte vers un serveur FTP/FTPS/SFTP.
 """
 
+from pathlib import Path
+
 from .base import BaseStep, StepContext, StepResult
 
 
@@ -23,8 +25,12 @@ class FtpUploadStep(BaseStep):
                 result.error = f"Profil FTP ID {ftp_id} introuvable."
                 return result
 
-            if not ctx.output_file or not ctx.output_file.exists():
-                result.error = "Aucun fichier source disponible dans le contexte."
+            # Chemin explicite (facultatif) : prioritaire sur ctx.output_file — permet à cette
+            # étape d'être autonome (« juste envoyer ce fichier »), sans maillon amont fictif.
+            explicit_path = (self.config.get("explicit_path") or "").strip()
+            source_path = Path(ctx.resolve_tokens(explicit_path)) if explicit_path else ctx.output_file
+            if not source_path or not source_path.exists():
+                result.error = "Aucun fichier source disponible (ni chemin explicite, ni contexte)."
                 return result
 
             path_tpl = self.config.get("remote_path_tpl", "/export/").rstrip("/") + "/"
@@ -37,7 +43,7 @@ class FtpUploadStep(BaseStep):
 
             ftp_cfg       = config_from_profile(ftp_profile)
             uploader      = FtpUploader(ftp_cfg)
-            upload_result = uploader.upload(ctx.output_file, remote)
+            upload_result = uploader.upload(source_path, remote)
 
             if not upload_result.success:
                 result.error = f"Upload FTP : {upload_result.error}"
