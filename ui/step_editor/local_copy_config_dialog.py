@@ -34,6 +34,23 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         self._add_execution_policy_row(form)
         self.cb_source = self._source_row(form, self._prior_steps)
 
+        self.inp_explicit_path = self._input("ex : C:/data/export_{yyyyMMdd}.csv")
+        src_row = QHBoxLayout(); src_row.setSpacing(6)
+        src_row.addWidget(self.inp_explicit_path, stretch=1)
+        btn_browse_src = QPushButton("Parcourir…"); btn_browse_src.setObjectName("secondary")
+        btn_browse_src.setFixedHeight(34); btn_browse_src.setFixedWidth(100)
+        btn_browse_src.clicked.connect(self._browse_source_file)
+        src_row.addWidget(btn_browse_src)
+        src_widget = QWidget(); src_widget.setLayout(src_row)
+        form.addRow(self._lbl("Chemin source explicite"), src_widget)
+        hint_src = QLabel(
+            "Si renseigné, prioritaire sur la Source ci-dessus — utile quand cette étape est la "
+            "seule du pipeline."
+        )
+        hint_src.setWordWrap(True)
+        hint_src.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
+        form.addRow("", hint_src)
+
         # Dossier destination
         self.inp_dest = self._input("ex : C:/backup/{yyyy}/{MM}/")
         dir_row = QHBoxLayout(); dir_row.setSpacing(6)
@@ -68,6 +85,11 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         if path:
             self.inp_dest.setText(path)
 
+    def _browse_source_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choisir le fichier source")
+        if path:
+            self.inp_explicit_path.setText(path)
+
     def _refresh_preview(self):
         from core.steps.base import StepContext
         ctx  = StepContext()
@@ -78,6 +100,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
     def _prefill(self):
         c = self._config
         self._set_combo(self.cb_source, c.get("reads_from_step_key"))
+        self.inp_explicit_path.setText(c.get("explicit_path", ""))
         self.inp_dest.setText(c.get("dest_dir", ""))
         self.inp_file.setText(c.get("filename_tpl", ""))
         self._refresh_preview()
@@ -87,6 +110,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
             "dest_dir":     self.inp_dest.text().strip(),
             "filename_tpl": self.inp_file.text().strip(),
             "reads_from_step_key": self.cb_source.currentData(),
+            "explicit_path": self.inp_explicit_path.text().strip(),
         }
 
     def _on_ok(self):

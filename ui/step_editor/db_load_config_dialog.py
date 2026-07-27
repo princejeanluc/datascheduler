@@ -4,7 +4,8 @@ Dialogue de configuration d'une étape DB_LOAD.
 """
 
 from PySide6.QtWidgets import (
-    QVBoxLayout, QLabel, QSpinBox, QCheckBox, QMessageBox,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QSpinBox, QCheckBox,
+    QFileDialog, QMessageBox,
 )
 from ui.styles import COLORS
 from .base_config_dialog import _BaseStepConfigDialog
@@ -36,6 +37,24 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         self._add_execution_policy_row(form)
         self.cb_profile = self._db_profile_row(form, "Profil *", self._db_profiles)
         self.cb_source = self._source_row(form, self._prior_steps)
+
+        self.inp_explicit_path = self._input("ex : C:/data/export_{yyyyMMdd}.csv")
+        path_row = QHBoxLayout(); path_row.setSpacing(6)
+        path_row.addWidget(self.inp_explicit_path, stretch=1)
+        btn_browse = QPushButton("Parcourir…"); btn_browse.setObjectName("secondary")
+        btn_browse.setFixedHeight(34); btn_browse.setFixedWidth(100)
+        btn_browse.clicked.connect(self._browse_source_file)
+        path_row.addWidget(btn_browse)
+        path_widget = QWidget(); path_widget.setLayout(path_row)
+        form.addRow(self._lbl("Chemin source explicite"), path_widget)
+        hint = QLabel(
+            "Si renseigné, prioritaire sur la Source ci-dessus — utile quand cette étape est la "
+            "seule du pipeline."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
+        form.addRow("", hint)
+
         self.inp_table = self._input("ex : VENTES_STAGING")
         form.addRow(self._lbl("Table cible *"), self.inp_table)
 
@@ -57,11 +76,17 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         root.addStretch()
         self._buttons(root)
 
+    def _browse_source_file(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choisir le fichier source")
+        if path:
+            self.inp_explicit_path.setText(path)
+
     def _prefill(self):
         c = self._config
         if c.get("db_type"):
             self._set_combo(self.cb_profile, (c.get("db_type"), c.get("profile_id")))
         self._set_combo(self.cb_source, c.get("reads_from_step_key"))
+        self.inp_explicit_path.setText(c.get("explicit_path", ""))
         self.inp_table.setText(c.get("table_name", ""))
         self.chk_truncate.setChecked(c.get("truncate_before_load", False))
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
@@ -76,6 +101,7 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
             "truncate_before_load": self.chk_truncate.isChecked(),
             "csv_chunk_size":       self.inp_chunk.value(),
             "reads_from_step_key":  self.cb_source.currentData(),
+            "explicit_path":        self.inp_explicit_path.text().strip(),
         }
 
     def _on_ok(self):

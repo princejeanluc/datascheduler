@@ -4,6 +4,8 @@ DataScheduler — core/steps/db_load.py
 association simple par en-tête CSV.
 """
 
+from pathlib import Path
+
 from .base import BaseStep, StepContext, StepResult
 
 
@@ -20,8 +22,12 @@ class DbLoadStep(BaseStep):
         try:
             from core.sql_db import SqlConnector, SqlLoader, config_from_profile, get_profile_object
 
-            if not ctx.output_file or not ctx.output_file.exists():
-                result.error = "Aucun fichier source disponible dans le contexte."
+            # Chemin explicite (facultatif) : prioritaire sur ctx.output_file — permet à cette
+            # étape d'être autonome (« juste charger ce CSV »), sans maillon amont fictif.
+            explicit_path = (self.config.get("explicit_path") or "").strip()
+            source_path = Path(ctx.resolve_tokens(explicit_path)) if explicit_path else ctx.output_file
+            if not source_path or not source_path.exists():
+                result.error = "Aucun fichier source disponible (ni chemin explicite, ni contexte)."
                 return result
 
             db_type    = self.config.get("db_type", "ORACLE")
@@ -52,7 +58,7 @@ class DbLoadStep(BaseStep):
 
             loader = SqlLoader(
                 connector=connector,
-                csv_path=ctx.output_file,
+                csv_path=source_path,
                 table_name=table_name,
                 separator=self.config.get("csv_separator", ";"),
                 encoding=self.config.get("csv_encoding", "utf-8-sig"),
