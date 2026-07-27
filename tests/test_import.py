@@ -246,3 +246,150 @@ def test_step_targeting_preserved_across_export_import(tmp_path):
     finally:
         db._engine = None
         db._SessionFactory = None
+
+
+# ──────────────────────────────────────────────
+#  Export/import d'un pipeline en graphe (chantier 6a/6b) — les arêtes et positions doivent
+#  survivre à l'aller-retour, sur la même base et sur une base neuve.
+# ──────────────────────────────────────────────
+
+def test_graph_pipeline_edges_and_positions_preserved_on_fresh_db(tmp_path):
+    db.init_db(tmp_path / "a.db")
+    try:
+        pipeline = db.create_pipeline(name="graph-roundtrip")
+        db.save_pipeline_graph(pipeline.id, steps=[
+            {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "pos_x": 60, "pos_y": 60},
+            {"step_type": "CONDITION",
+             "config": {"_step_key": "b", "expression": "rows_count > 0"}, "pos_x": 300, "pos_y": 60},
+            {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}, "pos_x": 540, "pos_y": 20},
+            {"step_type": "FTP_UPLOAD", "config": {"_step_key": "d"}, "pos_x": 540, "pos_y": 120},
+        ], edges=[
+            {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+            {"from_step_key": "b", "from_port": "true",  "to_step_key": "c", "to_port": "input"},
+            {"from_step_key": "b", "from_port": "false", "to_step_key": "d", "to_port": "input"},
+        ])
+        export_result = export_pipeline(pipeline.id)
+        assert export_result.success
+        bundle = export_result.bundle
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        imported_edges = db.get_edges(result.pipeline_id)
+        assert len(imported_edges) == 3
+        assert {(e.from_step_key, e.from_port, e.to_step_key) for e in imported_edges} == {
+            ("a", "output_file", "b"), ("b", "true", "c"), ("b", "false", "d"),
+        }
+
+        imported_steps = {
+            json.loads(s.config_json)["_step_key"]: (s.pos_x, s.pos_y)
+            for s in db.get_steps(result.pipeline_id)
+        }
+        assert imported_steps == {"a": (60, 60), "b": (300, 60), "c": (540, 20), "d": (540, 120)}
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_graph_pipeline_reexecutes_via_dag_path_after_reimport(tmp_path, monkeypatch):
+    """Le vrai risque de régression identifié : un pipeline en graphe réimporté doit toujours
+    emprunter _execute_graph (via db.get_edges), pas basculer silencieusement sur
+    _execute_linear qui ignorerait le nœud CONDITION."""
+    import core.steps as steps_module
+    from core.steps.base import BaseStep, StepResult
+    from core.pipeline import run_pipeline
+    from pathlib import Path
+
+    class _FakeProducer(BaseStep):
+        PRODUCES = {"output_file"}
+
+        def run(self, ctx, on_progress=None):
+            path = Path(self.config["path"])
+            path.write_text("DATA")
+            ctx.output_file = path
+            return StepResult(success=True)
+
+    class _FakeSink(BaseStep):
+        REQUIRES = {"output_file"}
+
+        def run(self, ctx, on_progress=None):
+            Path(self.config["sink_path"]).write_text("ran")
+            return StepResult(success=True)
+
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducer)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeSink)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeSink)
+
+    db.init_db(tmp_path / "a.db")
+    try:
+        src = tmp_path / "src.txt"
+        true_sink = tmp_path / "true.txt"
+        false_sink = tmp_path / "false.txt"
+
+        pipeline = db.create_pipeline(name="graph-condition-roundtrip")
+        db.save_pipeline_graph(pipeline.id, steps=[
+            {"step_type": "DB_EXTRACT", "config": {"path": str(src), "_step_key": "a"}},
+            {"step_type": "CONDITION",
+             "config": {"_step_key": "b", "expression": "rows_count > 0"}},
+            {"step_type": "LOCAL_COPY", "config": {"sink_path": str(true_sink), "_step_key": "c"}},
+            {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(false_sink), "_step_key": "d"}},
+        ], edges=[
+            {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+            {"from_step_key": "b", "from_port": "true",  "to_step_key": "c", "to_port": "input"},
+            {"from_step_key": "b", "from_port": "false", "to_step_key": "d", "to_port": "input"},
+        ])
+        export_result = export_pipeline(pipeline.id)
+        assert export_result.success
+        bundle = export_result.bundle
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        run_result = run_pipeline(result.pipeline_id)
+
+        assert run_result.success, run_result.error
+        assert not true_sink.exists()    # rows_count > 0 est faux : branche "false" seule active
+        assert false_sink.exists()
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_v1_style_bundle_without_edges_key_still_imports(tmp_path):
+    """Un bundle fabriqué sans la clé "edges" (forme v1, avant ce correctif) doit toujours
+    s'importer proprement — pipeline sans arêtes, comportement linéaire historique."""
+    db.init_db(tmp_path / "only.db")
+    try:
+        pipeline = db.create_pipeline(name="v1-style")
+        db.save_steps(pipeline.id, [
+            {"step_type": "DB_EXTRACT", "config": {}},
+        ])
+        export_result = export_pipeline(pipeline.id)
+        assert export_result.success
+        bundle = export_result.bundle
+        bundle["schema_version"] = 1
+        del bundle["pipeline"]["edges"]
+        for step in bundle["pipeline"]["steps"]:
+            del step["pos_x"]
+            del step["pos_y"]
+
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+        assert db.get_edges(result.pipeline_id) == []
+        assert db.get_steps(result.pipeline_id)[0].pos_x == 0
+    finally:
+        db._engine = None
+        db._SessionFactory = None

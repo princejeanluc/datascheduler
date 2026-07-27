@@ -32,7 +32,8 @@ from . import crypto, db_manager as db
 from .models import DbType, FtpProtocol
 from version import __version__
 
-CURRENT_SCHEMA_VERSION = 1   # forme du bundle — indépendant de __version__, bump seulement si ça change
+CURRENT_SCHEMA_VERSION = 2   # v2 (chantier 6a/6b) : ajoute "edges" + pos_x/pos_y par étape — un
+                             # bundle v1 s'importe toujours normalement (edges/positions par défaut)
 _KDF_ITERATIONS = 600_000
 
 # Références de profil/requête connues par type d'étape : (clé_config, type_référence).
@@ -279,7 +280,24 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "config":      exported_config,
                 "retry_count": step.retry_count,
                 "run_always":  step.run_always,
+                "pos_x":       step.pos_x,
+                "pos_y":       step.pos_y,
             })
+
+        # Arêtes du graphe (chantier 6a) — référencent des _step_key, déjà présents tels quels
+        # dans le config de chaque étape ci-dessus (aucune traduction UUID nécessaire, ce ne sont
+        # pas des références de profil/requête). Liste vide pour un pipeline jamais ouvert dans
+        # l'éditeur graphique — se comporte alors exactement comme un bundle v1.
+        edges = db.get_edges(pipeline_id)
+        exported_edges = [
+            {
+                "from_step_key": e.from_step_key,
+                "from_port":     e.from_port,
+                "to_step_key":   e.to_step_key,
+                "to_port":       e.to_port,
+            }
+            for e in edges
+        ]
 
         profiles_bundle = {
             category: [_SERIALIZERS[category](obj, fernet) for obj in objs.values()]
@@ -302,6 +320,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "scheduled_day":   pipeline.scheduled_day,
                 "prevent_overlap": pipeline.prevent_overlap,
                 "steps":           exported_steps,
+                "edges":           exported_edges,
             },
             "profiles":    profiles_bundle,
             "sql_queries": sql_queries_bundle,
@@ -529,7 +548,14 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 "config":      config,
                 "retry_count": step.get("retry_count", 0),
                 "run_always":  step.get("run_always", False),
+                "pos_x":       step.get("pos_x", 0),
+                "pos_y":       step.get("pos_y", 0),
             })
+
+        # Arêtes du graphe (chantier 6a) — référencent des _step_key déjà présents tels quels
+        # dans translated_steps ci-dessus (voir export_pipeline()) : aucune traduction à faire,
+        # elles voyagent verbatim. Liste vide pour un bundle v1 ou un pipeline sans graphe.
+        translated_edges = list(pipeline_data.get("edges", []))
 
         if plan.pipeline_action == "overwrite" and plan.pipeline_existing_id:
             # Choix explicite de l'écran de revue (chantier 5c) — remplace le pipeline local
@@ -544,7 +570,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 scheduled_day=pipeline_data.get("scheduled_day"),
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
             )
-            db.save_steps(plan.pipeline_existing_id, translated_steps)
+            db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges)
             new_pipeline_id = plan.pipeline_existing_id
         else:
             if plan.pipeline_action == "create":
@@ -566,7 +592,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
                 uuid=pipeline_uuid,
             )
-            db.save_steps(new_pipeline.id, translated_steps)
+            db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges)
             new_pipeline_id = new_pipeline.id
 
         return ApplyResult(success=True, pipeline_id=new_pipeline_id, warnings=list(plan.warnings))

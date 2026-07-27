@@ -33,6 +33,19 @@ def _make_pipeline_with_oracle_extract(test_db):
     return pipeline, profile, query
 
 
+def _make_graph_pipeline(test_db):
+    """Pipeline construit comme le ferait l'éditeur graphique (chantier 6b) : deux étapes
+    positionnées sur le canevas, reliées par une arête explicite."""
+    pipeline = db.create_pipeline(name="graph-export-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "pos_x": 60, "pos_y": 60},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}, "pos_x": 300, "pos_y": 60},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    return pipeline
+
+
 def test_export_bundle_shape(test_db):
     pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
 
@@ -127,3 +140,32 @@ def test_export_pipeline_to_file_writes_readable_json(test_db, tmp_path):
     assert out_path.exists()
     on_disk = json.loads(out_path.read_text(encoding="utf-8"))
     assert on_disk["pipeline"]["uuid"] == pipeline.uuid
+
+
+# ──────────────────────────────────────────────
+#  Export d'un pipeline en graphe (chantier 6a/6b) — arêtes + positions
+# ──────────────────────────────────────────────
+
+def test_export_includes_edges_and_positions(test_db):
+    pipeline = _make_graph_pipeline(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    steps = result.bundle["pipeline"]["steps"]
+    assert {s["config"]["_step_key"]: (s["pos_x"], s["pos_y"]) for s in steps} == {
+        "a": (60, 60), "b": (300, 60),
+    }
+    edges = result.bundle["pipeline"]["edges"]
+    assert edges == [
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ]
+
+
+def test_export_of_linear_pipeline_has_empty_edges(test_db):
+    pipeline, _, _ = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    assert result.success
+    assert result.bundle["pipeline"]["edges"] == []
