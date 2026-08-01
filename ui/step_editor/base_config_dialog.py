@@ -7,7 +7,7 @@ import uuid
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QSpinBox, QComboBox, QPushButton, QFrame, QWidget, QCheckBox,
+    QSpinBox, QComboBox, QPushButton, QFrame, QWidget, QCheckBox, QMenu,
 )
 from PySide6.QtCore import Qt
 from ui.styles import COLORS, DIALOG_STYLE
@@ -146,6 +146,58 @@ class _BaseStepConfigDialog(QDialog):
             cb.addItem(label, key)
         form.addRow(self._lbl("Source"), cb)
         return cb
+
+    def _output_name_row(self, form: QFormLayout, default: str = "output_file") -> QLineEdit:
+        """
+        Nom de sortie éditable — alias cosmétique publié EN PLUS de la clé interne
+        _step_key (voir core/pipeline.py), jamais à sa place : renommer ce nom ne casse
+        jamais le graphe (les arêtes ne s'appuient jamais dessus), seul un script/token qui
+        référençait l'ancien nom cesse de le trouver. Vide = aucun alias publié, comportement
+        actuel inchangé. Le paramètre `default` n'est qu'un exemple affiché en placeholder —
+        c'est à l'appelant de préremplir la valeur réelle dans son _prefill().
+        """
+        inp = self._input(f"ex : {default}")
+        form.addRow(self._lbl("Nom de sortie"), inp)
+        return inp
+
+    def _artifact_reference_button(self, target_field, prior_steps: list) -> QPushButton:
+        """
+        Bouton listant les noms d'artefact déclarés par les étapes précédentes (via
+        _output_name_row ou le champ "Sortie(s) publiées" de PYTHON_SCRIPT) — un clic insère
+        {artifact:nom} dans target_field à la position du curseur. Complète _tokens_hint() :
+        ceci résout la découvrabilité des noms, {artifact:nom} (core/steps/base.py) est le
+        mécanisme de référence lui-même — deux problèmes distincts, pas redondants.
+        """
+        btn = QPushButton("+ Artefact"); btn.setObjectName("secondary")
+        btn.setFixedHeight(28)
+
+        names: list[str] = []
+        for s in prior_steps or []:
+            cfg = s.get("config") or {}
+            if cfg.get("output_name"):
+                names.append(cfg["output_name"])
+            names.extend(cfg.get("output_names") or [])
+
+        if not names:
+            btn.setEnabled(False)
+            btn.setToolTip("Aucune sortie nommée disponible parmi les étapes précédentes.")
+            return btn
+
+        menu = QMenu(btn)
+        for name in dict.fromkeys(names):   # dédoublonne en gardant l'ordre
+            action = menu.addAction(name)
+            action.triggered.connect(
+                lambda checked=False, n=name: self._insert_at_cursor(target_field, f"{{artifact:{n}}}")
+            )
+        btn.setMenu(menu)
+        return btn
+
+    @staticmethod
+    def _insert_at_cursor(field, text: str) -> None:
+        if hasattr(field, "insertPlainText"):   # QPlainTextEdit
+            field.insertPlainText(text)
+        else:                                    # QLineEdit
+            field.insert(text)
 
     @staticmethod
     def _populate_db_combo(cb: QComboBox, profiles: list, keep_current: bool = False):
