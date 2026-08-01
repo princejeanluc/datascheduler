@@ -67,10 +67,16 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
    - `__init__.py` : importer votre nouveau fichier et enregistrer la classe dans le dictionnaire
      `mapping` de `_open_config_dialog()`.
 
-5. **Si votre step a besoin d'un nouveau type de profil réutilisable** (identifiants, config
+5. **`ui/help/content.py`** — ajoutez une entrée pour votre nouveau type dans la rubrique
+   *Glossaire des types d'étapes* (`HELP_TOPICS`, `key="step-glossary"`) : une phrase sur ce que
+   fait l'étape et quand l'utiliser. Sans ça, la documentation utilisateur dérive silencieusement
+   du code — le glossaire est la seule doc que voit réellement l'utilisateur final (voir
+   `ui/help/help_view.py`).
+
+6. **Si votre step a besoin d'un nouveau type de profil réutilisable** (identifiants, config
    partagée entre pipelines) → voir la recette suivante d'abord.
 
-6. **Tester sans lancer l'UI** (voir la recette "tester sans polluer vos vraies données" plus
+7. **Tester sans lancer l'UI** (voir la recette "tester sans polluer vos vraies données" plus
    bas) — c'est la façon la plus rapide de valider la logique avant de toucher aux dialogues Qt.
 
 ## Recette : lire/écrire le contexte depuis un script (PYTHON_SCRIPT)

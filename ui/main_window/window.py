@@ -64,12 +64,17 @@ class MainWindow(QMainWindow):
 
         # ── Zone de contenu ───────────────────────
         self._stack = QStackedWidget()
+        # Import différé (pas en tête de fichier) : ui.help.help_view réutilise les helpers de
+        # ce module (ui.main_window.widgets) — un import en tête de fichier créerait un cycle
+        # d'import selon l'ordre d'import initial (ui.help avant ui.main_window).
+        from ui.help import HelpView
         self._views = [
             DashboardView(),
             PipelinesView(),
             ConnectionsView(),
             QueriesView(),
             HistoryView(),
+            HelpView(),
         ]
         for v in self._views:
             self._stack.addWidget(v)
@@ -128,6 +133,7 @@ class MainWindow(QMainWindow):
             ("Connexions",   "fa5s.plug",            2),
             ("Requêtes SQL", "fa5s.database",        3),
             ("Historique",   "fa5s.history",         4),
+            ("Aide",         "fa5s.question-circle", 5),
         ]
         self._nav_buttons: list[NavButton] = []
         for label, icon, idx in nav_items:
