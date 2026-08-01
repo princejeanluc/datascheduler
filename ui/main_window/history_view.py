@@ -4,13 +4,13 @@ Vue Historique : journal complet des exécutions.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QFrame,
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO
+from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO
 
 
 class HistoryView(QWidget):
@@ -28,6 +28,12 @@ class HistoryView(QWidget):
         title_col.addWidget(_make_title("Historique"))
         title_col.addWidget(_make_subtitle("Journal complet de toutes les exécutions"))
         header.addLayout(title_col); header.addStretch()
+        btn_audit = QPushButton("  Journal des modifications"); btn_audit.setObjectName("secondary")
+        btn_audit.setFixedHeight(36)
+        btn_audit.setIcon(_icon("fa5s.history", COLORS["text_main"]))
+        btn_audit.setIconSize(QSize(13, 13))
+        btn_audit.clicked.connect(self._on_audit_log)
+        header.addWidget(btn_audit)
         self.inp_search = _make_search_input("Rechercher…")
         self.inp_search.textChanged.connect(self._on_search_changed)
         header.addWidget(self.inp_search)
@@ -155,6 +161,62 @@ class HistoryView(QWidget):
         )
         txt.setPlainText(log_text)
         vl.addWidget(txt)
+
+        btn_close = QPushButton("Fermer")
+        btn_close.setFixedHeight(34)
+        btn_close.clicked.connect(dlg.accept)
+        vl.addWidget(btn_close, alignment=Qt.AlignRight)
+
+        dlg.exec()
+
+    @staticmethod
+    def _build_audit_table(events) -> QTableWidget:
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["Date", "Type", "Pipeline", "Auteur", "Détail"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setShowGrid(False)
+        _configure_columns(table, stretch_cols={4})
+
+        table.setRowCount(len(events))
+        for r_idx, event in enumerate(events):
+            date_s = event.timestamp.strftime("%d/%m/%Y %H:%M:%S") if event.timestamp else "—"
+            cells = [
+                date_s, event.event_type, event.pipeline_name or "—",
+                event.actor or "—", event.detail or "—",
+            ]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_dim"] if c_idx == 4 else COLORS["text_main"]))
+                table.setItem(r_idx, c_idx, item)
+            table.setRowHeight(r_idx, 36)
+        return table
+
+    def _on_audit_log(self):
+        from database import db_manager as db
+        events = db.get_audit_events(limit=200)
+
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QPushButton
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Journal des modifications")
+        dlg.setMinimumSize(760, 480)
+        from ui.styles import DIALOG_STYLE
+        dlg.setStyleSheet(DIALOG_STYLE)
+
+        vl = QVBoxLayout(dlg)
+        vl.setContentsMargins(20, 16, 20, 16)
+        vl.setSpacing(12)
+
+        lbl_title = QLabel("Journal des modifications")
+        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        vl.addWidget(lbl_title)
+
+        table = self._build_audit_table(events)
+        vl.addWidget(table)
+
+        if not events:
+            vl.addWidget(_make_empty_label("Aucun événement enregistré pour l'instant."))
 
         btn_close = QPushButton("Fermer")
         btn_close.setFixedHeight(34)
