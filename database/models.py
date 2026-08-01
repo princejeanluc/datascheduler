@@ -342,3 +342,25 @@ class PipelineRun(Base):
 
     def __repr__(self):
         return f"<PipelineRun pipeline_id={self.pipeline_id} status={self.status}>"
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES DE NOTIFICATION (digest manager)
+# ──────────────────────────────────────────────
+
+class NotificationSettings(Base):
+    """
+    Ligne singleton (id=1 toujours) — pas de notion multi-utilisateur dans cette app
+    mono-poste, un seul jeu de paramètres de digest pour l'installation.
+    """
+    __tablename__ = "notification_settings"
+
+    id                      = Column(Integer, primary_key=True, default=1)
+    digest_enabled          = Column(Boolean, default=False, nullable=False)
+    digest_smtp_profile_id  = Column(Integer, ForeignKey("smtp_profiles.id"), nullable=True)
+    digest_recipients       = Column(Text, nullable=True)    # adresses séparées par virgule
+    digest_frequency        = Column(String(10), default="DAILY", nullable=False)  # DAILY | WEEKLY
+    digest_last_sent_at     = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<NotificationSettings enabled={self.digest_enabled} frequency={self.digest_frequency}>"

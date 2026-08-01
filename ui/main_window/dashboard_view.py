@@ -36,6 +36,12 @@ class DashboardView(QWidget):
         title_col = QVBoxLayout(); title_col.setSpacing(2)
         title_col.addWidget(title); title_col.addWidget(sub)
         h_layout.addLayout(title_col); h_layout.addStretch()
+        btn_notifications = QPushButton("  Notifications"); btn_notifications.setObjectName("secondary")
+        btn_notifications.setFixedHeight(36)
+        btn_notifications.setIcon(_icon("fa5s.bell", COLORS["text_main"]))
+        btn_notifications.setIconSize(QSize(13, 13))
+        btn_notifications.clicked.connect(self._on_notifications)
+        h_layout.addWidget(btn_notifications)
         btn_run_all = QPushButton("  Tout exécuter"); btn_run_all.setFixedHeight(36)
         btn_run_all.setIcon(_icon("fa5s.bolt", "#000000")); btn_run_all.setIconSize(QSize(14, 14))
         btn_run_all.clicked.connect(self._on_run_all)
@@ -123,12 +129,26 @@ class DashboardView(QWidget):
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
-                    if c_idx == 5:
-                        item.setFont(QFont(FONT_MONO, 11))
+                    # Le nom du pipeline ressort en rouge sur un échec — pas seulement le badge
+                    # de statut — pour repérer un échec en un coup d'œil en parcourant la liste,
+                    # avec le message d'erreur en infobulle pour un premier diagnostic sans
+                    # ouvrir l'historique complet.
+                    if c_idx == 0 and st == "FAILED":
+                        item.setForeground(QColor(COLORS["danger"]))
+                        font = item.font(); font.setBold(True); item.setFont(font)
+                        if run.error_message:
+                            item.setToolTip(run.error_message)
+                    else:
+                        item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
+                        if c_idx == 5:
+                            item.setFont(QFont(FONT_MONO, 11))
                     self.table.setItem(r_idx, c_idx, item)
             self.table.setRowHeight(r_idx, 44)
 
+
+    def _on_notifications(self):
+        from ui.dialogs import NotificationSettingsDialog
+        NotificationSettingsDialog(self).exec()
 
     def _on_run_all(self):
         try:

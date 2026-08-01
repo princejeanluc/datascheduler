@@ -18,6 +18,7 @@ from .run_progress_dialog import RunProgressThread, RunProgressDialog
 from .sql_query_dialog import SqlQueryDialog
 from .pipeline_export_dialog import PipelineExportDialog
 from .pipeline_import_dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
+from .notification_settings_dialog import NotificationSettingsDialog
 
 __all__ = [
     "OracleTestThread", "OracleDialog",
@@ -28,4 +29,5 @@ __all__ = [
     "SqlQueryDialog",
     "PipelineExportDialog",
     "PipelineImportPasswordDialog", "PipelineImportReviewDialog",
+    "NotificationSettingsDialog",
 ]

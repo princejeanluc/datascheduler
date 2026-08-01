@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings
 
 
 # ──────────────────────────────────────────────
@@ -720,6 +720,32 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
             .limit(limit)
             .all()
         )
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES DE NOTIFICATION (digest manager)
+# ──────────────────────────────────────────────
+
+def get_notification_settings() -> NotificationSettings:
+    """Get-or-create la ligne singleton (id=1) — jamais absente après le premier appel."""
+    with get_session() as s:
+        settings = s.get(NotificationSettings, 1)
+        if not settings:
+            settings = NotificationSettings(id=1)
+            s.add(settings)
+    return settings
+
+
+def update_notification_settings(**kwargs) -> NotificationSettings:
+    """Met à jour un sous-ensemble de champs de la ligne singleton (get-or-create implicite)."""
+    with get_session() as s:
+        settings = s.get(NotificationSettings, 1)
+        if not settings:
+            settings = NotificationSettings(id=1)
+            s.add(settings)
+        for key, value in kwargs.items():
+            setattr(settings, key, value)
+    return settings
 
 
 # ──────────────────────────────────────────────
