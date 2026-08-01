@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
+from .activity_chart import ActivityChartWidget
 
 
 class DashboardView(QWidget):
@@ -60,6 +61,17 @@ class DashboardView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
+        lbl_activity = QLabel("Activité (30 derniers jours)")
+        lbl_activity.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
+        layout.addWidget(lbl_activity)
+
+        self.chart = ActivityChartWidget()
+        self.chart.setFixedHeight(150)
+        layout.addWidget(self.chart)
+
+        sep2 = QFrame(); sep2.setObjectName("separator"); sep2.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep2)
+
         lbl_recent = QLabel("Dernières exécutions")
         lbl_recent.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
         layout.addWidget(lbl_recent)
@@ -98,6 +110,8 @@ class DashboardView(QWidget):
         recent = [r for r in all_runs if r.started_at and r.started_at >= cutoff]
         self._card_success.set_value(str(sum(1 for r in recent if _status_str(r.status) == "SUCCESS")))
         self._card_failed.set_value(str(sum(1 for r in recent if _status_str(r.status) == "FAILED")))
+
+        self.chart.set_data(db.get_run_counts_by_day(days=30))
 
         upcoming = [p for p in pipelines if p.next_run_at]
         if upcoming:
