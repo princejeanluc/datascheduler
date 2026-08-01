@@ -728,6 +728,52 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
         )
 
 
+def get_run_counts_by_day(days: int = 30) -> list[dict]:
+    """
+    Agrégat pour le graphique d'activité du Dashboard (chantier UX statistiques) : nombre de
+    runs par jour et par statut sur les `days` derniers jours (aujourd'hui inclus). Zéro-rempli
+    pour les jours sans exécution — continuité indispensable pour un graphique de tendance, un
+    jour manquant doit apparaître à zéro plutôt que disparaître du graphe. Chaque entrée :
+    {"date": date, "success": int, "failed": int, "cancelled": int}, la plus ancienne en premier.
+    """
+    from datetime import date, datetime, timedelta
+
+    from sqlalchemy import func
+
+    today      = date.today()
+    start_date = today - timedelta(days=days - 1)
+    start_dt   = datetime.combine(start_date, datetime.min.time())
+
+    with get_session() as s:
+        rows = (
+            s.query(
+                func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
+                PipelineRun.status,
+                func.count(PipelineRun.id),
+            )
+            .filter(PipelineRun.started_at >= start_dt)
+            .group_by("day", PipelineRun.status)
+            .all()
+        )
+
+    counts: dict[str, dict[str, int]] = {}
+    for day_str, status, n in rows:
+        status_str = status.value if hasattr(status, "value") else str(status)
+        counts.setdefault(day_str, {})[status_str] = n
+
+    result = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        day_counts = counts.get(d.isoformat(), {})
+        result.append({
+            "date":      d,
+            "success":   day_counts.get("SUCCESS", 0),
+            "failed":    day_counts.get("FAILED", 0),
+            "cancelled": day_counts.get("CANCELLED", 0),
+        })
+    return result
+
+
 # ──────────────────────────────────────────────
 #  PARAMÈTRES DE NOTIFICATION (digest manager)
 # ──────────────────────────────────────────────
