@@ -364,3 +364,29 @@ class NotificationSettings(Base):
 
     def __repr__(self):
         return f"<NotificationSettings enabled={self.digest_enabled} frequency={self.digest_frequency}>"
+
+
+# ──────────────────────────────────────────────
+#  JOURNAL D'AUDIT (modifications de pipeline, exports, imports)
+# ──────────────────────────────────────────────
+
+class AuditEvent(Base):
+    """
+    Trace append-only des opérations structurantes — pas un doublon du fichier de log
+    applicatif (bruit technique, non persistant avant ce chantier) : ici seulement ce qui
+    compte pour un audit (qui a modifié/exporté/importé quoi, quand). Pas de FK stricte sur
+    pipeline_id : doit rester lisible même après suppression du pipeline concerné, d'où le
+    snapshot pipeline_name pris au moment de l'événement.
+    """
+    __tablename__ = "audit_events"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp     = Column(DateTime, default=datetime.utcnow)
+    event_type    = Column(String(50), nullable=False)
+    pipeline_id   = Column(Integer, nullable=True)
+    pipeline_name = Column(String(100), nullable=True)
+    actor         = Column(String(100), nullable=True)   # getpass.getuser() — pas de notion de rôle/permission, juste une trace
+    detail        = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<AuditEvent {self.event_type} pipeline={self.pipeline_name!r} actor={self.actor!r}>"
