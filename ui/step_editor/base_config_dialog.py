@@ -63,6 +63,10 @@ class _BaseStepConfigDialog(QDialog):
         self.inp_label.setText(self._init_label)
         self.inp_label.setFixedHeight(34)
         self.inp_label.setStyleSheet(self._input_style())
+        self.inp_label.setToolTip(
+            "Nom facultatif affiché dans la liste des étapes et dans le journal d'exécution. "
+            "Laissé vide, un libellé générique est utilisé."
+        )
         form.addRow(self._lbl("Libellé"), self.inp_label)
 
     def _add_execution_policy_row(self, form: QFormLayout):
@@ -71,6 +75,10 @@ class _BaseStepConfigDialog(QDialog):
         self.inp_retry.setValue(self._init_retry_count)
         self.inp_retry.setSuffix(" tentative(s) supplémentaire(s)")
         self.inp_retry.setStyleSheet(self._spinbox_style())
+        self.inp_retry.setToolTip(
+            "Nombre de tentatives supplémentaires si l'étape échoue, avant d'abandonner le "
+            "pipeline (0 = aucune tentative supplémentaire)."
+        )
         form.addRow(self._lbl("Réessayer en cas d'échec"), self.inp_retry)
 
         if self.STEP_TYPE in self.SIDE_EFFECT_TYPES:
@@ -85,11 +93,19 @@ class _BaseStepConfigDialog(QDialog):
         self.chk_run_always = QCheckBox("Exécuter même si une étape précédente a échoué")
         self.chk_run_always.setChecked(self._init_run_always)
         self.chk_run_always.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_run_always.setToolTip(
+            "Utile par exemple pour toujours envoyer une notification email en fin de pipeline, "
+            "même si une étape en amont a échoué."
+        )
         form.addRow("", self.chk_run_always)
 
     def _profile_row(self, form: QFormLayout, label: str, items: list,
                      empty_label: str, new_fn) -> QComboBox:
         cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+        cb.setToolTip(
+            f"{label.rstrip(' *')} à utiliser pour cette étape. « + Nouveau » permet d'en créer "
+            "un sans quitter ce dialogue."
+        )
         cb.addItem(empty_label, None)
         for item in items:
             cb.addItem(item.name, item.id)
@@ -112,6 +128,10 @@ class _BaseStepConfigDialog(QDialog):
         DatabaseProfile sont deux tables distinctes qui peuvent partager le même id.
         """
         cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+        cb.setToolTip(
+            "Profil de base de données à utiliser pour cette étape (tout moteur confondu). "
+            "« + Nouveau » permet d'en créer un sans quitter ce dialogue."
+        )
         self._populate_db_combo(cb, profiles)
         row = QHBoxLayout(); row.setSpacing(6)
         row.addWidget(cb, stretch=1)
@@ -134,6 +154,11 @@ class _BaseStepConfigDialog(QDialog):
         """
         from core.steps import get_step_requirements
         cb = QComboBox(); cb.setStyleSheet(self._combo_style())
+        cb.setToolTip(
+            "Étape dont la sortie alimente celle-ci. Par défaut, la dernière étape ayant produit "
+            "un fichier — à choisir explicitement dès que plusieurs étapes en amont en "
+            "produisent un."
+        )
         cb.addItem("Étape précédente (par défaut)", None)
         for i, s in enumerate(prior_steps or []):
             _, produces = get_step_requirements(s.get("step_type", ""))
@@ -157,6 +182,11 @@ class _BaseStepConfigDialog(QDialog):
         c'est à l'appelant de préremplir la valeur réelle dans son _prefill().
         """
         inp = self._input(f"ex : {default}")
+        inp.setToolTip(
+            "Nom sous lequel cette sortie est publiée pour les étapes suivantes, en plus du "
+            "câblage automatique — permet de la référencer explicitement via {artifact:nom}. "
+            "Laissez vide pour ne pas publier d'alias."
+        )
         form.addRow(self._lbl("Nom de sortie"), inp)
         return inp
 

@@ -65,9 +65,17 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
         self.inp_chunk.setRange(1_000, 1_000_000); self.inp_chunk.setValue(50_000)
         self.inp_chunk.setSingleStep(10_000); self.inp_chunk.setSuffix(" lignes")
         self.inp_chunk.setStyleSheet(self._spinbox_style())
+        self.inp_chunk.setToolTip(
+            "Nombre de lignes lues en mémoire à la fois — à réduire si le volume de données est "
+            "très important."
+        )
 
         self.cb_quoting = QComboBox(); self.cb_quoting.setStyleSheet(self._combo_style())
         for lbl, val in self.QUOTINGS: self.cb_quoting.addItem(lbl, val)
+        self.cb_quoting.setToolTip(
+            "Comment entourer les valeurs de guillemets dans le CSV produit — « Chaînes & dates "
+            "seulement » convient à la plupart des imports Excel."
+        )
 
         form.addRow(self._lbl("Séparateur CSV"),  self.cb_sep)
         form.addRow(self._lbl("Encodage"),        self.cb_enc)

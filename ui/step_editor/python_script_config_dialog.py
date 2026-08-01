@@ -38,6 +38,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         # Script
         self.inp_script = self._input("ex : C:/scripts/traitement.py")
+        self.inp_script.setToolTip("Chemin vers le script Python à exécuter.")
         script_row = QHBoxLayout(); script_row.setSpacing(6)
         script_row.addWidget(self.inp_script, stretch=1)
         btn_browse = QPushButton("Parcourir…"); btn_browse.setObjectName("secondary")
@@ -49,6 +50,11 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         # Python exe
         self.inp_py_exe = self._input("ex : python  ou  C:/Python311/python.exe")
+        self.inp_py_exe.setToolTip(
+            "Interpréteur Python à utiliser — laissez tel quel pour celui utilisé par "
+            "DataScheduler, ou précisez un chemin complet pour un environnement virtuel "
+            "spécifique au script."
+        )
         form.addRow(self._lbl("Exécutable Python"), self.inp_py_exe)
 
         # Arguments (un par ligne)
@@ -101,12 +107,20 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         btn_wdir.clicked.connect(self._browse_workdir)
         workdir_row.addWidget(btn_wdir)
         ww = QWidget(); ww.setLayout(workdir_row)
-        form2.addRow(self._lbl("Répertoire travail"), ww)
+        wdir_lbl = self._lbl("Répertoire travail")
+        wdir_lbl.setToolTip(
+            "Dossier depuis lequel le script est lancé — utile s'il référence des chemins "
+            "relatifs."
+        )
+        form2.addRow(wdir_lbl, ww)
 
         self.inp_timeout = QSpinBox()
         self.inp_timeout.setRange(10, 86400); self.inp_timeout.setValue(300)
         self.inp_timeout.setSuffix(" s"); self.inp_timeout.setFixedWidth(110)
         self.inp_timeout.setStyleSheet(self._spinbox_style())
+        self.inp_timeout.setToolTip(
+            "Durée maximale d'exécution avant que le script soit interrompu automatiquement."
+        )
         form2.addRow(self._lbl("Timeout"), self.inp_timeout)
 
         self.inp_output_names = self._input("ex : rapport_csv, resume_json")
