@@ -258,16 +258,30 @@ class PipelineScheduler:
     def _job_id(self, pipeline_id: int) -> str:
         return f"{self.JOB_PREFIX}{pipeline_id}"
 
+    def _run_scheduled_pipeline(self, pipeline_id: int) -> None:
+        """
+        Wrapper utilisé comme cible du job APScheduler — run_pipeline() ne lève jamais
+        d'exception (elle capture tout en interne et retourne un PipelineResult), donc
+        APScheduler ne voit jamais EVENT_JOB_ERROR pour un échec propre : sans ce wrapper,
+        un run planifié qui échoue normalement (pas un crash) ne déclenche ni
+        on_job_success ni on_job_error. Même logique que trigger_now()._run() ci-dessus,
+        appliquée uniformément aux runs planifiés (pas seulement au lancement manuel).
+        """
+        from core.pipeline import run_pipeline
+        result = run_pipeline(pipeline_id)
+        if result.success and self._on_job_success:
+            self._on_job_success(pipeline_id, result.remote_path)
+        elif not result.success and self._on_job_error:
+            self._on_job_error(pipeline_id, result.error)
+
     def _schedule_pipeline(self, pipeline) -> None:
         """Ajoute ou remplace le job APScheduler pour ce pipeline."""
-        from core.pipeline import run_pipeline
-
         job_id  = self._job_id(pipeline.id)
         trigger = build_cron_trigger(pipeline)
 
         # add_job avec replace_existing=True pour la mise à jour à chaud
         self._scheduler.add_job(
-            func=run_pipeline,
+            func=self._run_scheduled_pipeline,
             trigger=trigger,
             id=job_id,
             args=[pipeline.id],
