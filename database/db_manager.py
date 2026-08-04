@@ -226,6 +226,17 @@ def _migrate(engine) -> None:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"))
             conn.commit()
 
+        # Bilan de santé des connexions (chantier UX fiabilité) — mémorise le résultat du
+        # dernier test entre deux sessions, sur les 4 tables de profils.
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles"):
+            profile_cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+            if "last_tested_at" not in profile_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_tested_at DATETIME"))
+                conn.commit()
+            if "last_test_success" not in profile_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_test_success BOOLEAN"))
+                conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -728,13 +739,16 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
         )
 
 
-def get_run_counts_by_day(days: int = 30) -> list[dict]:
+def get_run_counts_by_day(days: int = 30, pipeline_id: int | None = None) -> list[dict]:
     """
     Agrégat pour le graphique d'activité du Dashboard (chantier UX statistiques) : nombre de
     runs par jour et par statut sur les `days` derniers jours (aujourd'hui inclus). Zéro-rempli
     pour les jours sans exécution — continuité indispensable pour un graphique de tendance, un
     jour manquant doit apparaître à zéro plutôt que disparaître du graphe. Chaque entrée :
     {"date": date, "success": int, "failed": int, "cancelled": int}, la plus ancienne en premier.
+
+    `pipeline_id` optionnel (défaut None, comportement global inchangé) filtre sur un seul
+    pipeline — réutilisé tel quel par la vue détail par pipeline (chantier UX fiabilité, D.1).
     """
     from datetime import date, datetime, timedelta
 
@@ -745,16 +759,14 @@ def get_run_counts_by_day(days: int = 30) -> list[dict]:
     start_dt   = datetime.combine(start_date, datetime.min.time())
 
     with get_session() as s:
-        rows = (
-            s.query(
-                func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
-                PipelineRun.status,
-                func.count(PipelineRun.id),
-            )
-            .filter(PipelineRun.started_at >= start_dt)
-            .group_by("day", PipelineRun.status)
-            .all()
-        )
+        q = s.query(
+            func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
+            PipelineRun.status,
+            func.count(PipelineRun.id),
+        ).filter(PipelineRun.started_at >= start_dt)
+        if pipeline_id is not None:
+            q = q.filter(PipelineRun.pipeline_id == pipeline_id)
+        rows = q.group_by("day", PipelineRun.status).all()
 
     counts: dict[str, dict[str, int]] = {}
     for day_str, status, n in rows:
@@ -798,6 +810,35 @@ def update_notification_settings(**kwargs) -> NotificationSettings:
         for key, value in kwargs.items():
             setattr(settings, key, value)
     return settings
+
+
+# ──────────────────────────────────────────────
+#  BILAN DE SANTÉ DES CONNEXIONS (chantier UX fiabilité)
+# ──────────────────────────────────────────────
+
+_PROFILE_MODEL_BY_CATEGORY = {
+    "oracle":   OracleProfile,
+    "ftp":      FtpProfile,
+    "smtp":     SmtpProfile,
+    "database": DatabaseProfile,
+}
+
+
+def record_profile_test_result(category: str, profile_id: int, success: bool) -> None:
+    """
+    Mémorise le résultat d'un test de connexion pour un profil déjà enregistré — appelé aussi
+    bien par les 4 dialogues de profil (bouton "Tester" existant) que par le bilan de santé
+    groupé, pour que chaque test déjà effectué alimente le tableau gratuitement.
+    """
+    from datetime import datetime
+    model = _PROFILE_MODEL_BY_CATEGORY.get(category)
+    if model is None:
+        return
+    with get_session() as s:
+        obj = s.get(model, profile_id)
+        if obj:
+            obj.last_tested_at = datetime.utcnow()
+            obj.last_test_success = success
 
 
 # ──────────────────────────────────────────────

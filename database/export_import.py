@@ -612,3 +612,57 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
 
     except Exception as e:
         return ApplyResult(success=False, error=str(e))
+
+
+# ──────────────────────────────────────────────
+#  DUPLICATION (réutilise export→import in-process, chantier UX autonomie)
+# ──────────────────────────────────────────────
+
+def duplicate_pipeline(pipeline_id: int) -> ApplyResult:
+    """
+    Duplique un pipeline dans la même base — réutilise export_pipeline()/plan_import()/
+    apply_import() tels quels : la collision d'UUID garantie (même base) déclenche déjà le
+    chemin "copie renommée" de 5b/5c (profils/requêtes réutilisés, jamais dupliqués). Deux
+    ajustements après coup : renommage explicite "(copie)" (désambiguïsé si besoin, au lieu du
+    suffixe "(import)" de la mécanique sous-jacente) et désactivation par défaut — jamais deux
+    plannings actifs identiques sans que l'utilisateur l'ait décidé. Le journal d'audit affiche
+    plusieurs événements pour cette seule action, comme un import classique en produit déjà
+    plusieurs ; un dernier événement "pipeline_duplicated" résume l'action pour qui relit le
+    journal (persona Nadia).
+    """
+    try:
+        export_result = export_pipeline(pipeline_id)
+        if not export_result.success:
+            return ApplyResult(success=False, error=export_result.error)
+        original_name = export_result.bundle["pipeline"]["name"]
+
+        plan = plan_import(export_result.bundle)
+        if not plan.success:
+            return ApplyResult(success=False, error=plan.error)
+
+        result = apply_import(plan)
+        if not result.success:
+            return result
+
+        new_pipeline = db.get_pipeline(result.pipeline_id)
+        taken_names = {p.name for p in db.get_pipelines() if p.id != new_pipeline.id}
+        new_name = _unique_name(f"{original_name} (copie)", taken_names)
+
+        db.update_pipeline(
+            new_pipeline.id, name=new_name,
+            description=new_pipeline.description,
+            frequency=str(new_pipeline.frequency).replace("CronFrequency.", ""),
+            cron_expression=new_pipeline.cron_expression,
+            scheduled_time=new_pipeline.scheduled_time,
+            scheduled_day=new_pipeline.scheduled_day,
+            prevent_overlap=new_pipeline.prevent_overlap,
+        )
+        db.set_pipeline_active(new_pipeline.id, False)
+        db.log_audit_event(
+            "pipeline_duplicated", pipeline_id=new_pipeline.id,
+            pipeline_name=new_name, detail=f"depuis « {original_name} »",
+        )
+        return ApplyResult(success=True, pipeline_id=new_pipeline.id, warnings=result.warnings)
+
+    except Exception as e:
+        return ApplyResult(success=False, error=str(e))

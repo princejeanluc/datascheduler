@@ -220,6 +220,10 @@ class DatabaseProfileDialog(QDialog):
         self.lbl_test_result.setText(txt)
         self.lbl_test_result.setStyleSheet(f"color: {color}; font-size: 12px;")
 
+        if self._profile:
+            from database import db_manager as db
+            db.record_profile_test_result("database", self._profile.id, success)
+
     def _on_save(self):
         if not self._validate():
             return

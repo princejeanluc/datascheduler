@@ -61,7 +61,8 @@ class PipelinesView(QWidget):
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
-        self.table.setColumnWidth(5, 222)
+        self.table.setColumnWidth(5, 280)
+        self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
@@ -82,6 +83,7 @@ class PipelinesView(QWidget):
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested
         pipelines = db.get_pipelines()
+        self._pipeline_ids = [p.id for p in pipelines]
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
         self.table.setRowCount(len(pipelines))
@@ -140,16 +142,24 @@ class PipelinesView(QWidget):
                 "fa5s.project-diagram", object_name="secondary",
                 tooltip="Éditeur graphique — visualiser et connecter les étapes sur un canevas",
             )
+            btn_validate = _action_btn(
+                "fa5s.check-double", object_name="secondary",
+                tooltip="Valider (hors ligne + connexions) sans exécuter",
+            )
+            btn_dup    = _action_btn("fa5s.copy", object_name="secondary", tooltip="Dupliquer")
             btn_export = _action_btn("fa5s.file-export", object_name="secondary", tooltip="Exporter")
             btn_del    = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
             btn_toggle.clicked.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_pipeline(i))
             btn_graph.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
+            btn_validate.clicked.connect(lambda _, i=pid, n=p.name: self._on_validate_pipeline(i, n))
+            btn_dup.clicked.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
             btn_export.clicked.connect(lambda _, i=pid: self._on_export_pipeline(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             al.addWidget(btn_run); al.addWidget(btn_toggle)
             al.addWidget(btn_edit); al.addWidget(btn_graph)
+            al.addWidget(btn_validate); al.addWidget(btn_dup)
             al.addWidget(btn_export); al.addWidget(btn_del); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
@@ -223,6 +233,32 @@ class PipelinesView(QWidget):
         p = db.get_pipeline(pipeline_id)
         if p:
             PipelineExportDialog(self, pipeline=p).exec()
+
+    def _on_row_dbl_click(self, index):
+        row = index.row()
+        if row >= len(self._pipeline_ids):
+            return
+        from database import db_manager as db
+        from ui.dialogs import PipelineDetailDialog
+        p = db.get_pipeline(self._pipeline_ids[row])
+        if p:
+            PipelineDetailDialog(self, pipeline=p).exec()
+
+    def _on_validate_pipeline(self, pipeline_id: int, pipeline_name: str):
+        from ui.dialogs import PipelineDryRunDialog
+        PipelineDryRunDialog(pipeline_id, pipeline_name, self).exec()
+
+    def _on_duplicate_pipeline(self, pipeline_id: int):
+        from database.export_import import duplicate_pipeline
+        result = duplicate_pipeline(pipeline_id)
+        if not result.success:
+            QMessageBox.critical(self, "Échec de la duplication", result.error or "Erreur inconnue.")
+            return
+        QMessageBox.information(
+            self, "Pipeline dupliqué",
+            "Le pipeline a été dupliqué avec succès — la copie est désactivée par défaut."
+        )
+        self.refresh()
 
     def _on_run_pipeline(self, pipeline_id: int):
         from database import db_manager as db
