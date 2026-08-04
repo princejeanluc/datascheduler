@@ -226,6 +226,17 @@ def _migrate(engine) -> None:
             conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_uuid ON {table}(uuid)"))
             conn.commit()
 
+        # Bilan de santé des connexions (chantier UX fiabilité) — mémorise le résultat du
+        # dernier test entre deux sessions, sur les 4 tables de profils.
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles"):
+            profile_cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
+            if "last_tested_at" not in profile_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_tested_at DATETIME"))
+                conn.commit()
+            if "last_test_success" not in profile_cols:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_test_success BOOLEAN"))
+                conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -799,6 +810,35 @@ def update_notification_settings(**kwargs) -> NotificationSettings:
         for key, value in kwargs.items():
             setattr(settings, key, value)
     return settings
+
+
+# ──────────────────────────────────────────────
+#  BILAN DE SANTÉ DES CONNEXIONS (chantier UX fiabilité)
+# ──────────────────────────────────────────────
+
+_PROFILE_MODEL_BY_CATEGORY = {
+    "oracle":   OracleProfile,
+    "ftp":      FtpProfile,
+    "smtp":     SmtpProfile,
+    "database": DatabaseProfile,
+}
+
+
+def record_profile_test_result(category: str, profile_id: int, success: bool) -> None:
+    """
+    Mémorise le résultat d'un test de connexion pour un profil déjà enregistré — appelé aussi
+    bien par les 4 dialogues de profil (bouton "Tester" existant) que par le bilan de santé
+    groupé, pour que chaque test déjà effectué alimente le tableau gratuitement.
+    """
+    from datetime import datetime
+    model = _PROFILE_MODEL_BY_CATEGORY.get(category)
+    if model is None:
+        return
+    with get_session() as s:
+        obj = s.get(model, profile_id)
+        if obj:
+            obj.last_tested_at = datetime.utcnow()
+            obj.last_test_success = success
 
 
 # ──────────────────────────────────────────────

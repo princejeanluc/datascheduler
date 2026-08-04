@@ -90,6 +90,10 @@ class OracleProfile(Base):
     auth_mode    = Column(String(20),  default="DEFAULT", nullable=False)  # DEFAULT | SYSDBA | SYSOPER
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Bilan de santé des connexions (chantier UX fiabilité) — mémorisé entre sessions, alimenté
+    # par le bouton "Tester" du dialogue de profil ET par le bilan de santé groupé.
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
 
     # Relations
     queries   = relationship("SqlQuery",  back_populates="oracle_profile")
@@ -116,6 +120,8 @@ class FtpProfile(Base):
     protocol   = Column(Enum(FtpProtocol), default=FtpProtocol.FTP, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
 
     # Relations
     pipelines = relationship("Pipeline", back_populates="ftp_profile")
@@ -142,6 +148,8 @@ class SmtpProfile(Base):
     from_address = Column(String(255), nullable=False)
     created_at   = Column(DateTime, default=datetime.utcnow)
     updated_at   = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
 
     def __repr__(self):
         return f"<SmtpProfile name={self.name} host={self.host}:{self.port}>"
@@ -171,6 +179,8 @@ class DatabaseProfile(Base):
     extra_json    = Column(Text, nullable=False, default="{}")  # options propres au moteur
     created_at    = Column(DateTime, default=datetime.utcnow)
     updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
 
     def __repr__(self):
         return f"<DatabaseProfile name={self.name} db_type={self.db_type} host={self.host}:{self.port}>"

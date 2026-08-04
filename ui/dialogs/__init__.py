@@ -21,6 +21,7 @@ from .pipeline_import_dialogs import PipelineImportPasswordDialog, PipelineImpor
 from .notification_settings_dialog import NotificationSettingsDialog
 from .pipeline_dry_run_dialog import PipelineDryRunDialog
 from .pipeline_detail_dialog import PipelineDetailDialog
+from .connection_health_dialog import ConnectionHealthDialog
 
 __all__ = [
     "OracleTestThread", "OracleDialog",
@@ -34,4 +35,5 @@ __all__ = [
     "NotificationSettingsDialog",
     "PipelineDryRunDialog",
     "PipelineDetailDialog",
+    "ConnectionHealthDialog",
 ]

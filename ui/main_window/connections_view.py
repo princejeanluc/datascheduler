@@ -24,8 +24,18 @@ class ConnectionsView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        layout.addWidget(_make_title("Connexions"))
-        layout.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
+        header = QHBoxLayout()
+        title_col = QVBoxLayout(); title_col.setSpacing(2)
+        title_col.addWidget(_make_title("Connexions"))
+        title_col.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
+        header.addLayout(title_col); header.addStretch()
+        btn_health = QPushButton("  Bilan de santé"); btn_health.setObjectName("secondary")
+        btn_health.setFixedHeight(36)
+        btn_health.setIcon(_icon("fa5s.heartbeat", COLORS["text_main"]))
+        btn_health.setIconSize(QSize(13, 13))
+        btn_health.clicked.connect(self._on_health_check)
+        header.addWidget(btn_health)
+        layout.addLayout(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -197,6 +207,10 @@ class ConnectionsView(QWidget):
             self.smtp_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────
+
+    def _on_health_check(self):
+        from ui.dialogs import ConnectionHealthDialog
+        ConnectionHealthDialog(self).exec()
 
     def _on_new_database(self):
         from ui.dialogs import DbTypeChooserDialog, OracleDialog, DatabaseProfileDialog
