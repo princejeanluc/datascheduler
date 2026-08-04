@@ -61,7 +61,7 @@ class PipelinesView(QWidget):
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
-        self.table.setColumnWidth(5, 222)
+        self.table.setColumnWidth(5, 240)
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
@@ -140,16 +140,19 @@ class PipelinesView(QWidget):
                 "fa5s.project-diagram", object_name="secondary",
                 tooltip="Éditeur graphique — visualiser et connecter les étapes sur un canevas",
             )
+            btn_dup    = _action_btn("fa5s.copy", object_name="secondary", tooltip="Dupliquer")
             btn_export = _action_btn("fa5s.file-export", object_name="secondary", tooltip="Exporter")
             btn_del    = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
             btn_toggle.clicked.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_pipeline(i))
             btn_graph.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
+            btn_dup.clicked.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
             btn_export.clicked.connect(lambda _, i=pid: self._on_export_pipeline(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             al.addWidget(btn_run); al.addWidget(btn_toggle)
             al.addWidget(btn_edit); al.addWidget(btn_graph)
+            al.addWidget(btn_dup)
             al.addWidget(btn_export); al.addWidget(btn_del); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
@@ -223,6 +226,18 @@ class PipelinesView(QWidget):
         p = db.get_pipeline(pipeline_id)
         if p:
             PipelineExportDialog(self, pipeline=p).exec()
+
+    def _on_duplicate_pipeline(self, pipeline_id: int):
+        from database.export_import import duplicate_pipeline
+        result = duplicate_pipeline(pipeline_id)
+        if not result.success:
+            QMessageBox.critical(self, "Échec de la duplication", result.error or "Erreur inconnue.")
+            return
+        QMessageBox.information(
+            self, "Pipeline dupliqué",
+            "Le pipeline a été dupliqué avec succès — la copie est désactivée par défaut."
+        )
+        self.refresh()
 
     def _on_run_pipeline(self, pipeline_id: int):
         from database import db_manager as db
