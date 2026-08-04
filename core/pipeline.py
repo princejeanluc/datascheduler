@@ -507,6 +507,122 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
 
 
 # ──────────────────────────────────────────────
+#  VALIDATION À BLANC (dry-run) — chantier UX autonomie
+# ──────────────────────────────────────────────
+
+class DryRunResult:
+    def __init__(self, success: bool, errors: list[str], warnings: list[str],
+                 checked_connections: int = 0):
+        self.success = success
+        self.errors = errors
+        self.warnings = warnings
+        self.checked_connections = checked_connections
+
+
+def _steps_to_dicts(pipeline_id: int) -> list[dict]:
+    """Même conversion ORM → dict que PipelineEditorDialog._fill_fields()
+    (ui/step_editor/pipeline_editor_dialog.py) — la forme attendue par validate_step_sequence()/
+    validate_pipeline_graph() et par _STEP_REFERENCES (database/export_import.py)."""
+    return [
+        {
+            "step_type":   str(s.step_type).replace("StepType.", ""),
+            "label":       s.label or "",
+            "config":      json.loads(s.config_json or "{}"),
+            "retry_count": s.retry_count or 0,
+            "run_always":  bool(s.run_always),
+        }
+        for s in db.get_steps(pipeline_id)
+    ]
+
+
+def _test_reference_connection(ref_type: str, config: dict, obj) -> tuple[bool, str]:
+    """Teste une connexion réelle pour l'entité déjà résolue par _resolve_reference() —
+    réutilise les mêmes connecteurs/config_from_profile que les dialogues de profil et
+    core/steps/*.py à l'exécution. Ne lève jamais (les test_connection() sous-jacents non plus)."""
+    try:
+        if ref_type == "db_profile":
+            from core.sql_db import SqlConnector, config_from_profile
+            cfg = config_from_profile(config.get("db_type", "ORACLE"), obj)
+            result = SqlConnector(cfg).test_connection()
+        elif ref_type == "ftp_profile":
+            from core.ftp import FtpUploader, config_from_profile
+            result = FtpUploader(config_from_profile(obj)).test_connection()
+        elif ref_type == "smtp_profile":
+            from core.email import EmailSender, config_from_profile
+            result = EmailSender(config_from_profile(obj)).test_connection()
+        else:
+            # sql_query : une requête enregistrée n'est pas une "connexion" à tester ici —
+            # son profil associé (db_profile) est déjà testé séparément dans la même étape.
+            return True, "—"
+        return result.success, result.message
+    except Exception as e:
+        return False, str(e)
+
+
+def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunResult:
+    """
+    Valide un pipeline sans l'exécuter : (1) la forme (mêmes règles que
+    validate_step_sequence()/validate_pipeline_graph(), la même bascule linéaire/graphe que
+    run_pipeline() utilise déjà — db.get_edges() non vide → chemin graphe), (2) que chaque
+    profil/requête référencé existe encore (réutilise _STEP_REFERENCES/_resolve_reference de
+    database/export_import.py — même table déclarative que l'export, pas de logique dupliquée),
+    et (3) si test_connections, qu'une connexion réelle réussit pour chaque profil résolu.
+
+    Une référence absente est une erreur bloquante (le pipeline ne peut pas s'exécuter tel
+    quel) ; un échec de connexion réel est un avertissement (un blip réseau transitoire ne doit
+    pas bloquer indéfiniment, contrairement à une référence structurellement manquante).
+    """
+    from database.export_import import _STEP_REFERENCES, _resolve_reference
+
+    pipeline = db.get_pipeline(pipeline_id)
+    if not pipeline:
+        return DryRunResult(success=False, errors=[f"Pipeline ID {pipeline_id} introuvable."], warnings=[])
+
+    steps = _steps_to_dicts(pipeline_id)
+    if not steps:
+        return DryRunResult(success=False, errors=["Ce pipeline ne contient aucune étape."], warnings=[])
+
+    edges_orm = db.get_edges(pipeline_id)
+    if edges_orm:
+        edges = [
+            {"from_step_key": e.from_step_key, "from_port": e.from_port,
+             "to_step_key": e.to_step_key, "to_port": e.to_port}
+            for e in edges_orm
+        ]
+        errors, warnings = validate_pipeline_graph(steps, edges)
+    else:
+        errors, warnings = validate_step_sequence(steps)
+
+    checked = 0
+    for i, step in enumerate(steps):
+        step_type = step["step_type"]
+        config    = step["config"]
+        label     = step["label"] or f"Étape {i + 1}"
+
+        for config_key, ref_type in _STEP_REFERENCES.get(step_type, []):
+            raw_id = config.get(config_key)
+            if not raw_id:
+                continue
+            obj, _category = _resolve_reference(ref_type, config, raw_id)
+            if obj is None:
+                errors.append(
+                    f"Étape {i + 1} ({label}) : la référence « {ref_type} » (#{raw_id}) n'existe plus."
+                )
+                continue
+            # sql_query n'est pas une connexion — son profil associé (db_profile) est déjà
+            # testé séparément par cette même boucle, rien de plus à vérifier ici.
+            if test_connections and ref_type != "sql_query":
+                checked += 1
+                ok, message = _test_reference_connection(ref_type, config, obj)
+                if not ok:
+                    warnings.append(
+                        f"Étape {i + 1} ({label}) : échec du test de connexion « {ref_type} » — {message}"
+                    )
+
+    return DryRunResult(success=not errors, errors=errors, warnings=warnings, checked_connections=checked)
+
+
+# ──────────────────────────────────────────────
 #  EXÉCUTEUR PRINCIPAL
 # ──────────────────────────────────────────────
 
