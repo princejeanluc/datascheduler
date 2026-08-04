@@ -20,6 +20,7 @@ from .pipeline_export_dialog import PipelineExportDialog
 from .pipeline_import_dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
 from .notification_settings_dialog import NotificationSettingsDialog
 from .pipeline_dry_run_dialog import PipelineDryRunDialog
+from .pipeline_detail_dialog import PipelineDetailDialog
 
 __all__ = [
     "OracleTestThread", "OracleDialog",
@@ -32,4 +33,5 @@ __all__ = [
     "PipelineImportPasswordDialog", "PipelineImportReviewDialog",
     "NotificationSettingsDialog",
     "PipelineDryRunDialog",
+    "PipelineDetailDialog",
 ]

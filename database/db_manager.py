@@ -728,13 +728,16 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
         )
 
 
-def get_run_counts_by_day(days: int = 30) -> list[dict]:
+def get_run_counts_by_day(days: int = 30, pipeline_id: int | None = None) -> list[dict]:
     """
     Agrégat pour le graphique d'activité du Dashboard (chantier UX statistiques) : nombre de
     runs par jour et par statut sur les `days` derniers jours (aujourd'hui inclus). Zéro-rempli
     pour les jours sans exécution — continuité indispensable pour un graphique de tendance, un
     jour manquant doit apparaître à zéro plutôt que disparaître du graphe. Chaque entrée :
     {"date": date, "success": int, "failed": int, "cancelled": int}, la plus ancienne en premier.
+
+    `pipeline_id` optionnel (défaut None, comportement global inchangé) filtre sur un seul
+    pipeline — réutilisé tel quel par la vue détail par pipeline (chantier UX fiabilité, D.1).
     """
     from datetime import date, datetime, timedelta
 
@@ -745,16 +748,14 @@ def get_run_counts_by_day(days: int = 30) -> list[dict]:
     start_dt   = datetime.combine(start_date, datetime.min.time())
 
     with get_session() as s:
-        rows = (
-            s.query(
-                func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
-                PipelineRun.status,
-                func.count(PipelineRun.id),
-            )
-            .filter(PipelineRun.started_at >= start_dt)
-            .group_by("day", PipelineRun.status)
-            .all()
-        )
+        q = s.query(
+            func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
+            PipelineRun.status,
+            func.count(PipelineRun.id),
+        ).filter(PipelineRun.started_at >= start_dt)
+        if pipeline_id is not None:
+            q = q.filter(PipelineRun.pipeline_id == pipeline_id)
+        rows = q.group_by("day", PipelineRun.status).all()
 
     counts: dict[str, dict[str, int]] = {}
     for day_str, status, n in rows:

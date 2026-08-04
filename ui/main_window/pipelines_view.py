@@ -62,6 +62,7 @@ class PipelinesView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
         self.table.setColumnWidth(5, 280)
+        self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
@@ -82,6 +83,7 @@ class PipelinesView(QWidget):
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested
         pipelines = db.get_pipelines()
+        self._pipeline_ids = [p.id for p in pipelines]
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
         self.table.setRowCount(len(pipelines))
@@ -231,6 +233,16 @@ class PipelinesView(QWidget):
         p = db.get_pipeline(pipeline_id)
         if p:
             PipelineExportDialog(self, pipeline=p).exec()
+
+    def _on_row_dbl_click(self, index):
+        row = index.row()
+        if row >= len(self._pipeline_ids):
+            return
+        from database import db_manager as db
+        from ui.dialogs import PipelineDetailDialog
+        p = db.get_pipeline(self._pipeline_ids[row])
+        if p:
+            PipelineDetailDialog(self, pipeline=p).exec()
 
     def _on_validate_pipeline(self, pipeline_id: int, pipeline_name: str):
         from ui.dialogs import PipelineDryRunDialog
