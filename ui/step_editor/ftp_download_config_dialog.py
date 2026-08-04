@@ -39,6 +39,7 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
         self.inp_remote = self._input("ex : /export/{yyyy}/{MM}/ventes_{yyyyMMdd}.csv")
         form.addRow(self._lbl("Chemin distant *"), self.inp_remote)
         form.addRow("", self._tokens_hint())
+        self.inp_output_name = self._output_name_row(form)
         root.addLayout(form)
         root.addStretch()
         self._buttons(root)
@@ -47,6 +48,7 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
         c = self._config
         self._set_combo(self.cb_ftp, c.get("ftp_profile_id"))
         self.inp_remote.setText(c.get("remote_path_tpl", ""))
+        self.inp_output_name.setText(c.get("output_name", ""))
 
     def _new_ftp_profile(self, cb: QComboBox):
         from ui.dialogs import FtpDialog
@@ -61,6 +63,7 @@ class _FtpDownloadConfigDialog(_BaseStepConfigDialog):
         return {
             "ftp_profile_id":  self.cb_ftp.currentData(),
             "remote_path_tpl": self.inp_remote.text().strip(),
+            "output_name":     self.inp_output_name.text().strip(),
         }
 
     def _on_ok(self):

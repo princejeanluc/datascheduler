@@ -40,6 +40,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
             self._new_smtp_profile,
         )
         self.inp_to = self._input("ex : alerte@company.com, autre@company.com")
+        self.inp_to.setToolTip("Une ou plusieurs adresses, séparées par des virgules.")
         form.addRow(self._lbl("Destinataires *"), self.inp_to)
 
         self.inp_subject = self._input("ex : Pipeline {yyyyMMdd} — {rows_count} lignes")
@@ -53,6 +54,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         self.txt_body = QPlainTextEdit()
         self.txt_body.setFont(QFont("Consolas", 11))
         self.txt_body.setPlaceholderText("Le pipeline a exporté {rows_count} lignes le {yyyy}-{MM}-{dd}.")
+        self.txt_body.setToolTip("Peut utiliser les mêmes jetons que le sujet (ex : {rows_count}, {yyyy}).")
         self.txt_body.setFixedHeight(110)
         self.txt_body.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
@@ -62,6 +64,10 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
 
         self.chk_attach = QCheckBox("Joindre le fichier produit par le pipeline (si disponible)")
         self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_attach.setToolTip(
+            "Joint le fichier produit par l'étape précédente (ou la Source choisie ci-dessous) "
+            "à cet email, s'il y en a un."
+        )
         root.addWidget(self.chk_attach)
 
         attach_form = self._form()

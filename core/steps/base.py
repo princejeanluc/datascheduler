@@ -3,6 +3,7 @@ DataScheduler — core/steps/base.py
 Contexte partagé entre étapes + classe abstraite BaseStep.
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -59,6 +60,15 @@ class StepContext:
         t   = t.replace("{failed_step}",    str(self.extra.get("failed_step_label", "")))
         if self.output_file:
             t = t.replace("{output_file}", str(self.output_file))
+        # {artifact:nom} — référence générique à un artefact nommé (chantier UX ports nommés),
+        # utilisable dans n'importe quel champ templaté, pas seulement PYTHON_SCRIPT. Même
+        # convention que {output_file} ci-dessus : non résolu si absent (reste littéral dans le
+        # texte — un échec visible à l'exécution plutôt qu'une valeur silencieusement vidée).
+        t = re.sub(
+            r"\{artifact:([^}]+)\}",
+            lambda m: str(self.artifacts[m.group(1)]) if m.group(1) in self.artifacts else m.group(0),
+            t,
+        )
         return t
 
 

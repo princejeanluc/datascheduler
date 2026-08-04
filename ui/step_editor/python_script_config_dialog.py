@@ -20,6 +20,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
                           run_always=_.get("run_always", False))
+        self._prior_steps = _.get("prior_steps") or []
         self.setWindowTitle("Étape — Script Python")
         self.setMinimumSize(540, 520)
         self._build_ui()
@@ -37,6 +38,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         # Script
         self.inp_script = self._input("ex : C:/scripts/traitement.py")
+        self.inp_script.setToolTip("Chemin vers le script Python à exécuter.")
         script_row = QHBoxLayout(); script_row.setSpacing(6)
         script_row.addWidget(self.inp_script, stretch=1)
         btn_browse = QPushButton("Parcourir…"); btn_browse.setObjectName("secondary")
@@ -48,14 +50,14 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         # Python exe
         self.inp_py_exe = self._input("ex : python  ou  C:/Python311/python.exe")
+        self.inp_py_exe.setToolTip(
+            "Interpréteur Python à utiliser — laissez tel quel pour celui utilisé par "
+            "DataScheduler, ou précisez un chemin complet pour un environnement virtuel "
+            "spécifique au script."
+        )
         form.addRow(self._lbl("Exécutable Python"), self.inp_py_exe)
 
         # Arguments (un par ligne)
-        args_lbl = QLabel("Arguments (un par ligne) :")
-        args_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
-        root.addLayout(form)
-        root.addWidget(args_lbl)
-
         self.txt_args = QPlainTextEdit()
         self.txt_args.setFont(QFont("Consolas", 11))
         self.txt_args.setPlaceholderText(
@@ -67,6 +69,14 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
             f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 6px;"
         )
+
+        args_lbl = QLabel("Arguments (un par ligne) :")
+        args_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
+        root.addLayout(form)
+        args_hdr = QHBoxLayout(); args_hdr.setSpacing(8)
+        args_hdr.addWidget(args_lbl); args_hdr.addStretch()
+        args_hdr.addWidget(self._artifact_reference_button(self.txt_args, self._prior_steps))
+        root.addLayout(args_hdr)
         root.addWidget(self.txt_args)
 
         hint = QLabel("Tokens disponibles : " + TOKENS_HINT + "  {ds_context_in}  {ds_context_out}")
@@ -97,13 +107,32 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         btn_wdir.clicked.connect(self._browse_workdir)
         workdir_row.addWidget(btn_wdir)
         ww = QWidget(); ww.setLayout(workdir_row)
-        form2.addRow(self._lbl("Répertoire travail"), ww)
+        wdir_lbl = self._lbl("Répertoire travail")
+        wdir_lbl.setToolTip(
+            "Dossier depuis lequel le script est lancé — utile s'il référence des chemins "
+            "relatifs."
+        )
+        form2.addRow(wdir_lbl, ww)
 
         self.inp_timeout = QSpinBox()
         self.inp_timeout.setRange(10, 86400); self.inp_timeout.setValue(300)
         self.inp_timeout.setSuffix(" s"); self.inp_timeout.setFixedWidth(110)
         self.inp_timeout.setStyleSheet(self._spinbox_style())
+        self.inp_timeout.setToolTip(
+            "Durée maximale d'exécution avant que le script soit interrompu automatiquement."
+        )
         form2.addRow(self._lbl("Timeout"), self.inp_timeout)
+
+        self.inp_output_names = self._input("ex : rapport_csv, resume_json")
+        form2.addRow(self._lbl("Sortie(s) publiées"), self.inp_output_names)
+        names_hint = QLabel(
+            "Auto-déclaratif : le script publie déjà ces clés lui-même via {ds_context_out} — "
+            "ce champ sert seulement à ce que les étapes suivantes puissent les découvrir "
+            "(bouton « + Artefact » ci-dessus) et les référencer via {artifact:nom}."
+        )
+        names_hint.setWordWrap(True)
+        names_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
+        form2.addRow("", names_hint)
         root.addLayout(form2)
 
         root.addStretch()
@@ -130,18 +159,21 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         self.txt_args.setPlainText("\n".join(args))
         self.inp_workdir.setText(c.get("working_dir", ""))
         self.inp_timeout.setValue(int(c.get("timeout", 300)))
+        self.inp_output_names.setText(", ".join(c.get("output_names", [])))
 
     def _collect_config(self) -> dict:
         import sys as _sys
         raw  = self.txt_args.toPlainText()
         args = [a.strip() for a in raw.splitlines() if a.strip()]
         exe  = self.inp_py_exe.text().strip() or _sys.executable
+        output_names = [n.strip() for n in self.inp_output_names.text().split(",") if n.strip()]
         return {
             "script_path":        self.inp_script.text().strip(),
             "python_executable":  exe,
             "args":               args,
             "working_dir":        self.inp_workdir.text().strip() or None,
             "timeout":            self.inp_timeout.value(),
+            "output_names":       output_names,
         }
 
     def _on_ok(self):

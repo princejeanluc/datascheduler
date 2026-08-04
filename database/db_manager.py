@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent
 
 
 # ──────────────────────────────────────────────
@@ -607,6 +607,7 @@ def create_pipeline(name, description=None,
             kwargs["uuid"] = uuid
         p = Pipeline(**kwargs)
         s.add(p)
+    log_audit_event("pipeline_created", pipeline_id=p.id, pipeline_name=p.name)
     return p
 
 
@@ -651,6 +652,8 @@ def update_pipeline(pipeline_id, name, description=None,
         p.scheduled_time = scheduled_time
         p.scheduled_day = scheduled_day
         p.prevent_overlap = prevent_overlap
+    log_audit_event("pipeline_edited", pipeline_id=pipeline_id, pipeline_name=name,
+                     detail="Nom/description/planification")
     return p
 
 
@@ -664,12 +667,15 @@ def set_pipeline_active(pipeline_id: int, active: bool) -> bool:
 
 
 def delete_pipeline(pipeline_id: int) -> bool:
+    name = None
     with get_session() as s:
         obj = s.get(Pipeline, pipeline_id)
-        if obj:
-            s.delete(obj)
-            return True
-    return False
+        if not obj:
+            return False
+        name = obj.name
+        s.delete(obj)
+    log_audit_event("pipeline_deleted", pipeline_id=pipeline_id, pipeline_name=name)
+    return True
 
 
 # ──────────────────────────────────────────────
@@ -720,6 +726,113 @@ def get_recent_runs(limit: int = 100) -> list[PipelineRun]:
             .limit(limit)
             .all()
         )
+
+
+def get_run_counts_by_day(days: int = 30) -> list[dict]:
+    """
+    Agrégat pour le graphique d'activité du Dashboard (chantier UX statistiques) : nombre de
+    runs par jour et par statut sur les `days` derniers jours (aujourd'hui inclus). Zéro-rempli
+    pour les jours sans exécution — continuité indispensable pour un graphique de tendance, un
+    jour manquant doit apparaître à zéro plutôt que disparaître du graphe. Chaque entrée :
+    {"date": date, "success": int, "failed": int, "cancelled": int}, la plus ancienne en premier.
+    """
+    from datetime import date, datetime, timedelta
+
+    from sqlalchemy import func
+
+    today      = date.today()
+    start_date = today - timedelta(days=days - 1)
+    start_dt   = datetime.combine(start_date, datetime.min.time())
+
+    with get_session() as s:
+        rows = (
+            s.query(
+                func.strftime("%Y-%m-%d", PipelineRun.started_at).label("day"),
+                PipelineRun.status,
+                func.count(PipelineRun.id),
+            )
+            .filter(PipelineRun.started_at >= start_dt)
+            .group_by("day", PipelineRun.status)
+            .all()
+        )
+
+    counts: dict[str, dict[str, int]] = {}
+    for day_str, status, n in rows:
+        status_str = status.value if hasattr(status, "value") else str(status)
+        counts.setdefault(day_str, {})[status_str] = n
+
+    result = []
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        day_counts = counts.get(d.isoformat(), {})
+        result.append({
+            "date":      d,
+            "success":   day_counts.get("SUCCESS", 0),
+            "failed":    day_counts.get("FAILED", 0),
+            "cancelled": day_counts.get("CANCELLED", 0),
+        })
+    return result
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES DE NOTIFICATION (digest manager)
+# ──────────────────────────────────────────────
+
+def get_notification_settings() -> NotificationSettings:
+    """Get-or-create la ligne singleton (id=1) — jamais absente après le premier appel."""
+    with get_session() as s:
+        settings = s.get(NotificationSettings, 1)
+        if not settings:
+            settings = NotificationSettings(id=1)
+            s.add(settings)
+    return settings
+
+
+def update_notification_settings(**kwargs) -> NotificationSettings:
+    """Met à jour un sous-ensemble de champs de la ligne singleton (get-or-create implicite)."""
+    with get_session() as s:
+        settings = s.get(NotificationSettings, 1)
+        if not settings:
+            settings = NotificationSettings(id=1)
+            s.add(settings)
+        for key, value in kwargs.items():
+            setattr(settings, key, value)
+    return settings
+
+
+# ──────────────────────────────────────────────
+#  JOURNAL D'AUDIT
+# ──────────────────────────────────────────────
+
+def log_audit_event(event_type: str, pipeline_id: int | None = None,
+                     pipeline_name: str | None = None, detail: str | None = None) -> AuditEvent:
+    """
+    Insère une ligne d'audit — appelé aux points d'écriture existants (create_pipeline,
+    update_pipeline, save_steps, save_pipeline_graph, delete_pipeline, export_pipeline_to_file,
+    apply_import), jamais de nouvelle logique métier. `actor` capturé ici, pas par l'appelant :
+    un seul endroit à connaître getpass.getuser().
+    """
+    import getpass
+    try:
+        actor = getpass.getuser()
+    except Exception:
+        actor = None
+
+    with get_session() as s:
+        event = AuditEvent(
+            event_type=event_type, pipeline_id=pipeline_id,
+            pipeline_name=pipeline_name, actor=actor, detail=detail,
+        )
+        s.add(event)
+    return event
+
+
+def get_audit_events(limit: int = 200, pipeline_id: int | None = None) -> list[AuditEvent]:
+    with get_session() as s:
+        q = s.query(AuditEvent)
+        if pipeline_id is not None:
+            q = q.filter(AuditEvent.pipeline_id == pipeline_id)
+        return q.order_by(AuditEvent.timestamp.desc()).limit(limit).all()
 
 
 # ──────────────────────────────────────────────
@@ -800,6 +913,12 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
             ))
+    pipeline = get_pipeline(pipeline_id)
+    log_audit_event(
+        "pipeline_edited", pipeline_id=pipeline_id,
+        pipeline_name=pipeline.name if pipeline else None,
+        detail=f"{len(steps)} étape(s) (éditeur linéaire)",
+    )
 
 
 # ──────────────────────────────────────────────
@@ -845,6 +964,12 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) 
                 to_step_key=e["to_step_key"],
                 to_port=e.get("to_port") or "input",
             ))
+    pipeline = get_pipeline(pipeline_id)
+    log_audit_event(
+        "pipeline_edited", pipeline_id=pipeline_id,
+        pipeline_name=pipeline.name if pipeline else None,
+        detail=f"{len(steps)} étape(s), {len(edges)} arête(s) (éditeur graphique)",
+    )
 
 
 # ──────────────────────────────────────────────

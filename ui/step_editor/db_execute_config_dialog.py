@@ -83,6 +83,10 @@ class _DbExecuteConfigDialog(_BaseStepConfigDialog):
         self.chk_commit = QCheckBox("Valider (commit) automatiquement après exécution")
         self.chk_commit.setChecked(True)
         self.chk_commit.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_commit.setToolTip(
+            "Décochez uniquement si vous gérez déjà la validation vous-même dans la requête ou "
+            "la procédure stockée."
+        )
         form.addRow("", self.chk_commit)
         root.addLayout(form)
 

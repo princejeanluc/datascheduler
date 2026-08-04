@@ -83,9 +83,48 @@ def request_cancel(pipeline_id: int) -> bool:
     return True
 
 
+def is_cancel_requested(pipeline_id: int) -> bool:
+    """
+    Indique si un arrêt a été demandé pour le run en cours de ce pipeline mais n'a pas
+    encore abouti (l'étape en cours n'a pas encore atteint sa prochaine limite) — utilisé
+    par l'UI pour afficher un état "Arrêt en cours" plutôt que de laisser l'utilisateur
+    sans retour visuel après avoir demandé une interruption (voir PipelinesView.refresh()).
+    """
+    with _active_runs_lock:
+        event = _active_runs.get(pipeline_id)
+    return bool(event and event.is_set())
+
+
 # ──────────────────────────────────────────────
 #  VALIDATION STATIQUE D'UNE SÉQUENCE D'ÉTAPES
 # ──────────────────────────────────────────────
+
+def _duplicate_output_name_errors(steps: list[dict]) -> list[str]:
+    """
+    Un nom de sortie personnalisé (config["output_name"]/["output_names"] — voir
+    core/pipeline.py, publication d'alias en plus de _step_key) utilisé par plusieurs étapes
+    du même pipeline se marcherait dessus dans ctx.artifacts. Partagé par
+    validate_step_sequence() et validate_pipeline_graph() — même règle dans les deux éditeurs.
+    """
+    seen: dict[str, list[str]] = {}
+    for step in steps:
+        label = step.get("label") or step.get("step_type", "")
+        config = step.get("config") or {}
+        names = []
+        if config.get("output_name"):
+            names.append(config["output_name"])
+        names.extend(config.get("output_names") or [])
+        for name in names:
+            seen.setdefault(name, []).append(label)
+
+    errors = []
+    for name, labels in seen.items():
+        if len(labels) > 1:
+            errors.append(
+                f"Le nom de sortie « {name} » est utilisé par plusieurs étapes "
+                f"({', '.join(labels)}) — chaque nom doit être unique dans le pipeline."
+            )
+    return errors
 
 def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
     """
@@ -139,6 +178,7 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
         if produces and step_key:
             available_keys.add(step_key)
 
+    errors.extend(_duplicate_output_name_errors(steps))
     return errors, warnings
 
 
@@ -213,6 +253,14 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
             step_key = config.get("_step_key")
             if "output_file" in produces and step_key:
                 ctx.artifacts[step_key] = ctx.output_file
+            # Alias cosmétique en plus (chantier UX — ports nommés) : ne remplace jamais la
+            # publication sous step_key ci-dessus, qui reste seule responsable du câblage
+            # réel (arêtes, reads_from_step_key). Renommer output_name ne casse donc jamais
+            # le graphe — seul un script/token qui référençait l'ancien nom cesse de le
+            # trouver, un échec visible plutôt qu'une corruption silencieuse.
+            output_name = config.get("output_name")
+            if output_name:
+                ctx.artifacts[output_name] = ctx.output_file
 
         if not step_result.success:
             if not pipeline_failed:
@@ -375,6 +423,9 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
             _, produces = get_step_requirements(step_type)
             if "output_file" in produces and step_key:
                 ctx.artifacts[step_key] = ctx.output_file
+            output_name = config.get("output_name")
+            if output_name:
+                ctx.artifacts[output_name] = ctx.output_file
             if step_key:
                 step_status[step_key] = "success"
                 if step_result.active_port:
@@ -451,6 +502,7 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
             msg = f"Étape « {label} » : nécessite {', '.join(sorted(requires))}, aucune arête entrante."
             (warnings if run_always else errors).append(msg)
 
+    errors.extend(_duplicate_output_name_errors(steps))
     return errors, warnings
 
 

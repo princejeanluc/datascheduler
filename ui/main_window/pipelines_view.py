@@ -80,6 +80,7 @@ class PipelinesView(QWidget):
     def refresh(self):
         from database import db_manager as db
         from ui.step_editor import STEP_META
+        from core.pipeline import is_cancel_requested
         pipelines = db.get_pipelines()
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
@@ -101,6 +102,8 @@ class PipelinesView(QWidget):
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
                     badge_st   = "INACTIF" if not p.is_active else st
+                    if p.is_active and st == "RUNNING" and is_cancel_requested(p.id):
+                        badge_st = "ARRÊT EN COURS"
                     badge_name = "badge_idle" if not p.is_active else _STATUS_BADGE.get(st, "badge_idle")
                     badge = QLabel(badge_st); badge.setObjectName(badge_name)
                     badge.setAlignment(Qt.AlignCenter)
@@ -129,9 +132,14 @@ class PipelinesView(QWidget):
                     f"border-radius: 4px; background: transparent; }}"
                     f"QPushButton:hover {{ background: {COLORS['success']}; color: #000; }}"
                 )
-            btn_edit   = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
-            btn_graph  = _action_btn("fa5s.project-diagram", object_name="secondary",
-                                     tooltip="Éditeur graphique")
+            btn_edit   = _action_btn(
+                "fa5s.pencil-alt", object_name="secondary",
+                tooltip="Modifier — nom, planification, liste des étapes",
+            )
+            btn_graph  = _action_btn(
+                "fa5s.project-diagram", object_name="secondary",
+                tooltip="Éditeur graphique — visualiser et connecter les étapes sur un canevas",
+            )
             btn_export = _action_btn("fa5s.file-export", object_name="secondary", tooltip="Exporter")
             btn_del    = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
@@ -239,9 +247,14 @@ class PipelinesView(QWidget):
             box.exec()
             if box.clickedButton() == btn_interrupt:
                 request_cancel(pipeline_id)
+                # Reflète l'état "Arrêt en cours" tout de suite dans le tableau (colonne Statut)
+                # plutôt que d'attendre le prochain rafraîchissement automatique (30s) — sans ça,
+                # rien n'indique visuellement que la demande a bien été prise en compte.
+                self.refresh()
                 QMessageBox.information(
                     self, "Demande envoyée",
-                    "L'arrêt a été demandé — relancez le pipeline une fois qu'il se sera arrêté."
+                    "L'arrêt a été demandé — le statut affichera « Arrêt en cours » jusqu'à ce "
+                    "que l'étape en cours se termine."
                 )
             return
 

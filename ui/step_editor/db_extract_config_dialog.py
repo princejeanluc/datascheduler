@@ -65,14 +65,23 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
         self.inp_chunk.setRange(1_000, 1_000_000); self.inp_chunk.setValue(50_000)
         self.inp_chunk.setSingleStep(10_000); self.inp_chunk.setSuffix(" lignes")
         self.inp_chunk.setStyleSheet(self._spinbox_style())
+        self.inp_chunk.setToolTip(
+            "Nombre de lignes lues en mémoire à la fois — à réduire si le volume de données est "
+            "très important."
+        )
 
         self.cb_quoting = QComboBox(); self.cb_quoting.setStyleSheet(self._combo_style())
         for lbl, val in self.QUOTINGS: self.cb_quoting.addItem(lbl, val)
+        self.cb_quoting.setToolTip(
+            "Comment entourer les valeurs de guillemets dans le CSV produit — « Chaînes & dates "
+            "seulement » convient à la plupart des imports Excel."
+        )
 
         form.addRow(self._lbl("Séparateur CSV"),  self.cb_sep)
         form.addRow(self._lbl("Encodage"),        self.cb_enc)
         form.addRow(self._lbl("Taille chunk"),    self.inp_chunk)
         form.addRow(self._lbl("Guillemets CSV"),  self.cb_quoting)
+        self.inp_output_name = self._output_name_row(form)
         root.addLayout(form)
         root.addStretch()
         self._buttons(root)
@@ -87,6 +96,7 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
         self._set_combo_by_data(self.cb_enc,     c.get("csv_encoding",  "utf-8-sig"))
         self._set_combo_by_data(self.cb_quoting, c.get("csv_quoting",   "QUOTE_NONNUMERIC"))
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
+        self.inp_output_name.setText(c.get("output_name", ""))
 
     def _filter_queries(self):
         data = self.cb_profile.currentData()
@@ -123,6 +133,7 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
             "csv_encoding":      self.cb_enc.currentData(),
             "csv_chunk_size":    self.inp_chunk.value(),
             "csv_quoting":       self.cb_quoting.currentData(),
+            "output_name":       self.inp_output_name.text().strip(),
         }
 
     def _on_ok(self):

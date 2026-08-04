@@ -340,6 +340,11 @@ def export_pipeline_to_file(pipeline_id: int, path, password: str | None = None)
         Path(path).write_text(
             json.dumps(result.bundle, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+        db.log_audit_event(
+            "pipeline_exported", pipeline_id=pipeline_id,
+            pipeline_name=result.bundle["pipeline"]["name"],
+            detail=f"→ {path}" + (" (chiffré)" if password else ""),
+        )
     return result
 
 
@@ -595,6 +600,14 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges)
             new_pipeline_id = new_pipeline.id
 
+        # En plus des événements "pipeline_created"/"pipeline_edited" déjà émis ci-dessus par
+        # create_pipeline()/save_pipeline_graph() : trace la provenance "import" spécifiquement,
+        # utile pour Nadia (d'où vient ce pipeline, écrasement ou copie ?).
+        db.log_audit_event(
+            "pipeline_imported", pipeline_id=new_pipeline_id,
+            pipeline_name=pipeline_data.get("name"),
+            detail=f"action={plan.pipeline_action}",
+        )
         return ApplyResult(success=True, pipeline_id=new_pipeline_id, warnings=list(plan.warnings))
 
     except Exception as e:

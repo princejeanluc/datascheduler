@@ -12,7 +12,7 @@ Responsabilités :
 
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -122,6 +122,7 @@ class PipelineScheduler:
     """
 
     JOB_PREFIX = "pipeline_"
+    DIGEST_JOB_ID = "digest_job"   # hors JOB_PREFIX : list_jobs() ne doit pas le compter comme un pipeline
 
     def __init__(
         self,
@@ -176,7 +177,109 @@ class PipelineScheduler:
             except Exception as e:
                 logger.error("Impossible de planifier pipeline %s : %s", p.name, e)
         logger.info("%d pipeline(s) planifié(s).", count)
+
+        try:
+            self.refresh_digest_job()
+        except Exception as e:
+            logger.error("Impossible de planifier le digest de notification : %s", e)
+
         return count
+
+    # ── Digest manager ────────────────────────
+
+    def refresh_digest_job(self) -> None:
+        """
+        (Ré)enregistre ou retire le job de digest selon NotificationSettings actuel — appelé
+        au démarrage et à chaque modification des paramètres de notification via l'UI, pour
+        que le changement prenne effet sans redémarrer l'application.
+        """
+        settings = db.get_notification_settings()
+        if not settings.digest_enabled:
+            if self._scheduler.get_job(self.DIGEST_JOB_ID):
+                self._scheduler.remove_job(self.DIGEST_JOB_ID)
+                logger.info("Digest désactivé — job retiré.")
+            return
+
+        # Heure fixe (pas configurable par l'utilisateur) : 07:00, avant le début de journée
+        # type des personas concernées (Sophie/Karim) ; lundi pour l'hebdomadaire.
+        if settings.digest_frequency == "WEEKLY":
+            trigger = CronTrigger(day_of_week=0, hour=7, minute=0)
+        else:
+            trigger = CronTrigger(hour=7, minute=0)
+
+        self._scheduler.add_job(
+            func=self._run_digest,
+            trigger=trigger,
+            id=self.DIGEST_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=3600,
+            coalesce=True,
+        )
+        logger.info("Digest de notification planifié (%s).", settings.digest_frequency)
+
+    def _run_digest(self) -> None:
+        """Cible du job de digest — lit NotificationSettings, envoie un résumé des exécutions
+        depuis le dernier envoi si des runs existent. Ne lève jamais d'exception (comme
+        _run_scheduled_pipeline) : une erreur d'envoi est loguée, jamais fatale au scheduler."""
+        try:
+            settings = db.get_notification_settings()
+            if not settings.digest_enabled:
+                return
+            if not settings.digest_smtp_profile_id or not settings.digest_recipients:
+                logger.warning("Digest activé mais profil SMTP ou destinataires manquants — ignoré.")
+                return
+
+            smtp_profile = db.get_smtp_profile(settings.digest_smtp_profile_id)
+            if not smtp_profile:
+                logger.warning("Digest : profil SMTP introuvable (id=%s).",
+                                settings.digest_smtp_profile_id)
+                return
+
+            since = settings.digest_last_sent_at or (datetime.utcnow() - timedelta(days=1))
+            runs = [r for r in db.get_recent_runs(limit=500)
+                    if r.started_at and r.started_at >= since]
+            if not runs:
+                db.update_notification_settings(digest_last_sent_at=datetime.utcnow())
+                return
+
+            body = self._build_digest_body(runs)
+
+            from core.email import EmailSender, config_from_profile
+            recipients = [addr.strip() for addr in settings.digest_recipients.split(",") if addr.strip()]
+            sender = EmailSender(config_from_profile(smtp_profile))
+            result = sender.send(recipients, "DataScheduler — résumé des exécutions", body)
+
+            if result.success:
+                db.update_notification_settings(digest_last_sent_at=datetime.utcnow())
+                logger.info("Digest envoyé à %s (%d run(s)).", recipients, len(runs))
+            else:
+                logger.error("Échec envoi digest : %s", result.error)
+
+        except Exception as e:
+            logger.exception("Erreur inattendue lors du digest : %s", e)
+
+    @staticmethod
+    def _build_digest_body(runs: list) -> str:
+        def status_str(val):
+            return val.value if hasattr(val, "value") else str(val or "IDLE")
+
+        success = [r for r in runs if status_str(r.status) == "SUCCESS"]
+        failed  = [r for r in runs if status_str(r.status) == "FAILED"]
+
+        lines = [
+            f"Résumé DataScheduler — {len(runs)} exécution(s) depuis le dernier envoi.",
+            "",
+            f"Succès : {len(success)}",
+            f"Échecs : {len(failed)}",
+        ]
+        if failed:
+            lines.append("")
+            lines.append("Détail des échecs :")
+            for r in failed:
+                pname = r.pipeline.name if r.pipeline else str(r.pipeline_id)
+                when  = r.started_at.strftime("%d/%m/%Y %H:%M") if r.started_at else "—"
+                lines.append(f"  - {pname} ({when}) : {r.error_message or 'erreur inconnue'}")
+        return "\n".join(lines)
 
     # ── Gestion des jobs individuels ─────────
 
@@ -258,16 +361,30 @@ class PipelineScheduler:
     def _job_id(self, pipeline_id: int) -> str:
         return f"{self.JOB_PREFIX}{pipeline_id}"
 
+    def _run_scheduled_pipeline(self, pipeline_id: int) -> None:
+        """
+        Wrapper utilisé comme cible du job APScheduler — run_pipeline() ne lève jamais
+        d'exception (elle capture tout en interne et retourne un PipelineResult), donc
+        APScheduler ne voit jamais EVENT_JOB_ERROR pour un échec propre : sans ce wrapper,
+        un run planifié qui échoue normalement (pas un crash) ne déclenche ni
+        on_job_success ni on_job_error. Même logique que trigger_now()._run() ci-dessus,
+        appliquée uniformément aux runs planifiés (pas seulement au lancement manuel).
+        """
+        from core.pipeline import run_pipeline
+        result = run_pipeline(pipeline_id)
+        if result.success and self._on_job_success:
+            self._on_job_success(pipeline_id, result.remote_path)
+        elif not result.success and self._on_job_error:
+            self._on_job_error(pipeline_id, result.error)
+
     def _schedule_pipeline(self, pipeline) -> None:
         """Ajoute ou remplace le job APScheduler pour ce pipeline."""
-        from core.pipeline import run_pipeline
-
         job_id  = self._job_id(pipeline.id)
         trigger = build_cron_trigger(pipeline)
 
         # add_job avec replace_existing=True pour la mise à jour à chaud
         self._scheduler.add_job(
-            func=run_pipeline,
+            func=self._run_scheduled_pipeline,
             trigger=trigger,
             id=job_id,
             args=[pipeline.id],

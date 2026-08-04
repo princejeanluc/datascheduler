@@ -12,6 +12,7 @@ from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
+from .activity_chart import ActivityChartWidget
 
 
 class DashboardView(QWidget):
@@ -36,6 +37,12 @@ class DashboardView(QWidget):
         title_col = QVBoxLayout(); title_col.setSpacing(2)
         title_col.addWidget(title); title_col.addWidget(sub)
         h_layout.addLayout(title_col); h_layout.addStretch()
+        btn_notifications = QPushButton("  Notifications"); btn_notifications.setObjectName("secondary")
+        btn_notifications.setFixedHeight(36)
+        btn_notifications.setIcon(_icon("fa5s.bell", COLORS["text_main"]))
+        btn_notifications.setIconSize(QSize(13, 13))
+        btn_notifications.clicked.connect(self._on_notifications)
+        h_layout.addWidget(btn_notifications)
         btn_run_all = QPushButton("  Tout exécuter"); btn_run_all.setFixedHeight(36)
         btn_run_all.setIcon(_icon("fa5s.bolt", "#000000")); btn_run_all.setIconSize(QSize(14, 14))
         btn_run_all.clicked.connect(self._on_run_all)
@@ -53,6 +60,17 @@ class DashboardView(QWidget):
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
+
+        lbl_activity = QLabel("Activité (30 derniers jours)")
+        lbl_activity.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
+        layout.addWidget(lbl_activity)
+
+        self.chart = ActivityChartWidget()
+        self.chart.setFixedHeight(150)
+        layout.addWidget(self.chart)
+
+        sep2 = QFrame(); sep2.setObjectName("separator"); sep2.setFrameShape(QFrame.HLine)
+        layout.addWidget(sep2)
 
         lbl_recent = QLabel("Dernières exécutions")
         lbl_recent.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
@@ -93,6 +111,8 @@ class DashboardView(QWidget):
         self._card_success.set_value(str(sum(1 for r in recent if _status_str(r.status) == "SUCCESS")))
         self._card_failed.set_value(str(sum(1 for r in recent if _status_str(r.status) == "FAILED")))
 
+        self.chart.set_data(db.get_run_counts_by_day(days=30))
+
         upcoming = [p for p in pipelines if p.next_run_at]
         if upcoming:
             nxt = min(upcoming, key=lambda p: p.next_run_at)
@@ -123,12 +143,26 @@ class DashboardView(QWidget):
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
-                    if c_idx == 5:
-                        item.setFont(QFont(FONT_MONO, 11))
+                    # Le nom du pipeline ressort en rouge sur un échec — pas seulement le badge
+                    # de statut — pour repérer un échec en un coup d'œil en parcourant la liste,
+                    # avec le message d'erreur en infobulle pour un premier diagnostic sans
+                    # ouvrir l'historique complet.
+                    if c_idx == 0 and st == "FAILED":
+                        item.setForeground(QColor(COLORS["danger"]))
+                        font = item.font(); font.setBold(True); item.setFont(font)
+                        if run.error_message:
+                            item.setToolTip(run.error_message)
+                    else:
+                        item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
+                        if c_idx == 5:
+                            item.setFont(QFont(FONT_MONO, 11))
                     self.table.setItem(r_idx, c_idx, item)
             self.table.setRowHeight(r_idx, 44)
 
+
+    def _on_notifications(self):
+        from ui.dialogs import NotificationSettingsDialog
+        NotificationSettingsDialog(self).exec()
 
     def _on_run_all(self):
         try:

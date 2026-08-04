@@ -342,3 +342,51 @@ class PipelineRun(Base):
 
     def __repr__(self):
         return f"<PipelineRun pipeline_id={self.pipeline_id} status={self.status}>"
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES DE NOTIFICATION (digest manager)
+# ──────────────────────────────────────────────
+
+class NotificationSettings(Base):
+    """
+    Ligne singleton (id=1 toujours) — pas de notion multi-utilisateur dans cette app
+    mono-poste, un seul jeu de paramètres de digest pour l'installation.
+    """
+    __tablename__ = "notification_settings"
+
+    id                      = Column(Integer, primary_key=True, default=1)
+    digest_enabled          = Column(Boolean, default=False, nullable=False)
+    digest_smtp_profile_id  = Column(Integer, ForeignKey("smtp_profiles.id"), nullable=True)
+    digest_recipients       = Column(Text, nullable=True)    # adresses séparées par virgule
+    digest_frequency        = Column(String(10), default="DAILY", nullable=False)  # DAILY | WEEKLY
+    digest_last_sent_at     = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<NotificationSettings enabled={self.digest_enabled} frequency={self.digest_frequency}>"
+
+
+# ──────────────────────────────────────────────
+#  JOURNAL D'AUDIT (modifications de pipeline, exports, imports)
+# ──────────────────────────────────────────────
+
+class AuditEvent(Base):
+    """
+    Trace append-only des opérations structurantes — pas un doublon du fichier de log
+    applicatif (bruit technique, non persistant avant ce chantier) : ici seulement ce qui
+    compte pour un audit (qui a modifié/exporté/importé quoi, quand). Pas de FK stricte sur
+    pipeline_id : doit rester lisible même après suppression du pipeline concerné, d'où le
+    snapshot pipeline_name pris au moment de l'événement.
+    """
+    __tablename__ = "audit_events"
+
+    id            = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp     = Column(DateTime, default=datetime.utcnow)
+    event_type    = Column(String(50), nullable=False)
+    pipeline_id   = Column(Integer, nullable=True)
+    pipeline_name = Column(String(100), nullable=True)
+    actor         = Column(String(100), nullable=True)   # getpass.getuser() — pas de notion de rôle/permission, juste une trace
+    detail        = Column(Text, nullable=True)
+
+    def __repr__(self):
+        return f"<AuditEvent {self.event_type} pipeline={self.pipeline_name!r} actor={self.actor!r}>"

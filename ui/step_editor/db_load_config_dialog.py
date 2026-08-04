@@ -65,12 +65,20 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
 
         self.chk_truncate = QCheckBox("Vider la table avant chargement (TRUNCATE)")
         self.chk_truncate.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_truncate.setToolTip(
+            "Supprime toutes les lignes existantes de la table avant le chargement — "
+            "irréversible, à utiliser avec prudence sur une table déjà en production."
+        )
         form.addRow("", self.chk_truncate)
 
         self.inp_chunk = QSpinBox()
         self.inp_chunk.setRange(1_000, 1_000_000); self.inp_chunk.setValue(50_000)
         self.inp_chunk.setSingleStep(10_000); self.inp_chunk.setSuffix(" lignes")
         self.inp_chunk.setStyleSheet(self._spinbox_style())
+        self.inp_chunk.setToolTip(
+            "Nombre de lignes insérées par lot — à réduire en cas de table volumineuse ou de "
+            "mémoire limitée."
+        )
         form.addRow(self._lbl("Taille chunk"), self.inp_chunk)
         root.addLayout(form)
         root.addStretch()

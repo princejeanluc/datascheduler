@@ -39,6 +39,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
 
         self.cb_method = QComboBox(); self.cb_method.setStyleSheet(self._combo_style())
         for m in self.METHODS: self.cb_method.addItem(m, m)
+        self.cb_method.setToolTip("Méthode HTTP à utiliser pour l'appel.")
         form.addRow(self._lbl("Méthode"), self.cb_method)
 
         self.inp_url = self._input("ex : https://api.company.com/webhook/{yyyyMMdd}")
@@ -49,6 +50,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.inp_timeout.setRange(1, 3600); self.inp_timeout.setValue(30)
         self.inp_timeout.setSuffix(" s"); self.inp_timeout.setFixedWidth(110)
         self.inp_timeout.setStyleSheet(self._spinbox_style())
+        self.inp_timeout.setToolTip("Durée maximale d'attente de la réponse avant d'abandonner l'appel.")
         form.addRow(self._lbl("Timeout"), self.inp_timeout)
         root.addLayout(form)
 
@@ -58,6 +60,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.txt_headers = QPlainTextEdit()
         self.txt_headers.setFont(QFont("Consolas", 11))
         self.txt_headers.setPlaceholderText("Content-Type: application/json\nAuthorization: Bearer {output_file}")
+        self.txt_headers.setToolTip("Un en-tête par ligne, au format « Clé: Valeur ».")
         self.txt_headers.setFixedHeight(70)
         self.txt_headers.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
@@ -71,6 +74,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.txt_body = QPlainTextEdit()
         self.txt_body.setFont(QFont("Consolas", 11))
         self.txt_body.setPlaceholderText('{"date": "{yyyyMMdd}", "rows": {rows_count}}')
+        self.txt_body.setToolTip("Corps envoyé avec la requête (JSON, XML…) — laissez vide pour un GET.")
         self.txt_body.setFixedHeight(90)
         self.txt_body.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
@@ -80,6 +84,10 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
 
         self.chk_attach = QCheckBox("Envoyer le fichier produit en pièce jointe (multipart)")
         self.chk_attach.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_attach.setToolTip(
+            "Envoie le fichier produit par l'étape précédente (ou la Source choisie ci-dessous) "
+            "en pièce jointe, en plus du corps de la requête."
+        )
         root.addWidget(self.chk_attach)
 
         attach_form = self._form()
