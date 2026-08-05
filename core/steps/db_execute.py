@@ -13,6 +13,7 @@ class DbExecuteStep(BaseStep):
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
+        connector = None
 
         def progress(msg: str, pct: int):
             if on_progress:
@@ -79,10 +80,17 @@ class DbExecuteStep(BaseStep):
             else:
                 ctx.log("Commit désactivé (commit=False) — connexion fermée sans valider.")
 
-            connector.disconnect()
             result.success = True
 
         except Exception as e:
             result.error = str(e)
+        finally:
+            # try/finally plutôt qu'un disconnect() en fin de bloc try : garantit la fermeture
+            # de la connexion même si l'exécution SQL lève (pas seulement en cas de succès).
+            if connector is not None:
+                try:
+                    connector.disconnect()
+                except Exception:
+                    pass
 
         return result

@@ -15,6 +15,7 @@ class FtpDownloadStep(BaseStep):
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
+        tmp_path: Path | None = None
 
         try:
             from database import db_manager as db
@@ -60,5 +61,14 @@ class FtpDownloadStep(BaseStep):
 
         except Exception as e:
             result.error = str(e)
+        finally:
+            # Le fichier temporaire est créé avant de savoir si le téléchargement va réussir ;
+            # s'il échoue (résultat en échec ou exception), il ne sera jamais référencé dans
+            # ctx.artifacts donc jamais nettoyé par run_pipeline — à nettoyer ici.
+            if tmp_path is not None and not result.success and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
         return result
