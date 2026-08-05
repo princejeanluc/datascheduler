@@ -26,7 +26,10 @@ def qapp():
 
 
 @pytest.mark.parametrize("step_type", list(STEP_META.keys()))
-def test_config_dialog_opens_for_every_step_type(qapp, step_type):
+def test_config_dialog_opens_for_every_step_type(qapp, test_db, step_type):
+    # SPARK_SQL récupère lui-même ses profils SSH/Kerberos depuis la base (même principe que
+    # KerberosProfileDialog) plutôt que via le kwargs partagé — nécessite une base initialisée,
+    # d'où test_db ici (les 10 autres types n'y touchent pas, seulement les listes vides ci-dessous).
     dlg = _open_config_dialog(
         step_type, {}, None,
         oracle_profiles=[], ftp_profiles=[], sql_queries=[],

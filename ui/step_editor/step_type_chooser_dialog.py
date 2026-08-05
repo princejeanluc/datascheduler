@@ -27,6 +27,7 @@ _DESCRIPTIONS = {
     "FTP_UPLOAD":     "Upload du fichier produit vers un serveur FTP / FTPS / SFTP.",
     "LOCAL_COPY":     "Copie du fichier produit dans un dossier local (avec tokens datetime).",
     "PYTHON_SCRIPT":  "Exécution d'un script Python avec arguments (tokens datetime + contexte).",
+    "SPARK_SQL":      "Requête Spark SQL sur un cluster Hadoop via un nœud edge (SSH + Kerberos).",
     "DB_EXECUTE":     "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction, tout moteur.",
     "FTP_DOWNLOAD":   "Téléchargement d'un fichier distant (FTP / FTPS / SFTP) comme source du pipeline.",
     "DB_LOAD":        "Chargement du fichier produit (CSV) dans une table, tout moteur.",

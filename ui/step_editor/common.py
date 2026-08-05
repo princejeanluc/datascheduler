@@ -33,6 +33,8 @@ STEP_META = {
                        "category": "Exécution & scripts"},
     "PYTHON_SCRIPT":  {"label": "Script Python",      "color": "#ce93d8",
                        "category": "Exécution & scripts"},
+    "SPARK_SQL":      {"label": "Spark SQL",          "color": "#e57373",
+                       "category": "Exécution & scripts"},
     "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350",
                        "category": "Notification & intégration"},
     "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc",

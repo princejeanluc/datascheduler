@@ -33,7 +33,8 @@ def _open(step_type: str):
 
 
 @pytest.mark.parametrize("step_type", list(STEP_META.keys()))
-def test_shared_fields_have_tooltips(qapp, step_type):
+def test_shared_fields_have_tooltips(qapp, test_db, step_type):
+    # SPARK_SQL récupère ses profils SSH/Kerberos directement depuis la base — nécessite test_db.
     dlg = _open(step_type)
     assert dlg.inp_label.toolTip().strip()
     assert dlg.inp_retry.toolTip().strip()
@@ -75,3 +76,9 @@ def test_http_request_specific_fields_have_tooltips(qapp):
     assert dlg.txt_headers.toolTip().strip()
     assert dlg.txt_body.toolTip().strip()
     assert dlg.chk_attach.toolTip().strip()
+
+
+def test_spark_sql_specific_fields_have_tooltips(qapp, test_db):
+    dlg = _open("SPARK_SQL")
+    assert dlg.inp_timeout.toolTip().strip()
+    assert dlg.chk_fetch.toolTip().strip()
