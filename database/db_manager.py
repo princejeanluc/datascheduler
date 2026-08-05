@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile
 
 
 # ──────────────────────────────────────────────
@@ -208,7 +208,8 @@ def _migrate(engine) -> None:
         # Identité stable (UUID) — prérequis à l'export/import (chantier 5). Chacune des
         # trois étapes (colonne / backfill / index) est indépendamment idempotente.
         for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles",
-                      "database_profiles", "sql_queries", "pipelines"):
+                      "database_profiles", "sql_queries", "pipelines",
+                      "ssh_profiles", "kerberos_profiles"):
             cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
             if "uuid" not in cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN uuid VARCHAR(36)"))
@@ -228,7 +229,8 @@ def _migrate(engine) -> None:
 
         # Bilan de santé des connexions (chantier UX fiabilité) — mémorise le résultat du
         # dernier test entre deux sessions, sur les 4 tables de profils.
-        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles"):
+        for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles",
+                      "ssh_profiles", "kerberos_profiles"):
             profile_cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
             if "last_tested_at" not in profile_cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_tested_at DATETIME"))
@@ -399,6 +401,108 @@ def get_ftp_profile_by_uuid(uuid: str) -> FtpProfile | None:
 def delete_ftp_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(FtpProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────
+#  HELPERS PROFIL SSH (edge/master node) — étape SPARK_SQL
+# ──────────────────────────────────────────────
+
+def create_ssh_profile(name, host, port, username, password, uuid=None) -> SshProfile:
+    with get_session() as s:
+        kwargs = dict(name=name, host=host, port=port, username=username,
+                      password=crypto.encrypt(password))
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = SshProfile(**kwargs)
+        s.add(profile)
+    return profile
+
+
+def update_ssh_profile(profile_id, name, host, port, username, password=None) -> SshProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(SshProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.host = host; p.port = port
+        p.username = username
+        if password:
+            p.password = crypto.encrypt(password)
+    return p
+
+
+def get_ssh_profiles() -> list[SshProfile]:
+    with get_session() as s:
+        return s.query(SshProfile).order_by(SshProfile.name).all()
+
+
+def get_ssh_profile(profile_id: int) -> SshProfile | None:
+    with get_session() as s:
+        return s.get(SshProfile, profile_id)
+
+
+def get_ssh_profile_by_uuid(uuid: str) -> SshProfile | None:
+    with get_session() as s:
+        return s.query(SshProfile).filter_by(uuid=uuid).first()
+
+
+def delete_ssh_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(SshProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────
+#  HELPERS PROFIL KERBEROS — étape SPARK_SQL
+# ──────────────────────────────────────────────
+
+def create_kerberos_profile(name, principal, password, uuid=None) -> KerberosProfile:
+    with get_session() as s:
+        kwargs = dict(name=name, principal=principal, password=crypto.encrypt(password))
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = KerberosProfile(**kwargs)
+        s.add(profile)
+    return profile
+
+
+def update_kerberos_profile(profile_id, name, principal, password=None) -> KerberosProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(KerberosProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.principal = principal
+        if password:
+            p.password = crypto.encrypt(password)
+    return p
+
+
+def get_kerberos_profiles() -> list[KerberosProfile]:
+    with get_session() as s:
+        return s.query(KerberosProfile).order_by(KerberosProfile.name).all()
+
+
+def get_kerberos_profile(profile_id: int) -> KerberosProfile | None:
+    with get_session() as s:
+        return s.get(KerberosProfile, profile_id)
+
+
+def get_kerberos_profile_by_uuid(uuid: str) -> KerberosProfile | None:
+    with get_session() as s:
+        return s.query(KerberosProfile).filter_by(uuid=uuid).first()
+
+
+def delete_kerberos_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(KerberosProfile, profile_id)
         if obj:
             s.delete(obj)
             return True
@@ -835,6 +939,8 @@ _PROFILE_MODEL_BY_CATEGORY = {
     "ftp":      FtpProfile,
     "smtp":     SmtpProfile,
     "database": DatabaseProfile,
+    "ssh":      SshProfile,
+    "kerberos": KerberosProfile,
 }
 
 
