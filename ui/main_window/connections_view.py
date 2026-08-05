@@ -6,12 +6,27 @@ Vue Connexions : profils Oracle/FTP/SMTP/BDD génériques.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox,
+    QMessageBox, QTabWidget,
 )
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _make_empty_label, _make_title, _make_subtitle, _status_str
+from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
+
+
+def _health_badge(success) -> QLabel:
+    """Statut du dernier test de connexion, déjà stocké sur chaque profil (bilan de santé,
+    chantier C.4/D.1) — ici simplement affiché en ligne au lieu d'être réservé à la fenêtre
+    modale "Bilan de santé"."""
+    if success is True:
+        text, obj_name = "OK", "badge_success"
+    elif success is False:
+        text, obj_name = "Échec", "badge_failed"
+    else:
+        text, obj_name = "Jamais testé", "badge_idle"
+    lbl = QLabel(text); lbl.setObjectName(obj_name)
+    lbl.setAlignment(Qt.AlignCenter)
+    return lbl
 
 
 class ConnectionsView(QWidget):
@@ -29,6 +44,9 @@ class ConnectionsView(QWidget):
         title_col.addWidget(_make_title("Connexions"))
         title_col.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
         header.addLayout(title_col); header.addStretch()
+        self.inp_search = _make_search_input("Rechercher un profil…")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        header.addWidget(self.inp_search)
         btn_health = QPushButton("  Bilan de santé"); btn_health.setObjectName("secondary")
         btn_health.setFixedHeight(36)
         btn_health.setIcon(_icon("fa5s.heartbeat", COLORS["text_main"]))
@@ -40,14 +58,32 @@ class ConnectionsView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
-        cols = QVBoxLayout(); cols.setSpacing(20)
-        cols.addWidget(self._build_databases_panel())
-        cols.addWidget(self._build_ftp_panel())
-        cols.addWidget(self._build_smtp_panel())
-        cols.addWidget(self._build_ssh_panel())
-        cols.addWidget(self._build_kerberos_panel())
-        layout.addLayout(cols)
-        layout.addStretch()
+        # Regroupées par usage plutôt que par technologie brute : une pile de 5 panneaux
+        # verticaux complets ne passait plus à l'échelle, et SSH/Kerberos (toujours utilisés en
+        # paire pour l'étape Spark SQL) gagnent à être visuellement co-localisés.
+        self.tabs = QTabWidget()
+
+        tab_db = QWidget(); tab_db_layout = QVBoxLayout(tab_db)
+        tab_db_layout.setContentsMargins(0, 16, 0, 0); tab_db_layout.setSpacing(20)
+        tab_db_layout.addWidget(self._build_databases_panel())
+        tab_db_layout.addStretch()
+        self.tabs.addTab(tab_db, "Bases de données")
+
+        tab_files = QWidget(); tab_files_layout = QVBoxLayout(tab_files)
+        tab_files_layout.setContentsMargins(0, 16, 0, 0); tab_files_layout.setSpacing(20)
+        tab_files_layout.addWidget(self._build_ftp_panel())
+        tab_files_layout.addWidget(self._build_smtp_panel())
+        tab_files_layout.addStretch()
+        self.tabs.addTab(tab_files, "Fichiers && notifications")
+
+        tab_bigdata = QWidget(); tab_bigdata_layout = QVBoxLayout(tab_bigdata)
+        tab_bigdata_layout.setContentsMargins(0, 16, 0, 0); tab_bigdata_layout.setSpacing(20)
+        tab_bigdata_layout.addWidget(self._build_ssh_panel())
+        tab_bigdata_layout.addWidget(self._build_kerberos_panel())
+        tab_bigdata_layout.addStretch()
+        self.tabs.addTab(tab_bigdata, "Big Data / Spark SQL")
+
+        layout.addWidget(self.tabs, stretch=1)
 
         self.refresh()
 
@@ -66,7 +102,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur"]
+        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur", "État"]
         self.database_table = self._make_table(hdrs, stretch_cols={0, 2})
         vl.addWidget(self.database_table)
         self._database_empty = _make_empty_label(
@@ -90,7 +126,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur"]
+        hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur", "État"]
         self.ftp_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ftp_table)
         self._ftp_empty = _make_empty_label("Aucun profil FTP — cliquez sur « Nouveau profil FTP ».")
@@ -111,7 +147,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur"]
+        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur", "État"]
         self.smtp_table = self._make_table(hdrs, stretch_cols={0, 1, 4})
         vl.addWidget(self.smtp_table)
         self._smtp_empty = _make_empty_label("Aucun profil SMTP — cliquez sur « Nouveau profil SMTP ».")
@@ -132,7 +168,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Utilisateur"]
+        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "État"]
         self.ssh_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ssh_table)
         self._ssh_empty = _make_empty_label("Aucun profil SSH — cliquez sur « Nouveau profil SSH ».")
@@ -153,7 +189,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Principal"]
+        hdrs = ["Nom", "Principal", "État"]
         self.kerberos_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.kerberos_table)
         self._kerberos_empty = _make_empty_label(
@@ -175,6 +211,15 @@ class ConnectionsView(QWidget):
         t.setColumnWidth(len(headers), 90)
         return t
 
+    # ── Recherche ────────────────────────────────
+
+    def _on_search_changed(self, text: str):
+        _filter_table_rows(self.database_table, text, columns=[0, 1, 2, 3, 4])
+        _filter_table_rows(self.ftp_table, text, columns=[0, 1, 2, 3, 4])
+        _filter_table_rows(self.smtp_table, text, columns=[0, 1, 2, 3, 4])
+        _filter_table_rows(self.ssh_table, text, columns=[0, 1, 2, 3])
+        _filter_table_rows(self.kerberos_table, text, columns=[0, 1])
+
     # ── Refresh ──────────────────────────────────
 
     def refresh(self):
@@ -183,6 +228,7 @@ class ConnectionsView(QWidget):
         self._refresh_smtp()
         self._refresh_ssh()
         self._refresh_kerberos()
+        self._on_search_changed(self.inp_search.text())
 
     def _refresh_databases(self):
         from database import db_manager as db
@@ -198,6 +244,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.database_table.setItem(r_idx, c_idx, item)
+            self.database_table.setCellWidget(r_idx, 5, _health_badge(p.get("last_test_success")))
             pid, dtype = p["id"], p["db_type"]
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -205,7 +252,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid, t=dtype: self._on_edit_database(i, t))
             btn_del.clicked.connect(lambda _, i=pid, t=dtype: self._on_delete_database(i, t))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.database_table.setCellWidget(r_idx, 5, w)
+            self.database_table.setCellWidget(r_idx, 6, w)
             self.database_table.setRowHeight(r_idx, 44)
 
     def _refresh_ftp(self):
@@ -221,6 +268,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ftp_table.setItem(r_idx, c_idx, item)
+            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -228,7 +276,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ftp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ftp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ftp_table.setCellWidget(r_idx, 5, w)
+            self.ftp_table.setCellWidget(r_idx, 6, w)
             self.ftp_table.setRowHeight(r_idx, 44)
 
     def _refresh_smtp(self):
@@ -244,6 +292,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.smtp_table.setItem(r_idx, c_idx, item)
+            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -251,7 +300,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_smtp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_smtp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.smtp_table.setCellWidget(r_idx, 5, w)
+            self.smtp_table.setCellWidget(r_idx, 6, w)
             self.smtp_table.setRowHeight(r_idx, 44)
 
     def _refresh_ssh(self):
@@ -266,6 +315,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ssh_table.setItem(r_idx, c_idx, item)
+            self.ssh_table.setCellWidget(r_idx, 4, _health_badge(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -273,7 +323,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ssh(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ssh(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ssh_table.setCellWidget(r_idx, 4, w)
+            self.ssh_table.setCellWidget(r_idx, 5, w)
             self.ssh_table.setRowHeight(r_idx, 44)
 
     def _refresh_kerberos(self):
@@ -288,6 +338,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.kerberos_table.setItem(r_idx, c_idx, item)
+            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -295,7 +346,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_kerberos(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_kerberos(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.kerberos_table.setCellWidget(r_idx, 2, w)
+            self.kerberos_table.setCellWidget(r_idx, 3, w)
             self.kerberos_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────

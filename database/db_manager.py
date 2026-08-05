@@ -642,11 +642,13 @@ def list_all_db_profiles() -> list[dict]:
             rows.append({
                 "db_type": "ORACLE", "id": p.id, "name": p.name,
                 "host": p.host, "port": p.port, "username": p.username,
+                "last_test_success": p.last_test_success,
             })
         for p in s.query(DatabaseProfile).order_by(DatabaseProfile.name).all():
             rows.append({
                 "db_type": _status_str(p.db_type), "id": p.id, "name": p.name,
                 "host": p.host, "port": p.port, "username": p.username,
+                "last_test_success": p.last_test_success,
             })
         rows.sort(key=lambda r: r["name"])
         return rows
