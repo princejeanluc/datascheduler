@@ -69,6 +69,7 @@ class StepType(str, enum.Enum):
     DB_EXECUTE     = "DB_EXECUTE"      # Exécution SQL/PLSQL sans extraction (tout moteur)
     DB_LOAD        = "DB_LOAD"         # Chargement d'un CSV vers une table (tout moteur)
     CONDITION      = "CONDITION"       # Routeur conditionnel (ports de sortie nommés) — chantier 6a
+    SPARK_SQL      = "SPARK_SQL"       # Requête Spark SQL via edge node SSH + Kerberos
 
 
 # ──────────────────────────────────────────────
@@ -184,6 +185,53 @@ class DatabaseProfile(Base):
 
     def __repr__(self):
         return f"<DatabaseProfile name={self.name} db_type={self.db_type} host={self.host}:{self.port}>"
+
+
+# ──────────────────────────────────────────────
+#  PROFIL SSH (edge/master node) — étape SPARK_SQL
+# ──────────────────────────────────────────────
+
+class SshProfile(Base):
+    """Connexion SSH à un nœud edge/master d'un cluster Hadoop — étape SPARK_SQL."""
+    __tablename__ = "ssh_profiles"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    uuid       = Column(String(36), unique=True, nullable=False, default=_new_uuid)
+    name       = Column(String(100), unique=True, nullable=False)
+    host       = Column(String(255), nullable=False)
+    port       = Column(Integer, default=22, nullable=False)
+    username   = Column(String(100), nullable=False)
+    password   = Column(String(255), nullable=False)  # chiffré
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
+
+    def __repr__(self):
+        return f"<SshProfile name={self.name} host={self.host}:{self.port}>"
+
+
+# ──────────────────────────────────────────────
+#  PROFIL KERBEROS — étape SPARK_SQL
+# ──────────────────────────────────────────────
+
+class KerberosProfile(Base):
+    """Identité Kerberos (kinit) — nominative, fournie par l'équipe Big Data. Ne peut pas se
+    tester seule : requiert un SshProfile pour lancer kinit (voir core/spark.py)."""
+    __tablename__ = "kerberos_profiles"
+
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    uuid       = Column(String(36), unique=True, nullable=False, default=_new_uuid)
+    name       = Column(String(100), unique=True, nullable=False)
+    principal  = Column(String(255), nullable=False)  # ex: "jdupont@REALM.EXAMPLE"
+    password   = Column(String(255), nullable=False)  # chiffré
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
+
+    def __repr__(self):
+        return f"<KerberosProfile name={self.name} principal={self.principal}>"
 
 
 # ──────────────────────────────────────────────
@@ -370,6 +418,8 @@ class NotificationSettings(Base):
     digest_smtp_profile_id  = Column(Integer, ForeignKey("smtp_profiles.id"), nullable=True)
     digest_recipients       = Column(Text, nullable=True)    # adresses séparées par virgule
     digest_frequency        = Column(String(10), default="DAILY", nullable=False)  # DAILY | WEEKLY
+    digest_time             = Column(String(5), default="07:00", nullable=False)   # "HH:MM"
+    digest_day_of_week      = Column(Integer, default=0, nullable=False)  # 0=lundi (WEEKLY only)
     digest_last_sent_at     = Column(DateTime, nullable=True)
 
     def __repr__(self):

@@ -563,6 +563,25 @@ def _test_reference_connection(ref_type: str, config: dict, obj) -> tuple[bool, 
         elif ref_type == "smtp_profile":
             from core.email import EmailSender, config_from_profile
             result = EmailSender(config_from_profile(obj)).test_connection()
+        elif ref_type == "edge_profile":
+            from core.spark import test_ssh_connection, config_from_profile
+            result = test_ssh_connection(config_from_profile(obj))
+        elif ref_type == "kerberos_profile":
+            # Un ticket Kerberos ne se teste pas seul (kinit doit tourner depuis une machine) —
+            # emprunte le profil SSH de cette même étape plutôt que de rester no-op. Si ce
+            # profil est lui-même absent, c'est déjà remonté comme erreur bloquante par la
+            # boucle de dry_run_pipeline() sur la référence "edge_profile" — ici, avertissement
+            # seulement (comportement générique de cette fonction pour tout échec de connexion).
+            edge_id = config.get("edge_profile_id")
+            if not edge_id:
+                return False, "Aucun profil SSH configuré sur cette étape."
+            edge_profile = db.get_ssh_profile(edge_id)
+            if not edge_profile:
+                return False, "Profil SSH introuvable pour le test Kerberos."
+            from core.spark import test_kerberos_auth, config_from_profile, kerberos_config_from_profile
+            ssh_cfg = config_from_profile(edge_profile)
+            krb_cfg = kerberos_config_from_profile(obj)
+            result = test_kerberos_auth(ssh_cfg, krb_cfg)
         else:
             # sql_query : une requête enregistrée n'est pas une "connexion" à tester ici —
             # son profil associé (db_profile) est déjà testé séparément dans la même étape.

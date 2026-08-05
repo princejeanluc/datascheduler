@@ -200,12 +200,17 @@ class PipelineScheduler:
                 logger.info("Digest désactivé — job retiré.")
             return
 
-        # Heure fixe (pas configurable par l'utilisateur) : 07:00, avant le début de journée
-        # type des personas concernées (Sophie/Karim) ; lundi pour l'hebdomadaire.
+        time_ = settings.digest_time or "07:00"
+        try:
+            hour, minute = [int(x) for x in time_.split(":")]
+        except (ValueError, AttributeError):
+            hour, minute = 7, 0
+
         if settings.digest_frequency == "WEEKLY":
-            trigger = CronTrigger(day_of_week=0, hour=7, minute=0)
+            dow = settings.digest_day_of_week if settings.digest_day_of_week is not None else 0
+            trigger = CronTrigger(day_of_week=dow, hour=hour, minute=minute)
         else:
-            trigger = CronTrigger(hour=7, minute=0)
+            trigger = CronTrigger(hour=hour, minute=minute)
 
         self._scheduler.add_job(
             func=self._run_digest,
@@ -215,7 +220,10 @@ class PipelineScheduler:
             misfire_grace_time=3600,
             coalesce=True,
         )
-        logger.info("Digest de notification planifié (%s).", settings.digest_frequency)
+        logger.info(
+            "Digest de notification planifié (%s, %02d:%02d).",
+            settings.digest_frequency, hour, minute,
+        )
 
     def _run_digest(self) -> None:
         """Cible du job de digest — lit NotificationSettings, envoie un résumé des exécutions

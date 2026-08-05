@@ -22,6 +22,8 @@ from .notification_settings_dialog import NotificationSettingsDialog
 from .pipeline_dry_run_dialog import PipelineDryRunDialog
 from .pipeline_detail_dialog import PipelineDetailDialog
 from .connection_health_dialog import ConnectionHealthDialog
+from .ssh_profile_dialog import SshTestThread, SshProfileDialog
+from .kerberos_profile_dialog import KerberosTestThread, KerberosProfileDialog
 
 __all__ = [
     "OracleTestThread", "OracleDialog",
@@ -36,4 +38,6 @@ __all__ = [
     "PipelineDryRunDialog",
     "PipelineDetailDialog",
     "ConnectionHealthDialog",
+    "SshTestThread", "SshProfileDialog",
+    "KerberosTestThread", "KerberosProfileDialog",
 ]

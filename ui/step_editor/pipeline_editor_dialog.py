@@ -384,6 +384,12 @@ class PipelineEditorDialog(QDialog):
             method = config.get("method", "GET")
             url    = config.get("url_tpl", "")
             return f"{method} {url}"[:80] or "(non configuré)"
+        elif step_type == "SPARK_SQL":
+            query = next((q for q in self._sql_queries if q.id == config.get("sql_query_id")), None)
+            parts = []
+            if query: parts.append(f"Requête: {query.name}")
+            parts.append("avec résultat" if config.get("fetch_result") else "sans résultat")
+            return " · ".join(parts) or "(non configuré)"
         return ""
 
     def _on_add_step(self):

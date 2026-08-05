@@ -45,13 +45,18 @@ _STEP_REFERENCES = {
     "FTP_UPLOAD":   [("ftp_profile_id", "ftp_profile")],
     "FTP_DOWNLOAD": [("ftp_profile_id", "ftp_profile")],
     "EMAIL_NOTIFY": [("smtp_profile_id", "smtp_profile")],
+    "SPARK_SQL":    [("edge_profile_id", "edge_profile"),
+                      ("kerberos_profile_id", "kerberos_profile"),
+                      ("sql_query_id", "sql_query")],
 }
 
 _UUID_KEY_FOR = {
-    "profile_id":      "profile_uuid",
-    "ftp_profile_id":  "ftp_profile_uuid",
-    "sql_query_id":    "sql_query_uuid",
-    "smtp_profile_id": "smtp_profile_uuid",
+    "profile_id":          "profile_uuid",
+    "ftp_profile_id":      "ftp_profile_uuid",
+    "sql_query_id":        "sql_query_uuid",
+    "smtp_profile_id":     "smtp_profile_uuid",
+    "edge_profile_id":     "edge_profile_uuid",
+    "kerberos_profile_id": "kerberos_profile_uuid",
 }
 
 
@@ -144,6 +149,10 @@ def _resolve_reference(ref_type: str, config: dict, raw_id: int):
         return db.get_smtp_profile(raw_id), "smtp"
     if ref_type == "sql_query":
         return db.get_sql_query(raw_id), "sql_query"
+    if ref_type == "edge_profile":
+        return db.get_ssh_profile(raw_id), "ssh"
+    if ref_type == "kerberos_profile":
+        return db.get_kerberos_profile(raw_id), "kerberos"
     return None, None
 
 
@@ -157,6 +166,10 @@ def _category_for_ref(ref_type: str, config: dict) -> str | None:
         return "smtp"
     if ref_type == "sql_query":
         return "sql_query"
+    if ref_type == "edge_profile":
+        return "ssh"
+    if ref_type == "kerberos_profile":
+        return "kerberos"
     return None
 
 
@@ -165,6 +178,8 @@ _GETTER_BY_CATEGORY = {
     "ftp":      db.get_ftp_profile_by_uuid,
     "smtp":     db.get_smtp_profile_by_uuid,
     "database": db.get_database_profile_by_uuid,
+    "ssh":      db.get_ssh_profile_by_uuid,
+    "kerberos": db.get_kerberos_profile_by_uuid,
 }
 
 
@@ -212,6 +227,23 @@ def _serialize_database_profile(p, fernet) -> dict:
     return d
 
 
+def _serialize_ssh_profile(p, fernet) -> dict:
+    d = {
+        "uuid": p.uuid, "name": p.name, "host": p.host, "port": p.port,
+        "username": p.username,
+    }
+    d.update(_serialize_password(p.password, fernet))
+    return d
+
+
+def _serialize_kerberos_profile(p, fernet) -> dict:
+    d = {
+        "uuid": p.uuid, "name": p.name, "principal": p.principal,
+    }
+    d.update(_serialize_password(p.password, fernet))
+    return d
+
+
 def _serialize_sql_query(q) -> dict:
     return {
         "uuid": q.uuid, "name": q.name,
@@ -224,6 +256,8 @@ _SERIALIZERS = {
     "ftp":      _serialize_ftp_profile,
     "smtp":     _serialize_smtp_profile,
     "database": _serialize_database_profile,
+    "ssh":      _serialize_ssh_profile,
+    "kerberos": _serialize_kerberos_profile,
 }
 
 
@@ -247,7 +281,8 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
 
         # needed[catégorie][id_local] = objet résolu — dédupliqué par id, un profil référencé par
         # plusieurs étapes n'est sérialisé qu'une fois.
-        needed = {"oracle": {}, "ftp": {}, "smtp": {}, "database": {}, "sql_query": {}}
+        needed = {"oracle": {}, "ftp": {}, "smtp": {}, "database": {}, "sql_query": {},
+                  "ssh": {}, "kerberos": {}}
         exported_steps = []
 
         for step in steps:
@@ -409,6 +444,15 @@ def _create_profile_from_bundle(category: str, data: dict, fernet: Fernet | None
             extra=json.loads(data.get("extra_json") or "{}"),
             uuid=data["uuid"],
         )
+    elif category == "ssh":
+        obj = db.create_ssh_profile(
+            name=name, host=data["host"], port=data["port"], username=data["username"],
+            password=password, uuid=data["uuid"],
+        )
+    elif category == "kerberos":
+        obj = db.create_kerberos_profile(
+            name=name, principal=data["principal"], password=password, uuid=data["uuid"],
+        )
     else:
         raise ValueError(f"Catégorie de profil inconnue : {category!r}")
     return obj.id
@@ -513,6 +557,8 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             "database":  {p.name for p in db.get_database_profiles()},
             "sql_query": {q.name for q in db.get_sql_queries()},
             "pipeline":  {p.name for p in db.get_pipelines()},
+            "ssh":       {p.name for p in db.get_ssh_profiles()},
+            "kerberos":  {p.name for p in db.get_kerberos_profiles()},
         }
 
         # (catégorie, uuid) -> id local — construite au fil des décisions "reuse"/"create".

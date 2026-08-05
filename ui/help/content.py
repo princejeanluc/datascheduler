@@ -114,6 +114,11 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 - **Script Python (`PYTHON_SCRIPT`)** — lance un script externe avec des arguments personnalisés.
   Peut lire/écrire le contexte du pipeline via un contrat JSON optionnel (voir *Jetons et
   artefacts*).
+- **Spark SQL (`SPARK_SQL`)** — exécute une requête sur un cluster Hadoop via un nœud edge :
+  connexion SSH, authentification Kerberos, puis exécution de la requête. Case *Récupérer le
+  résultat* pour choisir entre une exécution simple (ex : `INSERT`, rafraîchissement de cache)
+  et un résultat rapatrié en fichier. Nécessite un profil SSH et un profil Kerberos, configurés
+  dans **Connexions**.
 
 ## Notification & intégration
 
@@ -179,12 +184,17 @@ artefacts). Facultatif — un script qui ne les référence pas fonctionne exact
         markdown="""# Connexions (profils)
 
 Un **profil** regroupe les informations de connexion à un système externe, réutilisable par
-plusieurs pipelines. Quatre types :
+plusieurs pipelines. Six types :
 
 - **Oracle** — hôte, port, service/SID, identifiants.
 - **Base de données** (autres SGBD supportés) — même principe, avec le type de base à choisir.
 - **FTP/SFTP** — hôte, port, protocole, identifiants, dossier de départ.
 - **SMTP** — pour l'envoi d'emails (notifications, digest) : serveur, port, adresse d'expédition.
+- **SSH** — connexion à un nœud edge/master d'un cluster Hadoop (étape Spark SQL) : hôte, port,
+  identifiants.
+- **Kerberos** — identité nominative pour l'authentification `kinit` (étape Spark SQL) :
+  principal, mot de passe. Un ticket Kerberos ne se teste pas seul — le test depuis ce profil
+  demande de choisir un profil SSH sur lequel lancer `kinit`.
 
 ## Sécurité des mots de passe
 
@@ -192,6 +202,10 @@ Les mots de passe des profils sont **chiffrés** avant d'être enregistrés en b
 jamais réaffichés en clair, y compris quand vous rouvrez un profil pour le modifier. Le champ mot
 de passe apparaît vide à l'édition : laissez-le vide pour conserver le mot de passe déjà
 enregistré, ou saisissez-en un nouveau pour le remplacer.
+
+> Le mot de passe d'un profil Kerberos est personnel/nominatif — plus sensible qu'un compte de
+> service. Il reste chiffré comme tout autre mot de passe, mais mérite une attention
+> particulière si votre organisation a des règles spécifiques sur ce type d'identifiant.
 
 ## Tester avant d'enregistrer
 
