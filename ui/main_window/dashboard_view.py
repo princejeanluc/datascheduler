@@ -51,6 +51,20 @@ class DashboardView(QWidget):
         h_layout.addWidget(btn_run_all)
         layout.addWidget(header)
 
+        self._onboarding_banner = QLabel(
+            "Bienvenue — commencez par créer vos connexions (Connexions), puis vos requêtes SQL "
+            "si besoin (Requêtes SQL), avant de créer votre premier pipeline (Pipelines). "
+            "Consultez la section Aide pour un guide pas à pas."
+        )
+        self._onboarding_banner.setWordWrap(True)
+        self._onboarding_banner.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {COLORS['border']}; border-left: 3px solid {COLORS['accent']}; "
+            f"border-radius: 6px; padding: 12px 16px;"
+        )
+        self._onboarding_banner.setVisible(False)
+        layout.addWidget(self._onboarding_banner)
+
         stats_row = QHBoxLayout(); stats_row.setSpacing(16)
         self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
         self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"], clickable=True)
@@ -110,6 +124,7 @@ class DashboardView(QWidget):
 
         pipelines = db.get_pipelines()
         self._card_active.set_value(str(len(pipelines)))
+        self._onboarding_banner.setVisible(not pipelines)
 
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
         all_runs = db.get_recent_runs(limit=500)

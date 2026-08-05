@@ -66,7 +66,8 @@ class PipelinesView(QWidget):
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
-            "Aucun pipeline configuré — cliquez sur « Nouveau pipeline » pour créer le premier."
+            "Aucun pipeline configuré — assurez-vous d'abord d'avoir vos connexions et requêtes "
+            "SQL (voir Connexions / Requêtes SQL), puis cliquez sur « Nouveau pipeline »."
         )
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)

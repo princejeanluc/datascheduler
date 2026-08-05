@@ -51,7 +51,9 @@ class QueriesView(QWidget):
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
-            "Aucune requête enregistrée — cliquez sur « Nouvelle requête » pour créer la première."
+            "Aucune requête enregistrée — cliquez sur « Nouvelle requête » pour créer la "
+            "première. Une requête est réutilisable par les étapes DB_EXTRACT, DB_EXECUTE et "
+            "Spark SQL de vos pipelines."
         )
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
