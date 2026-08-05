@@ -80,6 +80,8 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(v)
         root.addWidget(self._stack, stretch=1)
 
+        self._views[0].navigate_to_history.connect(self._on_dashboard_navigate_to_history)
+
         # Statut bar
         status = QStatusBar()
         status.setStyleSheet(f"background: {COLORS['bg_panel']}; color: {COLORS['text_dim']}; border-top: 1px solid {COLORS['border']};")
@@ -150,6 +152,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(version_lbl)
 
         return panel
+
+    def _on_dashboard_navigate_to_history(self, status: str):
+        self._navigate(4)
+        self._views[4].set_status_filter(status)
 
     def _navigate(self, index: int):
         self._stack.setCurrentIndex(index)

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
@@ -16,6 +16,8 @@ from .activity_chart import ActivityChartWidget
 
 
 class DashboardView(QWidget):
+    navigate_to_history = Signal(str)
+
     def __init__(self):
         super().__init__()
         self._build_ui()
@@ -51,9 +53,13 @@ class DashboardView(QWidget):
 
         stats_row = QHBoxLayout(); stats_row.setSpacing(16)
         self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
-        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"])
-        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"])
+        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"], clickable=True)
+        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"], clickable=True)
         self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline")
+        self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
+        self._card_failed.setToolTip("Voir les échecs dans l'Historique")
+        self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
+        self._card_failed.clicked.connect(lambda: self.navigate_to_history.emit("FAILED"))
         for c in (self._card_active, self._card_success, self._card_failed, self._card_next):
             stats_row.addWidget(c)
         layout.addLayout(stats_row)
