@@ -156,6 +156,14 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
         requires, produces = get_step_requirements(step_type)
         target_key = config.get("reads_from_step_key")
 
+        # Un chemin source explicite (DB_LOAD/FTP_UPLOAD/LOCAL_COPY) rend l'étape autonome —
+        # elle ne dépend plus de ctx.output_file, donc "output_file" ne doit plus être exigé
+        # par cette vérification statique, qui ne connaît que REQUIRES/PRODUCES déclarés (elle
+        # ignore explicit_path). Sans ce retrait, un pipeline à une seule étape avec un chemin
+        # explicite est bloqué à l'enregistrement alors qu'il s'exécute correctement.
+        if config.get("explicit_path"):
+            requires = requires - {"output_file"}
+
         if requires:
             if target_key:
                 missing = target_key not in available_keys
@@ -497,7 +505,12 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
         step_type  = step.get("step_type", "")
         label      = step.get("label") or step_type
         run_always = bool(step.get("run_always"))
+        config     = step.get("config") or {}
         requires, _ = get_step_requirements(step_type)
+        # Voir validate_step_sequence() — un chemin source explicite rend l'étape autonome,
+        # aucune arête entrante n'est alors nécessaire pour "output_file".
+        if config.get("explicit_path"):
+            requires = requires - {"output_file"}
         if requires and not incoming.get(key):
             msg = f"Étape « {label} » : nécessite {', '.join(sorted(requires))}, aucune arête entrante."
             (warnings if run_always else errors).append(msg)

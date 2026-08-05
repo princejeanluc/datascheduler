@@ -15,6 +15,8 @@ class DbExtractStep(BaseStep):
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
+        connector = None
+        tmp_path: Path | None = None
 
         def progress(msg: str, pct: int):
             if on_progress:
@@ -58,7 +60,7 @@ class DbExtractStep(BaseStep):
 
             exporter = SqlExporter(
                 connector=connector,
-                sql=sql_query.sql_text,
+                sql=ctx.resolve_tokens(sql_query.sql_text),
                 output_path=tmp_path,
                 separator=self.config.get("csv_separator",  ";"),
                 encoding=self.config.get("csv_encoding",    "utf-8-sig"),
@@ -67,7 +69,6 @@ class DbExtractStep(BaseStep):
                 on_progress=export_progress,
             )
             export_result = exporter.export()
-            connector.disconnect()
 
             if not export_result.success:
                 result.error = f"Export CSV : {export_result.error}"
@@ -83,5 +84,23 @@ class DbExtractStep(BaseStep):
 
         except Exception as e:
             result.error = str(e)
+        finally:
+            # try/finally plutôt qu'un disconnect() en fin de bloc try : garantit la fermeture
+            # de la connexion même si exporter.export() lève (pas seulement quand elle renvoie
+            # un résultat en échec) — sans ça, une exception en cours d'export laissait la
+            # session DB ouverte côté serveur.
+            if connector is not None:
+                try:
+                    connector.disconnect()
+                except Exception:
+                    pass
+            # Le fichier temporaire est créé avant de savoir si l'export va réussir ; s'il
+            # échoue (résultat en échec ou exception), il ne sera jamais référencé dans
+            # ctx.artifacts donc jamais nettoyé par run_pipeline — à nettoyer ici.
+            if tmp_path is not None and not result.success and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
         return result

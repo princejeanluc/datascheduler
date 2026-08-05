@@ -14,6 +14,7 @@ class DbLoadStep(BaseStep):
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
+        connector = None
 
         def progress(msg: str, pct: int):
             if on_progress:
@@ -67,7 +68,6 @@ class DbLoadStep(BaseStep):
                 on_progress=load_progress,
             )
             load_result = loader.load()
-            connector.disconnect()
 
             if not load_result.success:
                 result.error = f"Chargement : {load_result.error}"
@@ -82,5 +82,13 @@ class DbLoadStep(BaseStep):
 
         except Exception as e:
             result.error = str(e)
+        finally:
+            # try/finally plutôt qu'un disconnect() en fin de bloc try : garantit la fermeture
+            # de la connexion même si loader.load() lève (pas seulement en cas de succès).
+            if connector is not None:
+                try:
+                    connector.disconnect()
+                except Exception:
+                    pass
 
         return result
