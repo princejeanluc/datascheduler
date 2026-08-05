@@ -6,7 +6,7 @@ Vue Pipelines : liste + création + export/import.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog,
+    QMessageBox, QFileDialog, QMenu,
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
@@ -61,7 +61,7 @@ class PipelinesView(QWidget):
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
-        self.table.setColumnWidth(5, 280)
+        self.table.setColumnWidth(5, 118)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
@@ -119,48 +119,38 @@ class PipelinesView(QWidget):
 
             pid       = p.id
             is_active = p.is_active
+            pname     = p.name
             aw  = QWidget(); al = QHBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
             btn_run = _action_btn("fa5s.play", tooltip="Exécuter maintenant",
                                   icon_color="#000000")
-            btn_toggle = _action_btn(
-                "fa5s.pause" if is_active else "fa5s.play",
-                object_name="secondary",
-                tooltip="Désactiver" if is_active else "Activer",
-                icon_color=COLORS["text_main"] if is_active else COLORS["success"],
-            )
-            if not is_active:
-                btn_toggle.setStyleSheet(
-                    f"QPushButton {{ color: {COLORS['success']}; border: 1px solid {COLORS['success']}; "
-                    f"border-radius: 4px; background: transparent; }}"
-                    f"QPushButton:hover {{ background: {COLORS['success']}; color: #000; }}"
-                )
             btn_edit   = _action_btn(
                 "fa5s.pencil-alt", object_name="secondary",
                 tooltip="Modifier — nom, planification, liste des étapes",
             )
-            btn_graph  = _action_btn(
-                "fa5s.project-diagram", object_name="secondary",
-                tooltip="Éditeur graphique — visualiser et connecter les étapes sur un canevas",
-            )
-            btn_validate = _action_btn(
-                "fa5s.check-double", object_name="secondary",
-                tooltip="Valider (hors ligne + connexions) sans exécuter",
-            )
-            btn_dup    = _action_btn("fa5s.copy", object_name="secondary", tooltip="Dupliquer")
-            btn_export = _action_btn("fa5s.file-export", object_name="secondary", tooltip="Exporter")
-            btn_del    = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_more = _action_btn("fa5s.ellipsis-h", object_name="secondary", tooltip="Plus d'actions")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
-            btn_toggle.clicked.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_pipeline(i))
-            btn_graph.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
-            btn_validate.clicked.connect(lambda _, i=pid, n=p.name: self._on_validate_pipeline(i, n))
-            btn_dup.clicked.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
-            btn_export.clicked.connect(lambda _, i=pid: self._on_export_pipeline(i))
-            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_pipeline(i))
-            al.addWidget(btn_run); al.addWidget(btn_toggle)
-            al.addWidget(btn_edit); al.addWidget(btn_graph)
-            al.addWidget(btn_validate); al.addWidget(btn_dup)
-            al.addWidget(btn_export); al.addWidget(btn_del); al.addStretch()
+
+            # Actions secondaires (moins fréquentes) regroupées dans un menu — même patron que
+            # le bouton "+ Artefact" de ui/step_editor/base_config_dialog.py, pour ne pas garder
+            # 8 boutons pleine largeur par ligne dans une colonne "Actions".
+            menu = QMenu(btn_more)
+            act_toggle = menu.addAction("Désactiver" if is_active else "Activer")
+            act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
+            act_graph = menu.addAction("Éditeur graphique")
+            act_graph.triggered.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
+            act_validate = menu.addAction("Valider (à blanc)")
+            act_validate.triggered.connect(lambda _, i=pid, n=pname: self._on_validate_pipeline(i, n))
+            act_dup = menu.addAction("Dupliquer")
+            act_dup.triggered.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
+            act_export = menu.addAction("Exporter")
+            act_export.triggered.connect(lambda _, i=pid: self._on_export_pipeline(i))
+            menu.addSeparator()
+            act_del = menu.addAction("Supprimer")
+            act_del.triggered.connect(lambda _, i=pid: self._on_delete_pipeline(i))
+            btn_more.setMenu(menu)
+
+            al.addWidget(btn_run); al.addWidget(btn_edit); al.addWidget(btn_more); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
 
