@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox,
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
@@ -16,6 +16,8 @@ from .activity_chart import ActivityChartWidget
 
 
 class DashboardView(QWidget):
+    navigate_to_history = Signal(str)
+
     def __init__(self):
         super().__init__()
         self._build_ui()
@@ -49,11 +51,29 @@ class DashboardView(QWidget):
         h_layout.addWidget(btn_run_all)
         layout.addWidget(header)
 
+        self._onboarding_banner = QLabel(
+            "Bienvenue — commencez par créer vos connexions (Connexions), puis vos requêtes SQL "
+            "si besoin (Requêtes SQL), avant de créer votre premier pipeline (Pipelines). "
+            "Consultez la section Aide pour un guide pas à pas."
+        )
+        self._onboarding_banner.setWordWrap(True)
+        self._onboarding_banner.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {COLORS['border']}; border-left: 3px solid {COLORS['accent']}; "
+            f"border-radius: 6px; padding: 12px 16px;"
+        )
+        self._onboarding_banner.setVisible(False)
+        layout.addWidget(self._onboarding_banner)
+
         stats_row = QHBoxLayout(); stats_row.setSpacing(16)
         self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
-        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"])
-        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"])
+        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"], clickable=True)
+        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"], clickable=True)
         self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline")
+        self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
+        self._card_failed.setToolTip("Voir les échecs dans l'Historique")
+        self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
+        self._card_failed.clicked.connect(lambda: self.navigate_to_history.emit("FAILED"))
         for c in (self._card_active, self._card_success, self._card_failed, self._card_next):
             stats_row.addWidget(c)
         layout.addLayout(stats_row)
@@ -104,6 +124,7 @@ class DashboardView(QWidget):
 
         pipelines = db.get_pipelines()
         self._card_active.set_value(str(len(pipelines)))
+        self._onboarding_banner.setVisible(not pipelines)
 
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
         all_runs = db.get_recent_runs(limit=500)
@@ -171,6 +192,13 @@ class DashboardView(QWidget):
             pipelines = db.get_pipelines(active_only=True)
             if not pipelines:
                 QMessageBox.information(self, "Tout exécuter", "Aucun pipeline actif à lancer.")
+                return
+            reply = QMessageBox.question(
+                self, "Tout exécuter",
+                f"Lancer {len(pipelines)} pipeline(s) actif(s) maintenant ?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
                 return
             sched = get_scheduler()
             for p in pipelines:

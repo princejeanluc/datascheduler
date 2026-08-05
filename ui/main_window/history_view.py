@@ -5,12 +5,20 @@ Vue Historique : journal complet des exécutions.
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO
+from .widgets import _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO
+
+_STATUS_FILTER_OPTIONS = [
+    ("Tous les statuts", None),
+    ("Succès", "SUCCESS"),
+    ("Échec", "FAILED"),
+    ("En cours", "RUNNING"),
+    ("Annulé", "CANCELLED"),
+]
 
 
 class HistoryView(QWidget):
@@ -34,8 +42,14 @@ class HistoryView(QWidget):
         btn_audit.setIconSize(QSize(13, 13))
         btn_audit.clicked.connect(self._on_audit_log)
         header.addWidget(btn_audit)
+        self.cb_status = QComboBox()
+        self.cb_status.setFixedHeight(34)
+        for label, value in _STATUS_FILTER_OPTIONS:
+            self.cb_status.addItem(label, value)
+        self.cb_status.currentIndexChanged.connect(self._apply_filters)
+        header.addWidget(self.cb_status)
         self.inp_search = _make_search_input("Rechercher…")
-        self.inp_search.textChanged.connect(self._on_search_changed)
+        self.inp_search.textChanged.connect(self._apply_filters)
         header.addWidget(self.inp_search)
         layout.addLayout(header)
 
@@ -68,8 +82,36 @@ class HistoryView(QWidget):
 
         self.refresh()
 
-    def _on_search_changed(self, text: str):
-        _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4, 5])
+    def _apply_filters(self, *_args):
+        """Combine le filtre de statut (colonne badge, égalité exacte) et la recherche libre
+        (sous-chaîne insensible à la casse) — une ligne doit satisfaire les deux pour rester
+        visible."""
+        status = self.cb_status.currentData()
+        needle = self.inp_search.text().strip().lower()
+        search_cols = [0, 1, 2, 3, 4, 5]
+        for row in range(self.table.rowCount()):
+            badge = self.table.cellWidget(row, 4)
+            if status is not None and (badge is None or badge.text() != status):
+                self.table.setRowHidden(row, True)
+                continue
+            if not needle:
+                self.table.setRowHidden(row, False)
+                continue
+            haystack = []
+            for col in search_cols:
+                item = self.table.item(row, col)
+                if item:
+                    haystack.append(item.text().lower())
+                elif col == 4 and badge is not None:
+                    haystack.append(badge.text().lower())
+            self.table.setRowHidden(row, needle not in " ".join(haystack))
+
+    def set_status_filter(self, status: str):
+        idx = self.cb_status.findData(status)
+        if idx >= 0:
+            self.cb_status.setCurrentIndex(idx)
+        else:
+            self._apply_filters()
 
     def refresh(self):
         from database import db_manager as db
@@ -109,7 +151,7 @@ class HistoryView(QWidget):
 
             self.table.setRowHeight(r_idx, 44)
 
-        self._on_search_changed(self.inp_search.text())
+        self._apply_filters()
 
     def _on_row_dbl_click(self, index):
         self._open_log(index.row())

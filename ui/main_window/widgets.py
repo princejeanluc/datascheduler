@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
     QTableWidget, QHeaderView,
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon
 from ui.styles import COLORS
 
@@ -335,11 +335,16 @@ class NavButton(QPushButton):
 # ──────────────────────────────────────────────
 
 class StatCard(QFrame):
+    clicked = Signal()
+
     def __init__(self, title: str, value: str = "—", subtitle: str = "",
-                 color: str = None):
+                 color: str = None, clickable: bool = False):
         super().__init__()
         self.setObjectName("card")
         self.setFixedHeight(100)
+        self._clickable = clickable
+        if clickable:
+            self.setCursor(Qt.PointingHandCursor)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 14, 20, 14)
@@ -364,6 +369,11 @@ class StatCard(QFrame):
 
     def set_subtitle(self, text: str):
         self._lbl_sub.setText(text)
+
+    def mousePressEvent(self, event):
+        if self._clickable:
+            self.clicked.emit()
+        super().mousePressEvent(event)
 
 _STATUS_BADGE = {
     "SUCCESS": "badge_success",

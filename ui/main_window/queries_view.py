@@ -41,7 +41,7 @@ class QueriesView(QWidget):
         layout.addWidget(sep)
 
         self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Nom", "Description", "Profil Oracle associé", "Actions"])
+        self.table.setHorizontalHeaderLabels(["Nom", "Description", "Utilisée par", "Actions"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -51,7 +51,9 @@ class QueriesView(QWidget):
         layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
-            "Aucune requête enregistrée — cliquez sur « Nouvelle requête » pour créer la première."
+            "Aucune requête enregistrée — cliquez sur « Nouvelle requête » pour créer la "
+            "première. Une requête est réutilisable par les étapes DB_EXTRACT, DB_EXECUTE et "
+            "Spark SQL de vos pipelines."
         )
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
@@ -69,11 +71,16 @@ class QueriesView(QWidget):
         self._empty_label.setVisible(not queries)
         self.table.setRowCount(len(queries))
         for r_idx, q in enumerate(queries):
-            oracle_name = q.oracle_profile.name if q.oracle_profile else "—"
-            cells = [q.name, q.description or "—", oracle_name]
+            used_by = db.find_pipelines_using_profile("sql_query_id", q.id)
+            usage = f"{len(used_by)} pipeline(s)" if used_by else "Aucun"
+            cells = [q.name, q.description or "—", usage]
             for c_idx, cell in enumerate(cells):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
+                if c_idx == 0:
+                    item.setToolTip(q.sql_text)
+                elif c_idx == 2 and used_by:
+                    item.setToolTip(", ".join(used_by))
                 self.table.setItem(r_idx, c_idx, item)
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(6)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier",   size=(30, 28))
