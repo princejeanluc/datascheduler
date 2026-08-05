@@ -38,7 +38,22 @@ def test_selecting_each_topic_updates_browser(qapp):
         assert view.browser.toPlainText().strip()
 
 
-def test_search_filters_topics(qapp):
+def test_search_filters_topics_by_title(qapp):
+    from ui.help import HelpView
+
+    view = HelpView()
+    view.inp_search.setText("dépannage")
+    visible = [
+        view.list_topics.item(i).text()
+        for i in range(view.list_topics.count())
+        if not view.list_topics.item(i).isHidden()
+    ]
+    assert visible == ["Dépannage"]
+
+
+def test_search_filters_topics_by_body_content(qapp):
+    """La recherche porte aussi sur le corps Markdown, pas seulement le titre (chantier UX
+    ergonomie, E.6) — "artefact" apparaît dans plusieurs rubriques au-delà de son titre."""
     from ui.help import HelpView
 
     view = HelpView()
@@ -48,7 +63,8 @@ def test_search_filters_topics(qapp):
         for i in range(view.list_topics.count())
         if not view.list_topics.item(i).isHidden()
     ]
-    assert visible == ["Jetons et artefacts"]
+    assert "Jetons et artefacts" in visible
+    assert len(visible) >= 1
 
 
 def test_clearing_search_shows_all_topics(qapp):

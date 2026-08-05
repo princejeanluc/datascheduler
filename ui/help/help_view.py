@@ -75,5 +75,7 @@ class HelpView(QWidget):
     def _on_search_changed(self, text: str):
         needle = text.strip().lower()
         for i in range(self.list_topics.count()):
+            topic = HELP_TOPICS[i]
             item = self.list_topics.item(i)
-            item.setHidden(bool(needle) and needle not in item.text().lower())
+            matches = not needle or needle in topic.title.lower() or needle in topic.markdown.lower()
+            item.setHidden(not matches)
