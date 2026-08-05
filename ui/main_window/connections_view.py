@@ -44,6 +44,8 @@ class ConnectionsView(QWidget):
         cols.addWidget(self._build_databases_panel())
         cols.addWidget(self._build_ftp_panel())
         cols.addWidget(self._build_smtp_panel())
+        cols.addWidget(self._build_ssh_panel())
+        cols.addWidget(self._build_kerberos_panel())
         layout.addLayout(cols)
         layout.addStretch()
 
@@ -117,6 +119,50 @@ class ConnectionsView(QWidget):
         vl.addWidget(self._smtp_empty)
         return card
 
+    def _build_ssh_panel(self) -> QFrame:
+        card = QFrame(); card.setObjectName("card")
+        vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
+
+        top = QHBoxLayout()
+        lbl = QLabel("SSH (nœud edge / master — étape Spark SQL)")
+        lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        btn = QPushButton("  Nouveau profil SSH"); btn.setFixedHeight(32)
+        btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
+        btn.clicked.connect(self._on_new_ssh)
+        top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
+        vl.addLayout(top)
+
+        hdrs = ["Nom", "Hôte", "Port", "Utilisateur"]
+        self.ssh_table = self._make_table(hdrs, stretch_cols={0, 1})
+        vl.addWidget(self.ssh_table)
+        self._ssh_empty = _make_empty_label("Aucun profil SSH — cliquez sur « Nouveau profil SSH ».")
+        self._ssh_empty.setVisible(False)
+        vl.addWidget(self._ssh_empty)
+        return card
+
+    def _build_kerberos_panel(self) -> QFrame:
+        card = QFrame(); card.setObjectName("card")
+        vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
+
+        top = QHBoxLayout()
+        lbl = QLabel("Kerberos (kinit — étape Spark SQL)")
+        lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        btn = QPushButton("  Nouveau profil Kerberos"); btn.setFixedHeight(32)
+        btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
+        btn.clicked.connect(self._on_new_kerberos)
+        top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
+        vl.addLayout(top)
+
+        hdrs = ["Nom", "Principal"]
+        self.kerberos_table = self._make_table(hdrs, stretch_cols={0, 1})
+        vl.addWidget(self.kerberos_table)
+        self._kerberos_empty = _make_empty_label(
+            "Aucun profil Kerberos — cliquez sur « Nouveau profil Kerberos »."
+        )
+        self._kerberos_empty.setVisible(False)
+        vl.addWidget(self._kerberos_empty)
+        return card
+
     def _make_table(self, headers: list, stretch_cols: set) -> QTableWidget:
         t = QTableWidget(0, len(headers) + 1)
         t.setHorizontalHeaderLabels(headers + [""])
@@ -135,6 +181,8 @@ class ConnectionsView(QWidget):
         self._refresh_databases()
         self._refresh_ftp()
         self._refresh_smtp()
+        self._refresh_ssh()
+        self._refresh_kerberos()
 
     def _refresh_databases(self):
         from database import db_manager as db
@@ -205,6 +253,50 @@ class ConnectionsView(QWidget):
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
             self.smtp_table.setCellWidget(r_idx, 5, w)
             self.smtp_table.setRowHeight(r_idx, 44)
+
+    def _refresh_ssh(self):
+        from database import db_manager as db
+        profiles = db.get_ssh_profiles()
+        self.ssh_table.setVisible(bool(profiles))
+        self._ssh_empty.setVisible(not profiles)
+        self.ssh_table.setRowCount(len(profiles))
+        for r_idx, p in enumerate(profiles):
+            cells = [p.name, p.host, str(p.port), p.username]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_main"]))
+                self.ssh_table.setItem(r_idx, c_idx, item)
+            pid = p.id
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
+            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ssh(i))
+            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ssh(i))
+            hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
+            self.ssh_table.setCellWidget(r_idx, 4, w)
+            self.ssh_table.setRowHeight(r_idx, 44)
+
+    def _refresh_kerberos(self):
+        from database import db_manager as db
+        profiles = db.get_kerberos_profiles()
+        self.kerberos_table.setVisible(bool(profiles))
+        self._kerberos_empty.setVisible(not profiles)
+        self.kerberos_table.setRowCount(len(profiles))
+        for r_idx, p in enumerate(profiles):
+            cells = [p.name, p.principal]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_main"]))
+                self.kerberos_table.setItem(r_idx, c_idx, item)
+            pid = p.id
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
+            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_kerberos(i))
+            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_kerberos(i))
+            hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
+            self.kerberos_table.setCellWidget(r_idx, 2, w)
+            self.kerberos_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────
 
@@ -288,6 +380,48 @@ class ConnectionsView(QWidget):
             return
         db.delete_smtp_profile(profile_id)
         self._refresh_smtp()
+
+    def _on_new_ssh(self):
+        from ui.dialogs import SshProfileDialog
+        dlg = SshProfileDialog(self)
+        if dlg.exec():
+            self._refresh_ssh()
+
+    def _on_edit_ssh(self, profile_id: int):
+        from database import db_manager as db
+        from ui.dialogs import SshProfileDialog
+        p = db.get_ssh_profile(profile_id)
+        if p and SshProfileDialog(self, profile=p).exec():
+            self._refresh_ssh()
+
+    def _on_delete_ssh(self, profile_id: int):
+        from database import db_manager as db
+        used_by = db.find_pipelines_using_profile("edge_profile_id", profile_id)
+        if not self._confirm_delete("SSH", used_by):
+            return
+        db.delete_ssh_profile(profile_id)
+        self._refresh_ssh()
+
+    def _on_new_kerberos(self):
+        from ui.dialogs import KerberosProfileDialog
+        dlg = KerberosProfileDialog(self)
+        if dlg.exec():
+            self._refresh_kerberos()
+
+    def _on_edit_kerberos(self, profile_id: int):
+        from database import db_manager as db
+        from ui.dialogs import KerberosProfileDialog
+        p = db.get_kerberos_profile(profile_id)
+        if p and KerberosProfileDialog(self, profile=p).exec():
+            self._refresh_kerberos()
+
+    def _on_delete_kerberos(self, profile_id: int):
+        from database import db_manager as db
+        used_by = db.find_pipelines_using_profile("kerberos_profile_id", profile_id)
+        if not self._confirm_delete("Kerberos", used_by):
+            return
+        db.delete_kerberos_profile(profile_id)
+        self._refresh_kerberos()
 
     def _confirm_delete(self, profile_kind: str, used_by: list) -> bool:
         """Confirmation de suppression — avertit si des pipelines utilisent ce profil."""

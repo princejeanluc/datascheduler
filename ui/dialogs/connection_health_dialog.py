@@ -18,6 +18,8 @@ _CATEGORY_LABELS = {
     "database": "Base de données",
     "ftp":      "FTP",
     "smtp":     "SMTP",
+    "ssh":      "SSH",
+    "kerberos": "Kerberos",
 }
 
 
@@ -45,13 +47,31 @@ def _collect_profiles() -> list[dict]:
             "category": "smtp", "db_type": None, "id": p.id, "name": p.name,
             "last_tested_at": p.last_tested_at, "last_test_success": p.last_test_success,
         })
+    for p in db.get_ssh_profiles():
+        rows.append({
+            "category": "ssh", "db_type": None, "id": p.id, "name": p.name,
+            "last_tested_at": p.last_tested_at, "last_test_success": p.last_test_success,
+        })
+    for p in db.get_kerberos_profiles():
+        rows.append({
+            "category": "kerberos", "db_type": None, "id": p.id, "name": p.name,
+            "last_tested_at": p.last_tested_at, "last_test_success": p.last_test_success,
+        })
     return rows
 
 
 def _test_one(category: str, profile_id: int, db_type):
-    """Teste une connexion réelle — mêmes connecteurs/config_from_profile que les dialogues
+    """
+    Teste une connexion réelle — mêmes connecteurs/config_from_profile que les dialogues
     de profil et core/pipeline.py::_test_reference_connection (même principe, couche différente).
-    Ne lève jamais (les test_connection() sous-jacents non plus)."""
+    Ne lève jamais (les test_connection() sous-jacents non plus).
+
+    Retourne (success, message) — sauf pour "kerberos", où success vaut None : un ticket
+    Kerberos ne se teste pas seul (il faut une machine sur laquelle lancer kinit), donc le
+    bilan groupé ne peut pas le tester automatiquement. None (pas False) signale à
+    _HealthCheckThread de ne PAS enregistrer ce non-test comme un échec réel — le test manuel
+    reste disponible depuis le dialogue du profil Kerberos lui-même.
+    """
     from database import db_manager as db
     try:
         if category in ("oracle", "database"):
@@ -72,6 +92,14 @@ def _test_one(category: str, profile_id: int, db_type):
             if not profile:
                 return False, "Profil introuvable."
             result = EmailSender(config_from_profile(profile)).test_connection()
+        elif category == "ssh":
+            from core.spark import test_ssh_connection, config_from_profile
+            profile = db.get_ssh_profile(profile_id)
+            if not profile:
+                return False, "Profil introuvable."
+            result = test_ssh_connection(config_from_profile(profile))
+        elif category == "kerberos":
+            return None, "Test uniquement disponible depuis le profil Kerberos — nécessite de choisir un profil SSH."
         else:
             return False, "Catégorie inconnue."
         return result.success, result.message
@@ -84,7 +112,9 @@ def _test_one(category: str, profile_id: int, db_type):
 # ──────────────────────────────────────────────
 
 class _HealthCheckThread(QThread):
-    row_tested = Signal(int, bool, str)   # index de ligne, succès, message
+    # index de ligne, succès (object, pas bool : doit pouvoir transporter None sans coercition —
+    # "kerberos" n'est pas testable en bulk, voir _test_one), message
+    row_tested = Signal(int, object, str)
 
     def __init__(self, rows: list[dict]):
         super().__init__()
@@ -94,7 +124,8 @@ class _HealthCheckThread(QThread):
         from database import db_manager as db
         for i, row in enumerate(self._rows):
             success, message = _test_one(row["category"], row["id"], row["db_type"])
-            db.record_profile_test_result(row["category"], row["id"], success)
+            if success is not None:
+                db.record_profile_test_result(row["category"], row["id"], success)
             self.row_tested.emit(i, success, message)
 
 
@@ -189,9 +220,15 @@ class ConnectionHealthDialog(QDialog):
         self._thread.finished.connect(lambda: self.btn_test_all.setEnabled(True))
         self._thread.start()
 
-    def _on_row_tested(self, row_idx: int, success: bool, message: str):
+    def _on_row_tested(self, row_idx: int, success, message: str):
         from datetime import datetime
-        self._render_row(row_idx, datetime.utcnow(), success, message)
+        if success is None:
+            # "kerberos" : non testable en bulk (voir _test_one) — laisse le statut persisté
+            # inchangé (probablement "Jamais testé"), affiche juste le message explicatif.
+            row = self._rows[row_idx]
+            self._render_row(row_idx, row["last_tested_at"], row["last_test_success"], message)
+        else:
+            self._render_row(row_idx, datetime.utcnow(), success, message)
 
     def closeEvent(self, event):
         if self._thread and self._thread.isRunning():
