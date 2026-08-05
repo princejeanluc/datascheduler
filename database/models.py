@@ -370,6 +370,8 @@ class NotificationSettings(Base):
     digest_smtp_profile_id  = Column(Integer, ForeignKey("smtp_profiles.id"), nullable=True)
     digest_recipients       = Column(Text, nullable=True)    # adresses séparées par virgule
     digest_frequency        = Column(String(10), default="DAILY", nullable=False)  # DAILY | WEEKLY
+    digest_time             = Column(String(5), default="07:00", nullable=False)   # "HH:MM"
+    digest_day_of_week      = Column(Integer, default=0, nullable=False)  # 0=lundi (WEEKLY only)
     digest_last_sent_at     = Column(DateTime, nullable=True)
 
     def __repr__(self):

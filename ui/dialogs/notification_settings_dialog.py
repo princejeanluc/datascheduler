@@ -7,10 +7,11 @@ core/scheduler.py::PipelineScheduler._run_digest).
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
-    QComboBox, QCheckBox, QPushButton, QFrame, QMessageBox,
+    QComboBox, QCheckBox, QPushButton, QFrame, QMessageBox, QWidget,
 )
 from PySide6.QtCore import Qt
 from ui.styles import COLORS, DIALOG_STYLE
+from ui.step_editor.common import DAYS_OF_WEEK
 
 
 class NotificationSettingsDialog(QDialog):
@@ -69,9 +70,24 @@ class NotificationSettingsDialog(QDialog):
         form.addRow(self._label("Destinataires *"), self.inp_recipients)
 
         self.cb_frequency = QComboBox(); self.cb_frequency.setStyleSheet(self._combo_style())
-        self.cb_frequency.addItem("Quotidien (7h)", "DAILY")
-        self.cb_frequency.addItem("Hebdomadaire (lundi 7h)", "WEEKLY")
+        self.cb_frequency.addItem("Quotidien", "DAILY")
+        self.cb_frequency.addItem("Hebdomadaire", "WEEKLY")
+        self.cb_frequency.currentIndexChanged.connect(self._on_frequency_changed)
         form.addRow(self._label("Fréquence"), self.cb_frequency)
+
+        time_row = QHBoxLayout(); time_row.setSpacing(8)
+        self.cb_day = QComboBox(); self.cb_day.setStyleSheet(self._combo_style())
+        self.cb_day.setFixedWidth(120)
+        for i, d in enumerate(DAYS_OF_WEEK):
+            self.cb_day.addItem(d, i)
+        self.inp_time = QLineEdit("07:00")
+        self.inp_time.setFixedWidth(80); self.inp_time.setFixedHeight(34)
+        self.inp_time.setStyleSheet(self._input_style())
+        time_row.addWidget(self.cb_day)
+        time_row.addWidget(self.inp_time)
+        time_row.addStretch()
+        time_widget = QWidget(); time_widget.setLayout(time_row)
+        form.addRow(self._label("Heure d'envoi"), time_widget)
 
         root.addLayout(form)
 
@@ -99,12 +115,28 @@ class NotificationSettingsDialog(QDialog):
         idx = self.cb_frequency.findData(s.digest_frequency or "DAILY")
         if idx >= 0:
             self.cb_frequency.setCurrentIndex(idx)
+        self.inp_time.setText(s.digest_time or "07:00")
+        day_idx = self.cb_day.findData(s.digest_day_of_week if s.digest_day_of_week is not None else 0)
+        if day_idx >= 0:
+            self.cb_day.setCurrentIndex(day_idx)
+        self._on_frequency_changed()
         if s.digest_last_sent_at:
             self.lbl_last_sent.setText(
                 f"Dernier envoi : {s.digest_last_sent_at.strftime('%d/%m/%Y %H:%M')}"
             )
         else:
             self.lbl_last_sent.setText("Aucun envoi pour l'instant.")
+
+    def _on_frequency_changed(self):
+        self.cb_day.setVisible(self.cb_frequency.currentData() == "WEEKLY")
+
+    @staticmethod
+    def _is_valid_time(value: str) -> bool:
+        try:
+            h, m = value.split(":")
+            return 0 <= int(h) <= 23 and 0 <= int(m) <= 59
+        except (ValueError, AttributeError):
+            return False
 
     def _on_save(self):
         enabled = self.chk_enabled.isChecked()
@@ -115,6 +147,9 @@ class NotificationSettingsDialog(QDialog):
             if not self.inp_recipients.text().strip():
                 QMessageBox.warning(self, "Champ requis", "Saisir au moins un destinataire.")
                 return
+        if not self._is_valid_time(self.inp_time.text().strip()):
+            QMessageBox.warning(self, "Champ invalide", "Heure d'envoi invalide (format HH:MM).")
+            return
 
         from database import db_manager as db
         db.update_notification_settings(
@@ -122,6 +157,8 @@ class NotificationSettingsDialog(QDialog):
             digest_smtp_profile_id=self.cb_smtp.currentData(),
             digest_recipients=self.inp_recipients.text().strip(),
             digest_frequency=self.cb_frequency.currentData(),
+            digest_time=self.inp_time.text().strip(),
+            digest_day_of_week=self.cb_day.currentData(),
         )
 
         try:

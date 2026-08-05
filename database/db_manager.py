@@ -237,6 +237,20 @@ def _migrate(engine) -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_test_success BOOLEAN"))
                 conn.commit()
 
+        # Heure/jour du digest configurables (auparavant fixés en dur à 07:00 / lundi dans
+        # core/scheduler.py::refresh_digest_job()).
+        notif_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(notification_settings)")).fetchall()}
+        if "digest_time" not in notif_cols:
+            conn.execute(text(
+                "ALTER TABLE notification_settings ADD COLUMN digest_time VARCHAR(5) NOT NULL DEFAULT '07:00'"
+            ))
+            conn.commit()
+        if "digest_day_of_week" not in notif_cols:
+            conn.execute(text(
+                "ALTER TABLE notification_settings ADD COLUMN digest_day_of_week INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
