@@ -172,6 +172,13 @@ class DashboardView(QWidget):
             if not pipelines:
                 QMessageBox.information(self, "Tout exécuter", "Aucun pipeline actif à lancer.")
                 return
+            reply = QMessageBox.question(
+                self, "Tout exécuter",
+                f"Lancer {len(pipelines)} pipeline(s) actif(s) maintenant ?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
             sched = get_scheduler()
             for p in pipelines:
                 sched.trigger_now(p.id)
