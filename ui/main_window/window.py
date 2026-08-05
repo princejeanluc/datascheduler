@@ -145,7 +145,7 @@ class MainWindow(QMainWindow):
         layout.addStretch()
 
         # Version en bas
-        version_lbl = QLabel("v0.1.0")
+        version_lbl = QLabel(f"v{__version__}")
         version_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; padding: 12px 18px; background: transparent;")
         layout.addWidget(version_lbl)
 
