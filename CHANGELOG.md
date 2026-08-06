@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.1] - 2026-08-06
+
+### Corrigé
+- Couleur "warning" identique à l'accent de marque (#FF7900) — un avertissement était
+  visuellement indissociable d'un bouton actif ou survolé. Remplacée par un ambre doré
+  (#E8B339), distinct sans sortir de la même famille chaude (audit de design).
+
+### Ajouté
+- `FONT_SIZES` (`ui/styles.py`) — les 6 paliers typographiques déjà utilisés de fait dans
+  l'application, déclarés comme référence pour toute nouvelle vue (usages existants non migrés
+  pour l'instant, zéro risque de régression).
+
 ## [0.6.0] - 2026-08-06
 
 ### Ajouté
