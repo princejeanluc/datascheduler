@@ -6,7 +6,7 @@ Vue Pipelines : liste + création + export/import.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QMenu,
+    QMessageBox, QFileDialog, QMenu, QInputDialog,
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
@@ -42,6 +42,17 @@ class PipelinesView(QWidget):
         btn_import.setIconSize(QSize(13, 13))
         btn_import.clicked.connect(self._on_import_pipeline)
         header.addWidget(btn_import)
+        btn_new_graph = QPushButton("  Nouveau (graphique)"); btn_new_graph.setObjectName("secondary")
+        btn_new_graph.setFixedHeight(36)
+        btn_new_graph.setIcon(_icon("fa5s.project-diagram", COLORS["text_main"]))
+        btn_new_graph.setIconSize(QSize(13, 13))
+        btn_new_graph.setToolTip(
+            "Créer un pipeline directement dans l'éditeur graphique — sans passer par "
+            "l'éditeur classique (nom + planification restent modifiables ensuite via "
+            "« Modifier »)."
+        )
+        btn_new_graph.clicked.connect(self._on_new_pipeline_graph)
+        header.addWidget(btn_new_graph)
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
         btn_new.clicked.connect(self._on_new_pipeline)
@@ -162,6 +173,27 @@ class PipelinesView(QWidget):
         from ui.step_editor import PipelineEditorDialog
         if PipelineEditorDialog(self).exec():
             self.refresh()
+
+    def _on_new_pipeline_graph(self):
+        """Créer un pipeline sans passer par l'éditeur classique — celui-ci imposait au moins
+        une étape avant d'enregistrer, ce qui forçait un aller-retour même pour qui ne veut
+        travailler qu'en graphe. Ici : juste un nom, puis directement l'éditeur graphique
+        (nom/planification restent modifiables ensuite via « Modifier »)."""
+        name, ok = QInputDialog.getText(self, "Nouveau pipeline (éditeur graphique)", "Nom du pipeline :")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+
+        from database import db_manager as db
+        from ui.graph_editor import PipelineGraphEditorDialog
+
+        p = db.create_pipeline(name=name)
+        if PipelineGraphEditorDialog(self, pipeline=p).exec():
+            self.refresh()
+        else:
+            # Rien enregistré (annulé sans ajouter d'étape) — un pipeline coquille à 0 étape
+            # ne servirait qu'à encombrer la liste.
+            db.delete_pipeline(p.id)
 
     def _on_import_pipeline(self):
         from database.export_import import plan_import_from_file, apply_import

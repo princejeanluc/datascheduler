@@ -29,6 +29,13 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.5.0] - 2026-08-06
+
+### Ajouté
+- Bouton "Nouveau (graphique)" sur Pipelines — crée un pipeline directement dans l'éditeur
+  graphique (juste un nom), sans passer par l'éditeur classique qui imposait au moins une étape
+  avant d'enregistrer.
+
 ## [0.4.0] - 2026-08-06
 
 ### Ajouté
