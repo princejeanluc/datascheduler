@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.7.0] - 2026-08-06
+
+### Ajouté
+- Bouton "Télécharger un modèle de script" sur l'étape `PYTHON_SCRIPT` — enregistre un fichier
+  `.py` commenté et fonctionnel, couvrant les 3 cas d'usage (script autonome, lecture de
+  `{ds_context_in}`, publication via `{ds_context_out}`) pour quelqu'un qui découvre l'application
+  et doit y brancher son propre script sans lire le code source de DataScheduler.
+
 ## [0.6.6] - 2026-08-06
 
 ### Corrigé

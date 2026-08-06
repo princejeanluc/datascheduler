@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPlainTextEdit, QPushButton,
     QWidget, QFileDialog, QMessageBox,
 )
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QFont
 from ui.styles import COLORS
-from .common import TOKENS_HINT
+from .common import TOKENS_HINT, _icon
 from .base_config_dialog import _BaseStepConfigDialog
+from .python_script_template import PYTHON_SCRIPT_TEMPLATE
 
 
 class _PythonScriptConfigDialog(_BaseStepConfigDialog):
@@ -28,9 +30,22 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title_row = QHBoxLayout()
         title = QLabel("Exécution d'un script Python")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        root.addWidget(title); root.addWidget(self._sep())
+        title_row.addWidget(title); title_row.addStretch()
+        btn_template = QPushButton("  Télécharger un modèle de script")
+        btn_template.setObjectName("secondary")
+        btn_template.setFixedHeight(32)
+        btn_template.setIcon(_icon("fa5s.file-download", COLORS["text_main"]))
+        btn_template.setIconSize(QSize(12, 12))
+        btn_template.setToolTip(
+            "Enregistre un fichier .py commenté, prêt à adapter — couvre les 3 cas d'usage "
+            "(script autonome, lecture du contexte, publication d'un résultat)."
+        )
+        btn_template.clicked.connect(self._download_template)
+        title_row.addWidget(btn_template)
+        root.addLayout(title_row); root.addWidget(self._sep())
 
         form = self._form()
         self._add_label_row(form)
@@ -140,6 +155,19 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         root.addStretch()
         self._buttons(root)
+
+    def _download_template(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Enregistrer le modèle de script", "mon_script_datascheduler.py",
+            "Scripts Python (*.py)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(PYTHON_SCRIPT_TEMPLATE)
+        except OSError as e:
+            QMessageBox.critical(self, "Échec de l'enregistrement", str(e))
 
     def _browse_script(self):
         path, _ = QFileDialog.getOpenFileName(
