@@ -24,19 +24,23 @@ ce moment la section est renommée avec le numéro et la date de version.
 `CURRENT_SCHEMA_VERSION` (`database/export_import.py`) est un numéro **indépendant** de
 `__version__` : il ne suit que la structure du bundle `.dspipeline` exporté (voir sa docstring),
 pas l'ensemble des types d'étape/profil qu'il peut référencer à l'intérieur. Ce deuxième aspect
-est couvert séparément par la vérification de compatibilité au moment de l'import (voir
-[Non publié] ci-dessous).
+est couvert séparément par une vérification de compatibilité au moment de l'import (voir plus
+bas pour son introduction).
 
 ## [Non publié]
+
+## [0.4.0] - 2026-08-06
+
+### Ajouté
+- Vérification de compatibilité des types au moment de l'import d'un pipeline — bloque
+  proprement un bundle référençant un type d'étape ou de profil inconnu de cette version de
+  l'application, au lieu d'échouer confusément plus tard (à l'édition ou à l'exécution).
 
 ## [0.3.0] - 2026-08-06
 
 ### Ajouté
 - Étape `SPARK_SQL` : requêtes Spark SQL sur un cluster Hadoop via un nœud edge (SSH +
   authentification Kerberos automatisée), avec 2 nouveaux types de profil (SSH, Kerberos).
-- Vérification de compatibilité des types au moment de l'import d'un pipeline — bloque
-  proprement un bundle référençant un type d'étape ou de profil inconnu de cette version de
-  l'application, au lieu d'échouer confusément plus tard (à l'édition ou à l'exécution).
 - Section Aide intégrée (8 rubriques) et graphique d'activité sur le Dashboard.
 - Fiabilité opérationnelle : duplication de pipeline, validation à blanc, vue détaillée par
   pipeline, bilan de santé des connexions.

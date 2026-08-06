@@ -482,6 +482,35 @@ def plan_import(bundle: dict, password: str | None = None) -> ImportPlan:
         # schema_version < CURRENT_SCHEMA_VERSION : c'est ici que la chaîne de transcripteurs
         # s'appliquerait — aujourd'hui no-op, une seule version du format existe.
 
+        # schema_version ne suit que la STRUCTURE du bundle (voir sa docstring plus haut), pas
+        # l'ensemble des types d'étape/profil qu'il peut référencer à l'intérieur — deux bundles
+        # au même schema_version peuvent référencer des types différents (ex: SPARK_SQL, ajouté
+        # sans bump de schema_version puisque la structure JSON elle-même n'a pas changé). Sans
+        # cette vérification, une version plus ancienne de l'app importerait "avec succès" un
+        # bundle avec un type inconnu, puis échouerait confusément plus tard (à l'édition ou à
+        # l'exécution de l'étape/profil concerné) plutôt que de le refuser proprement ici.
+        from core.steps import known_step_types
+        unknown_step_types = sorted({
+            step["step_type"] for step in bundle["pipeline"]["steps"]
+            if step["step_type"] not in known_step_types()
+        })
+        if unknown_step_types:
+            return ImportPlan(success=False, error=(
+                "Ce fichier utilise un ou plusieurs types d'étape non reconnus par cette "
+                f"version de l'application ({', '.join(unknown_step_types)}) — mettez à jour "
+                "DataScheduler avant de l'importer."
+            ))
+
+        unknown_categories = sorted(
+            set(bundle.get("profiles", {})) - set(_GETTER_BY_CATEGORY)
+        )
+        if unknown_categories:
+            return ImportPlan(success=False, error=(
+                "Ce fichier référence un ou plusieurs types de profil non reconnus par cette "
+                f"version de l'application ({', '.join(unknown_categories)}) — mettez à jour "
+                "DataScheduler avant de l'importer."
+            ))
+
         fernet = None
         kdf_meta = bundle.get("kdf")
         if kdf_meta:

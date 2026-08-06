@@ -26,6 +26,13 @@ _REGISTRY: dict[str, type[BaseStep]] = {
 }
 
 
+def known_step_types() -> set[str]:
+    """Types d'étape reconnus par cette version de l'application — utilisé par l'import de
+    pipeline (database/export_import.py) pour détecter un bundle référençant un type d'étape
+    introduit par une version plus récente, avant de tenter de le recréer en base."""
+    return set(_REGISTRY)
+
+
 def get_step(step_type: str, config: dict) -> BaseStep:
     cls = _REGISTRY.get(step_type)
     if cls is None:
