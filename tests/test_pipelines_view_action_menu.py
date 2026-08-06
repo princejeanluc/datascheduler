@@ -11,7 +11,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QHeaderView, QPushButton
 
 from database import db_manager as db
 
@@ -39,6 +39,21 @@ def test_actions_column_has_only_three_buttons(qapp, test_db):
     cell = view.table.cellWidget(0, 5)
     buttons = cell.findChildren(QPushButton)
     assert len(buttons) == 3
+
+
+def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
+    """Régression : la colonne Actions avait sa largeur posée via setColumnWidth() mais son mode
+    de redimensionnement laissé à ResizeToContents (hérité de _configure_columns) — Qt
+    recalculait alors une largeur trop étroite pour les 3 boutons compacts, qui se chevauchaient
+    visuellement dans l'exe réel. Doit rester en mode Fixed, comme la colonne "Statut" juste
+    au-dessus dans le code."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="fixed-width-test")
+    view = PipelinesView()
+    mode = view.table.horizontalHeader().sectionResizeMode(5)
+    assert mode == QHeaderView.Fixed
+    assert view.table.columnWidth(5) >= 100   # assez large pour 3 boutons + marges/espacements
 
 
 def test_overflow_menu_contains_expected_actions(qapp, test_db):

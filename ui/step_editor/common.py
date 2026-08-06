@@ -46,3 +46,20 @@ STEP_META = {
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
 TOKENS_HINT = "{yyyy}  {yy}  {MM}  {dd}  {HH}  {mm}  {yyyyMMdd}  {yyyyMMddHHmm}  {output_file}  {rows_count}"
+
+# ──────────────────────────────────────────────
+#  OPTIONS CSV — partagées par tout dialogue produisant un fichier texte (DB_EXTRACT,
+#  SPARK_SQL, ...) : une seule liste à faire évoluer pour que tous ces écrans restent
+#  cohérents entre eux, plutôt qu'une copie par dialogue qui dérive au fil du temps.
+# ──────────────────────────────────────────────
+
+CSV_SEPARATORS = [("Point-virgule  ;", ";"), ("Virgule  ,", ","),
+                   ("Pipe  |", "|"), ("Tabulation  \\t", "\t")]
+CSV_ENCODINGS  = [("UTF-8 BOM (Excel)", "utf-8-sig"), ("UTF-8", "utf-8"),
+                   ("Latin-1", "latin-1"), ("CP1252", "cp1252")]
+CSV_QUOTINGS   = [
+    ("Chaînes & dates seulement", "QUOTE_NONNUMERIC"),
+    ("Minimal — si nécessaire",   "QUOTE_MINIMAL"),
+    ("Tout entre guillemets",     "QUOTE_ALL"),
+    ("Aucun guillemet",           "QUOTE_NONE"),
+]

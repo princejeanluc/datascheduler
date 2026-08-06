@@ -3,14 +3,59 @@ DataScheduler — core/steps/spark_sql.py
 Étape : requête Spark SQL sur un cluster Hadoop via un nœud edge (SSH + Kerberos) — voir
 core/spark.py pour le moteur d'exécution (connexion, kinit automatisé, exécution
 non-interactive, rapatriement optionnel du résultat par SFTP). Ce step ne gère que la
-résolution des 3 références (profil SSH, profil Kerberos, requête SQL) et la publication du
-résultat dans le contexte — toute la logique réseau/authentification vit dans core/spark.py.
+résolution des 3 références (profil SSH, profil Kerberos, requête SQL), la mise en forme du
+résultat récupéré et sa publication dans le contexte — toute la logique réseau/authentification
+vit dans core/spark.py.
 """
 
+import csv
 import tempfile
 from pathlib import Path
 
 from .base import BaseStep, StepContext, StepResult
+
+_QUOTING_MAP = {
+    "QUOTE_MINIMAL":    csv.QUOTE_MINIMAL,
+    "QUOTE_ALL":        csv.QUOTE_ALL,
+    "QUOTE_NONNUMERIC": csv.QUOTE_NONNUMERIC,
+    "QUOTE_NONE":       csv.QUOTE_NONE,
+}
+
+
+def _typed_for_quoting(field: str, quote_const: int):
+    """Sous QUOTE_NONNUMERIC, le module csv ne laisse un champ non guillemeté que s'il reçoit un
+    véritable int/float — la sortie brute de spark-sql n'étant que du texte (aucun typage
+    préservé dans le fichier), on retente une conversion numérique champ par champ pour obtenir
+    le même comportement que SqlExporter (core/sql_db.py, DB_EXTRACT) sur un vrai DataFrame typé."""
+    if quote_const != csv.QUOTE_NONNUMERIC:
+        return field
+    try:
+        return int(field)
+    except ValueError:
+        pass
+    try:
+        return float(field)
+    except ValueError:
+        return field
+
+
+def _rewrite_as_csv(raw_path: Path, csv_path: Path, separator: str, encoding: str, quoting: str) -> None:
+    """Reformate la sortie brute de spark-sql (tabulée, sans guillemets) selon le dialecte CSV
+    demandé — mêmes options que SqlExporter pour DB_EXTRACT (séparateur/encodage/guillemets),
+    où le CSV natif est fourni par pandas ; ici on le reconstruit nous-mêmes, spark-sql ne
+    produisant qu'un texte tabulé brut. Traité en flux, ligne par ligne, jamais chargé
+    intégralement en mémoire."""
+    quote_const = _QUOTING_MAP.get(quoting, csv.QUOTE_MINIMAL)
+    writer_kwargs = {"delimiter": separator, "quoting": quote_const}
+    if quote_const == csv.QUOTE_NONE:
+        writer_kwargs["escapechar"] = "\\"
+
+    with open(raw_path, "r", encoding="utf-8", errors="replace", newline="") as src, \
+         open(csv_path, "w", encoding=encoding, newline="") as dst:
+        reader = csv.reader(src, delimiter="\t")
+        writer = csv.writer(dst, **writer_kwargs)
+        for row in reader:
+            writer.writerow([_typed_for_quoting(f, quote_const) for f in row])
 
 
 class SparkSqlStep(BaseStep):
@@ -21,7 +66,8 @@ class SparkSqlStep(BaseStep):
 
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
-        tmp_path: Path | None = None
+        raw_path: Path | None = None
+        csv_path: Path | None = None
 
         def progress(msg: str, pct: int):
             if on_progress:
@@ -57,8 +103,8 @@ class SparkSqlStep(BaseStep):
             timeout      = int(self.config.get("timeout", 3600))
 
             if fetch_result:
-                tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, prefix="ds_")
-                tmp_path = Path(tmp.name)
+                tmp = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False, prefix="ds_spark_raw_")
+                raw_path = Path(tmp.name)
                 tmp.close()
 
             ctx.log(f"Spark SQL : {edge_profile.host} — authentification Kerberos…")
@@ -66,7 +112,7 @@ class SparkSqlStep(BaseStep):
 
             spark_result = run_spark_sql(
                 ssh_cfg, kerberos_cfg, spark_conf, query, fetch_result,
-                local_output_path=tmp_path, timeout=timeout,
+                local_output_path=raw_path, timeout=timeout,
             )
             progress("Exécution de la requête…", 70)
 
@@ -75,11 +121,21 @@ class SparkSqlStep(BaseStep):
                 return result
 
             if fetch_result:
-                ctx.output_file = tmp_path
+                progress("Mise en forme du résultat…", 85)
+                csv_tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, prefix="ds_spark_")
+                csv_path = Path(csv_tmp.name)
+                csv_tmp.close()
+                _rewrite_as_csv(
+                    raw_path, csv_path,
+                    separator=self.config.get("csv_separator", ";"),
+                    encoding=self.config.get("csv_encoding", "utf-8-sig"),
+                    quoting=self.config.get("csv_quoting", "QUOTE_MINIMAL"),
+                )
+                ctx.output_file = csv_path
                 output_name = self.config.get("output_name")
                 if output_name:
-                    ctx.artifacts[output_name] = tmp_path
-                ctx.log(f"Spark SQL : OK — résultat récupéré en {spark_result.duration_s:.1f}s")
+                    ctx.artifacts[output_name] = csv_path
+                ctx.log(f"Spark SQL : OK — résultat récupéré et mis en forme en {spark_result.duration_s:.1f}s")
             else:
                 ctx.log(f"Spark SQL : OK — exécuté en {spark_result.duration_s:.1f}s")
 
@@ -88,13 +144,18 @@ class SparkSqlStep(BaseStep):
         except Exception as e:
             result.error = str(e)
         finally:
-            # run_spark_sql() gère déjà son propre nettoyage réseau/fichiers distants ; ce step
-            # ne nettoie que son fichier local temporaire, en cas d'échec (même principe que
-            # db_extract.py : sur succès, le fichier devient ctx.output_file, nettoyé plus tard
-            # par run_pipeline()).
-            if tmp_path is not None and not result.success and tmp_path.exists():
+            # raw_path (sortie tabulée brute) n'est jamais l'artefact publié — toujours nettoyé,
+            # succès ou non. csv_path (le vrai résultat mis en forme) suit la même règle que les
+            # autres steps : nettoyé seulement en cas d'échec (sur succès il devient
+            # ctx.output_file, nettoyé plus tard par run_pipeline()).
+            if raw_path is not None and raw_path.exists():
                 try:
-                    tmp_path.unlink()
+                    raw_path.unlink()
+                except OSError:
+                    pass
+            if csv_path is not None and not result.success and csv_path.exists():
+                try:
+                    csv_path.unlink()
                 except OSError:
                     pass
 

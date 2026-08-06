@@ -26,6 +26,13 @@ _REGISTRY: dict[str, type[BaseStep]] = {
 }
 
 
+def known_step_types() -> set[str]:
+    """Types d'étape reconnus par cette version de l'application — utilisé par l'import de
+    pipeline (database/export_import.py) pour détecter un bundle référençant un type d'étape
+    introduit par une version plus récente, avant de tenter de le recréer en base."""
+    return set(_REGISTRY)
+
+
 def get_step(step_type: str, config: dict) -> BaseStep:
     cls = _REGISTRY.get(step_type)
     if cls is None:
@@ -39,6 +46,23 @@ def get_step_requirements(step_type: str) -> tuple[set[str], set[str]]:
     if cls is None:
         return set(), set()
     return set(cls.REQUIRES), set(cls.PRODUCES)
+
+
+def step_produces_output_file(step_type: str, config: dict) -> bool:
+    """
+    Est-ce que CETTE instance de step (config comprise) produit potentiellement un fichier dans
+    ctx.output_file — au-delà du PRODUCES statique de la classe, qui ne peut pas exprimer une
+    production conditionnelle à la config (ex: SPARK_SQL, qui ne produit que si la case
+    "Récupérer le résultat" est cochée). Utilisé par le sélecteur "Source" de l'éditeur, avant
+    toute exécution — l'exécution elle-même (core/pipeline.py) n'en a pas besoin puisqu'elle
+    observe directement si ctx.output_file a changé après coup.
+    """
+    _, produces = get_step_requirements(step_type)
+    if "output_file" in produces:
+        return True
+    if step_type == "SPARK_SQL":
+        return bool((config or {}).get("fetch_result"))
+    return False
 
 
 def get_step_output_ports(step_type: str) -> tuple[str, ...]:

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont
 from ui.styles import COLORS
 from .base_config_dialog import _BaseStepConfigDialog
+from .common import CSV_SEPARATORS, CSV_ENCODINGS, CSV_QUOTINGS
 
 
 class _SparkSqlConfigDialog(_BaseStepConfigDialog):
@@ -69,12 +70,30 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self.chk_fetch = QCheckBox("Récupérer le résultat")
         self.chk_fetch.setStyleSheet(f"color: {COLORS['text_main']};")
         self.chk_fetch.setToolTip(
-            "Coché : le résultat de la requête est rapatrié comme fichier (CSV-like), "
-            "utilisable par les étapes suivantes. Décoché : la requête est exécutée sans "
+            "Coché : le résultat de la requête est rapatrié et mis en forme en CSV, selon les "
+            "options ci-dessous — mêmes réglages que l'étape Extraction base de données. "
+            "L'en-tête de colonnes est toujours inclus. Décoché : la requête est exécutée sans "
             "rapatrier de résultat (ex : INSERT, CREATE TABLE AS, rafraîchissement de cache)."
         )
         form.addRow("", self.chk_fetch)
 
+        self.cb_sep = QComboBox(); self.cb_sep.setStyleSheet(self._combo_style())
+        for lbl, val in CSV_SEPARATORS: self.cb_sep.addItem(lbl, val)
+
+        self.cb_enc = QComboBox(); self.cb_enc.setStyleSheet(self._combo_style())
+        for lbl, val in CSV_ENCODINGS: self.cb_enc.addItem(lbl, val)
+
+        self.cb_quoting = QComboBox(); self.cb_quoting.setStyleSheet(self._combo_style())
+        for lbl, val in CSV_QUOTINGS: self.cb_quoting.addItem(lbl, val)
+        self.cb_quoting.setToolTip(
+            "Comment entourer les valeurs de guillemets dans le CSV produit — la sortie brute de "
+            "spark-sql n'étant que du texte (aucun typage préservé), « Minimal » évite de "
+            "guillemeter des valeurs qui n'en ont pas besoin."
+        )
+
+        form.addRow(self._lbl("Séparateur CSV"), self.cb_sep)
+        form.addRow(self._lbl("Encodage"), self.cb_enc)
+        form.addRow(self._lbl("Guillemets CSV"), self.cb_quoting)
         self.inp_output_name = self._output_name_row(form)
         root.addLayout(form)
 
@@ -84,8 +103,13 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self.txt_spark_conf = QPlainTextEdit()
         self.txt_spark_conf.setFont(QFont("Consolas", 11))
         self.txt_spark_conf.setPlaceholderText(
-            '--conf "spark.hadoop.hive.cli.print.header=true" --conf spark.yarn.queue=default '
-            '--executor-cores 1 --num-executors 10 --driver-memory 10G --executor-memory 7G'
+            '--conf spark.yarn.queue=default --executor-cores 1 --num-executors 10 '
+            '--driver-memory 10G --executor-memory 7G'
+        )
+        self.txt_spark_conf.setToolTip(
+            "L'en-tête de colonnes (--conf spark.sql.cli.print.header=true) est ajouté "
+            "automatiquement quand « Récupérer le résultat » est coché — inutile de le "
+            "préciser ici, sauf pour le désactiver explicitement."
         )
         self.txt_spark_conf.setFixedHeight(90)
         self.txt_spark_conf.setStyleSheet(
@@ -101,13 +125,14 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         conf_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
         root.addWidget(conf_hint)
 
-        def _toggle_output_name(checked):
-            self.inp_output_name.setVisible(checked)
-            lbl = form.labelForField(self.inp_output_name)
-            if lbl:
-                lbl.setVisible(checked)
-        self.chk_fetch.toggled.connect(_toggle_output_name)
-        _toggle_output_name(self.chk_fetch.isChecked())
+        def _toggle_fetch_fields(checked):
+            for field in (self.cb_sep, self.cb_enc, self.cb_quoting, self.inp_output_name):
+                field.setVisible(checked)
+                lbl = form.labelForField(field)
+                if lbl:
+                    lbl.setVisible(checked)
+        self.chk_fetch.toggled.connect(_toggle_fetch_fields)
+        _toggle_fetch_fields(self.chk_fetch.isChecked())
 
         root.addStretch()
         self._buttons(root)
@@ -146,6 +171,9 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self._set_combo(self.cb_query, c.get("sql_query_id"))
         self.inp_timeout.setValue(int(c.get("timeout", 3600)))
         self.chk_fetch.setChecked(bool(c.get("fetch_result", False)))
+        self._set_combo(self.cb_sep, c.get("csv_separator", ";"))
+        self._set_combo(self.cb_enc, c.get("csv_encoding", "utf-8-sig"))
+        self._set_combo(self.cb_quoting, c.get("csv_quoting", "QUOTE_MINIMAL"))
         self.inp_output_name.setText(c.get("output_name", ""))
         self.txt_spark_conf.setPlainText(c.get("spark_conf", ""))
 
@@ -156,6 +184,9 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
             "sql_query_id":        self.cb_query.currentData(),
             "timeout":             self.inp_timeout.value(),
             "fetch_result":        self.chk_fetch.isChecked(),
+            "csv_separator":       self.cb_sep.currentData(),
+            "csv_encoding":        self.cb_enc.currentData(),
+            "csv_quoting":         self.cb_quoting.currentData(),
             "output_name":         self.inp_output_name.text().strip(),
             "spark_conf":          self.txt_spark_conf.toPlainText().strip(),
         }

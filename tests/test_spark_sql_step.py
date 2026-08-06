@@ -36,8 +36,9 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
                             local_output_path=None, timeout=3600):
         captured["fetch_result"] = fetch_result
-        captured["local_output_path"] = local_output_path
-        local_output_path.write_text("a,b\n1,2\n")
+        captured["raw_output_path"] = local_output_path
+        # Sortie brute simulée de spark-sql : tabulée, sans guillemets.
+        local_output_path.write_text("a\tb\n1\t2\n")
         return _FakeSparkSqlResult(success=True, local_output_path=local_output_path)
 
     monkeypatch.setattr(spark_module, "run_spark_sql", fake_run_spark_sql)
@@ -51,9 +52,17 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
 
     assert result.success, result.error
     assert captured["fetch_result"] is True
-    assert ctx.output_file == captured["local_output_path"]
-    assert ctx.artifacts["spark_result"] == captured["local_output_path"]
-    assert ctx.output_file.read_text() == "a,b\n1,2\n"
+    # Le step publie un fichier reformaté (.csv), distinct du fichier brut téléchargé (.tsv),
+    # qui est nettoyé une fois la mise en forme terminée.
+    assert ctx.output_file != captured["raw_output_path"]
+    assert ctx.output_file.suffix == ".csv"
+    assert not captured["raw_output_path"].exists()
+    assert ctx.artifacts["spark_result"] == ctx.output_file
+
+    import csv
+    with open(ctx.output_file, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f, delimiter=";"))   # séparateur par défaut, comme DB_EXTRACT
+    assert rows == [["a", "b"], ["1", "2"]]
 
 
 def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkeypatch):
