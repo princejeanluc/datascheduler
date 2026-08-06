@@ -21,13 +21,34 @@ COLORS = {
 
     # Sémantique
     "success":    "#3fb950",   # vert succès
-    "warning":    "#FF7900",   # avertissement = orange (cohérent charte)
+    # Ambre doré, délibérément distinct de "accent" (#FF7900) — l'ancienne valeur (identique à
+    # l'accent) faisait qu'un avertissement était visuellement indissociable d'un bouton actif ou
+    # d'un survol (audit de design, 2026-08). Reste dans la même famille chaude que la charte
+    # (hue ~45° contre ~29° pour l'accent) sans se confondre avec lui.
+    "warning":    "#E8B339",
     "danger":     "#f85149",   # rouge erreur
 
     # Textes
     "text_main":  "#f0f0f0",   # texte principal — blanc doux
     "text_dim":   "#999999",   # texte secondaire
     "text_muted": "#6e6e6e",   # texte discret / version (contraste AA sur bg_main)
+}
+
+# ──────────────────────────────────────────────
+#  ÉCHELLE TYPOGRAPHIQUE — les 6 paliers déjà utilisés de fait dans toute l'application (audit de
+#  design, 2026-08), déclarés ici comme référence pour toute nouvelle vue. Les usages existants ne
+#  sont pas encore migrés vers ces constantes (chaque écran continue d'écrire "font-size: 13px"
+#  en dur) — cette déclaration fixe l'échelle sans risquer de régression sur l'existant ; une
+#  migration progressive peut s'appuyer dessus au fil des prochains écrans touchés.
+# ──────────────────────────────────────────────
+
+FONT_SIZES = {
+    "display":         28,   # valeur de StatCard (Dashboard)
+    "title":           20,   # titre de section (#section_title)
+    "subtitle_dialog": 15,   # titre de dialogue de configuration d'étape
+    "body":            13,   # texte courant, boutons, champs — taille de base globale
+    "label":           11,   # libellé de carte en majuscules (StatCard, badges)
+    "caption":         10,   # version, notes de bas de champ, texte le plus discret
 }
 
 DIALOG_STYLE = f"""

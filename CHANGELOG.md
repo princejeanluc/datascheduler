@@ -29,6 +29,37 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.3] - 2026-08-06
+
+### Corrigé
+- L'icône de l'exe (`DataScheduler.spec`) ne suffisait pas : Qt ne la reprend pas
+  automatiquement pour la fenêtre une fois affichée — la barre de titre, le bouton de la barre
+  des tâches pendant l'exécution et Alt-Tab montraient toujours l'icône générique Qt par
+  défaut. `QApplication.setWindowIcon()` ajouté (`ui/branding.py`, icône encodée en base64 pour
+  éviter toute résolution de chemin `sys._MEIPASS` dans l'exe gelé). Vérifié en extrayant
+  l'icône réelle de la fenêtre en cours d'exécution (`WM_GETICON`), pas seulement celle de
+  l'exe.
+
+## [0.6.2] - 2026-08-06
+
+### Corrigé
+- Aucune icône d'application (`icon=None` dans `DataScheduler.spec`) — l'exe tournait avec
+  l'icône générique par défaut dans la barre des tâches, l'Explorateur et le sélecteur Alt-Tab
+  (audit de design). Logo fourni par l'utilisateur, converti en `.ico` multi-résolution
+  (16 à 256px) — `assets/icon.ico`, `assets/icon.png`.
+
+## [0.6.1] - 2026-08-06
+
+### Corrigé
+- Couleur "warning" identique à l'accent de marque (#FF7900) — un avertissement était
+  visuellement indissociable d'un bouton actif ou survolé. Remplacée par un ambre doré
+  (#E8B339), distinct sans sortir de la même famille chaude (audit de design).
+
+### Ajouté
+- `FONT_SIZES` (`ui/styles.py`) — les 6 paliers typographiques déjà utilisés de fait dans
+  l'application, déclarés comme référence pour toute nouvelle vue (usages existants non migrés
+  pour l'instant, zéro risque de régression).
+
 ## [0.6.0] - 2026-08-06
 
 ### Ajouté
