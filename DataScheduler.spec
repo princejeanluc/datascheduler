@@ -136,7 +136,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,           # ajouter un .ico ici si disponible : icon='assets/icon.ico'
+    icon='assets/icon.ico',
 )
 
 coll = COLLECT(

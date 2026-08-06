@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.2] - 2026-08-06
+
+### Corrigé
+- Aucune icône d'application (`icon=None` dans `DataScheduler.spec`) — l'exe tournait avec
+  l'icône générique par défaut dans la barre des tâches, l'Explorateur et le sélecteur Alt-Tab
+  (audit de design). Logo fourni par l'utilisateur, converti en `.ico` multi-résolution
+  (16 à 256px) — `assets/icon.ico`, `assets/icon.png`.
+
 ## [0.6.1] - 2026-08-06
 
 ### Corrigé
