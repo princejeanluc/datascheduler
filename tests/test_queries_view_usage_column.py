@@ -11,7 +11,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QHeaderView
 
 from database import db_manager as db
 
@@ -50,3 +50,16 @@ def test_name_cell_tooltip_shows_sql_text(qapp, test_db):
     db.create_sql_query(name="preview-query", sql_text="SELECT * FROM my_table WHERE x = 1")
     view = QueriesView()
     assert view.table.item(0, 0).toolTip() == "SELECT * FROM my_table WHERE x = 1"
+
+
+def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
+    """Même correctif que PipelinesView (voir test_pipelines_view_action_menu.py) : la colonne
+    Actions doit rester en mode Fixed, pas ResizeToContents, pour ne pas se faire recalculer
+    trop étroite pour ses 2 boutons par Qt."""
+    from ui.main_window.queries_view import QueriesView
+
+    db.create_sql_query(name="fixed-width-test", sql_text="SELECT 1")
+    view = QueriesView()
+    mode = view.table.horizontalHeader().sectionResizeMode(3)
+    assert mode == QHeaderView.Fixed
+    assert view.table.columnWidth(3) >= 80

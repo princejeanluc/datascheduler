@@ -61,6 +61,7 @@ class PipelinesView(QWidget):
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
         self.table.setColumnWidth(5, 118)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)

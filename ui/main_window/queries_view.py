@@ -5,7 +5,7 @@ Vue Requêtes SQL : bibliothèque de requêtes réutilisables.
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QFrame, QTableWidget,
-    QTableWidgetItem, QAbstractItemView, QMessageBox,
+    QTableWidgetItem, QAbstractItemView, QMessageBox, QHeaderView,
 )
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor
@@ -47,6 +47,7 @@ class QueriesView(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
         _configure_columns(self.table, stretch_cols={0, 1})
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         self.table.setColumnWidth(3, 100)
         layout.addWidget(self.table)
 
