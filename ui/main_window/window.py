@@ -192,6 +192,12 @@ def run():
     app = QApplication(sys.argv)
     app.setStyleSheet(GLOBAL_STYLE)
 
+    # DataScheduler.spec (icon=...) couvre l'icône de l'exécutable (Explorateur, tuile avant
+    # lancement) — Qt ne la reprend pas automatiquement pour la fenêtre une fois affichée
+    # (barre de titre, bouton de la barre des tâches pendant l'exécution, Alt-Tab).
+    from ui.branding import app_icon
+    app.setWindowIcon(app_icon())
+
     # Forcer palette sombre au niveau système
     palette = QPalette()
     palette.setColor(QPalette.Window,          QColor(COLORS["bg_main"]))

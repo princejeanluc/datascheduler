@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.3] - 2026-08-06
+
+### Corrigé
+- L'icône de l'exe (`DataScheduler.spec`) ne suffisait pas : Qt ne la reprend pas
+  automatiquement pour la fenêtre une fois affichée — la barre de titre, le bouton de la barre
+  des tâches pendant l'exécution et Alt-Tab montraient toujours l'icône générique Qt par
+  défaut. `QApplication.setWindowIcon()` ajouté (`ui/branding.py`, icône encodée en base64 pour
+  éviter toute résolution de chemin `sys._MEIPASS` dans l'exe gelé). Vérifié en extrayant
+  l'icône réelle de la fenêtre en cours d'exécution (`WM_GETICON`), pas seulement celle de
+  l'exe.
+
 ## [0.6.2] - 2026-08-06
 
 ### Corrigé
