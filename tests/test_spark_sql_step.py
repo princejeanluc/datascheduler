@@ -54,6 +54,9 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     assert ctx.output_file == captured["local_output_path"]
     assert ctx.artifacts["spark_result"] == captured["local_output_path"]
     assert ctx.output_file.read_text() == "a,b\n1,2\n"
+    # .tsv, pas .csv — spark-sql sépare ses colonnes par des tabulations, pas des virgules ;
+    # un nom de fichier ".csv" aurait été trompeur pour tout consommateur en aval.
+    assert ctx.output_file.suffix == ".tsv"
 
 
 def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkeypatch):

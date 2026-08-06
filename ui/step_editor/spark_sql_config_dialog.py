@@ -69,9 +69,11 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self.chk_fetch = QCheckBox("Récupérer le résultat")
         self.chk_fetch.setStyleSheet(f"color: {COLORS['text_main']};")
         self.chk_fetch.setToolTip(
-            "Coché : le résultat de la requête est rapatrié comme fichier (CSV-like), "
-            "utilisable par les étapes suivantes. Décoché : la requête est exécutée sans "
-            "rapatrier de résultat (ex : INSERT, CREATE TABLE AS, rafraîchissement de cache)."
+            "Coché : le résultat de la requête est rapatrié comme fichier texte, utilisable par "
+            "les étapes suivantes. Format réel de spark-sql : colonnes séparées par des "
+            "tabulations, pas des virgules — sans en-tête sauf si la config Spark ci-dessous "
+            "ajoute --conf spark.sql.cli.print.header=true. Décoché : la requête est exécutée "
+            "sans rapatrier de résultat (ex : INSERT, CREATE TABLE AS, rafraîchissement de cache)."
         )
         form.addRow("", self.chk_fetch)
 

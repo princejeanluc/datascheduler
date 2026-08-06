@@ -57,7 +57,10 @@ class SparkSqlStep(BaseStep):
             timeout      = int(self.config.get("timeout", 3600))
 
             if fetch_result:
-                tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, prefix="ds_")
+                # .tsv, pas .csv : spark-sql sépare ses colonnes par des tabulations, pas des
+                # virgules — voir le tooltip de "Récupérer le résultat" dans le dialogue de
+                # configuration de cette étape pour le détail du format.
+                tmp = tempfile.NamedTemporaryFile(suffix=".tsv", delete=False, prefix="ds_")
                 tmp_path = Path(tmp.name)
                 tmp.close()
 
