@@ -29,6 +29,13 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.5] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : le champ "Exécutable Python" était pré-rempli avec `sys.executable`
+  (trompeur — voir 0.6.4) et jamais validé. Devenu un champ obligatoire (comme le chemin du
+  script), plus jamais pré-rempli automatiquement ; tooltip corrigé.
+
 ## [0.6.4] - 2026-08-06
 
 ### Corrigé
