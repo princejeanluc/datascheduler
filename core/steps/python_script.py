@@ -18,12 +18,20 @@ nécessite souvent un accès admin/helpdesk).
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 from .base import BaseStep, StepContext, StepResult
+
+
+def _same_executable(a: str, b: str) -> bool:
+    try:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    except (TypeError, ValueError):
+        return False
 
 
 class PythonScriptStep(BaseStep):
@@ -43,6 +51,22 @@ class PythonScriptStep(BaseStep):
             raw_args    = self.config.get("args", [])
             working_dir = self.config.get("working_dir") or None
             timeout     = int(self.config.get("timeout", 300))
+
+            # Piège réel (voir docs/COOKBOOK.md, "Pièges déjà rencontrés") : dans un .exe
+            # PyInstaller, sys.executable est le chemin de DataScheduler.exe lui-même, pas un
+            # interpréteur Python — ce n'est vrai qu'en lançant `python main.py` directement. Un
+            # step qui garde ce défaut (ou le reçoit via un ancien config_json/import) ne lance
+            # pas le script : il relance une deuxième instance complète de l'application, qui
+            # bloque jusqu'au timeout avant d'échouer sans indice sur la vraie cause. Détecté et
+            # refusé ici plutôt que de laisser ce piège silencieux se reproduire.
+            if getattr(sys, "frozen", False) and _same_executable(python_exe, sys.executable):
+                result.error = (
+                    "L'exécutable Python configuré pointe vers DataScheduler.exe lui-même, pas "
+                    "vers un interpréteur Python — impossible d'exécuter le script. Renseignez "
+                    "explicitement le chemin d'un python.exe (venv/conda du script) dans le "
+                    "champ « Exécutable Python » de cette étape."
+                )
+                return result
 
             ctx_in_path  = Path(tempfile.mkstemp(suffix=".json", prefix="ds_ctx_in_")[1])
             ctx_out_path = Path(tempfile.mkstemp(suffix=".json", prefix="ds_ctx_out_")[1])

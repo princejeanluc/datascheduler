@@ -29,6 +29,16 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.4] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : dans l'`.exe` packagé, `sys.executable` (valeur par défaut du champ
+  "Exécutable Python", présentée comme sûre par le tooltip) est le chemin de DataScheduler.exe
+  lui-même, pas un interpréteur Python (piège déjà documenté dans `docs/COOKBOOK.md`, jamais
+  protégé jusqu'ici). Une étape gardant ce défaut ne lançait pas le script : elle relançait une
+  deuxième instance complète de l'application et restait bloquée jusqu'au timeout. Détecté et
+  refusé proprement au démarrage de l'étape, avec un message explicite.
+
 ## [0.6.3] - 2026-08-06
 
 ### Corrigé
