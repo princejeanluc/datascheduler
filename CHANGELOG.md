@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.6] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : un script en échec ne remontait que "Script terminé avec le code N" —
+  la vraie raison (dernière ligne de stderr, en général le message d'exception d'un traceback)
+  était loggée ligne par ligne mais absente du message d'erreur principal. Ajoutée comme
+  premier indice, sans remplacer le log complet déjà disponible.
+
 ## [0.6.5] - 2026-08-06
 
 ### Corrigé

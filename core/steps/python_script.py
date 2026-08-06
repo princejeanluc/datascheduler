@@ -106,7 +106,14 @@ class PythonScriptStep(BaseStep):
                 ctx.log(f"  stderr: {line}")
 
             if proc.returncode != 0:
+                # La dernière ligne non vide de stderr est en général la plus utile (le message
+                # d'exception d'un traceback Python) — le log complet, ligne par ligne, reste
+                # disponible ci-dessus (ctx.log), mais un nouvel utilisateur qui débogue son
+                # propre script mérite un premier indice sans avoir à l'ouvrir.
+                stderr_lines = [l for l in (proc.stderr or "").strip().splitlines() if l.strip()]
                 result.error = f"Script terminé avec le code {proc.returncode}"
+                if stderr_lines:
+                    result.error += f" — {stderr_lines[-1]}"
                 return result
 
             if ctx_out_path.exists() and ctx_out_path.stat().st_size:
