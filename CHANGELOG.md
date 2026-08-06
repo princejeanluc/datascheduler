@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.6.0] - 2026-08-06
+
+### Ajouté
+- SPARK_SQL : configuration du fichier récupéré (séparateur, encodage, guillemets), mêmes
+  options que l'étape Extraction base de données — auparavant impossible à régler. La sortie
+  brute de spark-sql (tabulée, sans guillemets) est reformatée en CSV véritable par le step ;
+  l'en-tête de colonnes est désormais toujours inclus (injection automatique de
+  `--conf spark.sql.cli.print.header=true`, sauf si l'étape en fournit déjà un explicitement).
+
 ## [0.5.0] - 2026-08-06
 
 ### Ajouté

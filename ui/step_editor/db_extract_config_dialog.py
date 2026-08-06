@@ -8,21 +8,15 @@ from PySide6.QtWidgets import (
 )
 from ui.styles import COLORS
 from .base_config_dialog import _BaseStepConfigDialog
+from .common import CSV_SEPARATORS, CSV_ENCODINGS, CSV_QUOTINGS
 
 
 class _DbExtractConfigDialog(_BaseStepConfigDialog):
     STEP_TYPE = "DB_EXTRACT"
 
-    SEPARATORS = [("Point-virgule  ;", ";"), ("Virgule  ,", ","),
-                  ("Pipe  |", "|"), ("Tabulation  \\t", "\t")]
-    ENCODINGS  = [("UTF-8 BOM (Excel)", "utf-8-sig"), ("UTF-8", "utf-8"),
-                  ("Latin-1", "latin-1"), ("CP1252", "cp1252")]
-    QUOTINGS   = [
-        ("Chaînes & dates seulement", "QUOTE_NONNUMERIC"),
-        ("Minimal — si nécessaire",   "QUOTE_MINIMAL"),
-        ("Tout entre guillemets",     "QUOTE_ALL"),
-        ("Aucun guillemet",           "QUOTE_NONE"),
-    ]
+    SEPARATORS = CSV_SEPARATORS
+    ENCODINGS  = CSV_ENCODINGS
+    QUOTINGS   = CSV_QUOTINGS
 
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,

@@ -117,11 +117,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 - **Spark SQL (`SPARK_SQL`)** — exécute une requête sur un cluster Hadoop via un nœud edge :
   connexion SSH, authentification Kerberos, puis exécution de la requête. Case *Récupérer le
   résultat* pour choisir entre une exécution simple (ex : `INSERT`, rafraîchissement de cache)
-  et un résultat rapatrié en fichier. Le fichier récupéré est le format brut de `spark-sql` —
-  colonnes séparées par des tabulations, sans en-tête sauf ajout de
-  `--conf spark.sql.cli.print.header=true` dans la configuration Spark de l'étape — pas un vrai
-  CSV avec séparateur virgule. Nécessite un profil SSH et un profil Kerberos, configurés dans
-  **Connexions**.
+  et un résultat rapatrié en fichier. `spark-sql` ne produit qu'un texte brut tabulé — DataScheduler
+  le remet en forme en CSV véritable, avec les mêmes réglages que l'étape Extraction base de
+  données (séparateur, encodage, guillemets), en-tête de colonnes toujours inclus. Nécessite un
+  profil SSH et un profil Kerberos, configurés dans **Connexions**.
 
 ## Notification & intégration
 

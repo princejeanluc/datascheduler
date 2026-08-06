@@ -209,8 +209,16 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
         finally:
             sftp.close()
 
+        # Sans cette option, spark-sql omet l'en-tête de colonnes — un résultat récupéré comme
+        # fichier doit en avoir un pour rester exploitable (ex: mise en forme CSV côté step,
+        # étape LOCAL_COPY/DB_LOAD en aval). Injectée seulement si fetch_result et si l'appelant
+        # n'a pas déjà sa propre valeur pour ce réglage dans sa config Spark libre.
+        effective_conf = spark_conf
+        if fetch_result and "spark.sql.cli.print.header" not in spark_conf:
+            effective_conf = f"{spark_conf} --conf spark.sql.cli.print.header=true".strip()
+
         cmd = (
-            f"timeout {int(timeout)}s spark-sql -S {spark_conf} "
+            f"timeout {int(timeout)}s spark-sql -S {effective_conf} "
             f"-f {remote_sql} > {remote_out} 2>{remote_err}"
         )
         _stdin, stdout, _stderr = client.exec_command(cmd, timeout=timeout + 30)
