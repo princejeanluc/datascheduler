@@ -106,6 +106,7 @@ Les logs applicatifs (rotation automatique) sont écrits dans `%APPDATA%\DataSch
 DataScheduler/
 ├── main.py                    # Point d'entrée — logging, init DB + scheduler + UI
 ├── version.py                 # __version__ de l'application
+├── CHANGELOG.md                # Historique des changements + politique de version (SemVer)
 │
 ├── core/
 │   ├── oracle.py               # OracleConnector + OracleExporter/OracleLoader (CSV chunked, Oracle)
