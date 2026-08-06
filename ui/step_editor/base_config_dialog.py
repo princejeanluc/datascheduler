@@ -152,7 +152,7 @@ class _BaseStepConfigDialog(QDialog):
         utile dès qu'un pipeline contient plusieurs étapes productrices (ex: deux
         DB_EXTRACT) et qu'une étape en aval doit choisir laquelle consommer.
         """
-        from core.steps import get_step_requirements
+        from core.steps import step_produces_output_file
         cb = QComboBox(); cb.setStyleSheet(self._combo_style())
         cb.setToolTip(
             "Étape dont la sortie alimente celle-ci. Par défaut, la dernière étape ayant produit "
@@ -161,8 +161,7 @@ class _BaseStepConfigDialog(QDialog):
         )
         cb.addItem("Étape précédente (par défaut)", None)
         for i, s in enumerate(prior_steps or []):
-            _, produces = get_step_requirements(s.get("step_type", ""))
-            if "output_file" not in produces:
+            if not step_produces_output_file(s.get("step_type", ""), s.get("config") or {}):
                 continue
             key = (s.get("config") or {}).get("_step_key")
             if not key:

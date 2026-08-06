@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
-from core.steps import get_step, get_step_requirements, StepContext
+from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +154,11 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
         config     = step.get("config") or {}
 
         requires, produces = get_step_requirements(step_type)
+        # Complète le PRODUCES statique par la production réelle de CETTE instance — un step
+        # comme SPARK_SQL a un PRODUCES vide (conditionnel à sa config, pas connaissable
+        # statiquement par la classe), mais peut légitimement être ciblé comme source explicite.
+        if step_produces_output_file(step_type, config):
+            produces = produces | {"output_file"}
         target_key = config.get("reads_from_step_key")
 
         # Un chemin source explicite (DB_LOAD/FTP_UPLOAD/LOCAL_COPY) rend l'étape autonome —
@@ -225,6 +230,12 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
         if target_key:
             ctx.output_file = ctx.artifacts.get(target_key)
 
+        # Snapshot pris juste avant l'exécution — sert à détecter après coup si CETTE étape a
+        # réellement produit un fichier (voir plus bas), plutôt que de se fier au seul PRODUCES
+        # statique de la classe, qui ne peut pas exprimer une production conditionnelle à la
+        # config (ex: SPARK_SQL avec la case "Récupérer le résultat").
+        before_output_file = ctx.output_file
+
         base_pct = int(i * 90 / total)       # 0 → 90 %
         next_pct = int((i + 1) * 90 / total)
 
@@ -257,9 +268,11 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
             # consommatrice ultérieure puisse cibler explicitement "la sortie de
             # cette étape précise" plutôt que "la dernière produite" (voir
             # docs/ARCHITECTURE.md, section StepContext).
-            _, produces = get_step_requirements(step_type)
+            # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
+            # PRODUCES statique de la classe (qui reste vide pour SPARK_SQL/PYTHON_SCRIPT,
+            # une production conditionnelle à la config, pas connaissable avant l'exécution).
             step_key = config.get("_step_key")
-            if "output_file" in produces and step_key:
+            if ctx.output_file != before_output_file and step_key:
                 ctx.artifacts[step_key] = ctx.output_file
             # Alias cosmétique en plus (chantier UX — ports nommés) : ne remplace jamais la
             # publication sous step_key ci-dessus, qui reste seule responsable du câblage
@@ -404,6 +417,12 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
         if len(data_incoming) == 1:
             ctx.output_file = ctx.artifacts.get(data_incoming[0].from_step_key)
 
+        # Snapshot pris juste avant l'exécution — sert à détecter après coup si CETTE étape a
+        # réellement produit un fichier (voir plus bas), plutôt que de se fier au seul PRODUCES
+        # statique de la classe, qui ne peut pas exprimer une production conditionnelle à la
+        # config (ex: SPARK_SQL avec la case "Récupérer le résultat").
+        before_output_file = ctx.output_file
+
         def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
             scaled = _bp + int(pct * (_np - _bp) / 100)
             progress(msg, scaled)
@@ -428,8 +447,10 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
             time.sleep(RETRY_DELAY_S)
 
         if step_result.success:
-            _, produces = get_step_requirements(step_type)
-            if "output_file" in produces and step_key:
+            # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
+            # PRODUCES statique de la classe (voir _execute_linear pour la même logique et son
+            # commentaire complet).
+            if ctx.output_file != before_output_file and step_key:
                 ctx.artifacts[step_key] = ctx.output_file
             output_name = config.get("output_name")
             if output_name:

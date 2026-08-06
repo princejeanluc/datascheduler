@@ -118,3 +118,24 @@ def test_reference_button_inserts_token_into_plain_text_edit(qapp):
     btn = dlg._artifact_reference_button(field, prior)
     btn.menu().actions()[0].trigger()
     assert field.toPlainText() == "{artifact:ventes}"
+
+
+# ──────────────────────────────────────────────
+#  Sélecteur "Source" (_source_row) — un producteur dynamique (SPARK_SQL) n'apparaissait jamais,
+# quelle que soit sa config (bug signalé par l'utilisateur : "un seul choix disponible").
+# ──────────────────────────────────────────────
+
+def test_source_selector_lists_spark_sql_step_when_fetch_result_checked(qapp):
+    prior = [{"step_type": "SPARK_SQL", "label": "Requête Spark",
+              "config": {"_step_key": "spark", "fetch_result": True}}]
+    dlg = _open("LOCAL_COPY", prior_steps=prior)
+    labels = [dlg.cb_source.itemText(i) for i in range(dlg.cb_source.count())]
+    assert labels == ["Étape précédente (par défaut)", "Requête Spark"]
+
+
+def test_source_selector_omits_spark_sql_step_when_fetch_result_unchecked(qapp):
+    prior = [{"step_type": "SPARK_SQL", "label": "Requête Spark",
+              "config": {"_step_key": "spark", "fetch_result": False}}]
+    dlg = _open("LOCAL_COPY", prior_steps=prior)
+    labels = [dlg.cb_source.itemText(i) for i in range(dlg.cb_source.count())]
+    assert labels == ["Étape précédente (par défaut)"]
