@@ -4,7 +4,7 @@ Dialogue de configuration d'une étape EMAIL_NOTIFY.
 """
 
 from PySide6.QtWidgets import (
-    QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QMessageBox,
+    QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QMessageBox, QDoubleSpinBox,
 )
 from PySide6.QtGui import QFont
 from ui.styles import COLORS
@@ -72,7 +72,37 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
 
         attach_form = self._form()
         self.cb_source = self._source_row(attach_form, self._prior_steps)
+
+        self.inp_max_mb = QDoubleSpinBox()
+        self.inp_max_mb.setRange(0, 1000)
+        self.inp_max_mb.setDecimals(1)
+        self.inp_max_mb.setSuffix(" Mo")
+        self.inp_max_mb.setSpecialValueText("Aucune limite")
+        self.inp_max_mb.setToolTip(
+            "Taille max. de la pièce jointe avant envoi. 0 = aucune limite. Utile quand le "
+            "serveur mail d'entreprise rejette les pièces jointes trop lourdes — voir aussi "
+            "l'étape Compression (ZIP) pour réduire la taille en amont."
+        )
+        attach_form.addRow(self._lbl("Taille max. pièce jointe"), self.inp_max_mb)
+
+        self.cb_oversized = QComboBox(); self.cb_oversized.setStyleSheet(self._combo_style())
+        self.cb_oversized.addItem("Échouer le pipeline", "fail")
+        self.cb_oversized.addItem("Ignorer la pièce jointe et envoyer quand même", "skip")
+        self.cb_oversized.setToolTip(
+            "Comportement quand la pièce jointe dépasse la taille max. ci-dessus."
+        )
+        attach_form.addRow(self._lbl("Si dépassement"), self.cb_oversized)
+
         root.addLayout(attach_form)
+
+        def _toggle_attach_fields(checked):
+            for field in (self.cb_source, self.inp_max_mb, self.cb_oversized):
+                field.setVisible(checked)
+                lbl = attach_form.labelForField(field)
+                if lbl:
+                    lbl.setVisible(checked)
+        self.chk_attach.toggled.connect(_toggle_attach_fields)
+        _toggle_attach_fields(self.chk_attach.isChecked())
 
         root.addStretch()
         self._buttons(root)
@@ -85,6 +115,8 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         self.txt_body.setPlainText(c.get("body_tpl", ""))
         self.chk_attach.setChecked(c.get("attach_output_file", False))
         self._set_combo(self.cb_source, c.get("reads_from_step_key"))
+        self.inp_max_mb.setValue(float(c.get("max_attachment_mb") or 0))
+        self._set_combo(self.cb_oversized, c.get("on_oversized", "fail"))
 
     def _new_smtp_profile(self, cb: QComboBox):
         from ui.dialogs import SmtpDialog
@@ -103,6 +135,8 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
             "body_tpl":           self.txt_body.toPlainText(),
             "attach_output_file": self.chk_attach.isChecked(),
             "reads_from_step_key": self.cb_source.currentData(),
+            "max_attachment_mb":  self.inp_max_mb.value() or None,
+            "on_oversized":       self.cb_oversized.currentData(),
         }
 
     def _on_ok(self):

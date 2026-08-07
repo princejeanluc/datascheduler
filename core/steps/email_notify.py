@@ -36,6 +36,23 @@ class EmailNotifyStep(BaseStep):
             if attach_output:
                 if ctx.output_file and ctx.output_file.exists():
                     attachment = ctx.output_file
+                    max_mb = self.config.get("max_attachment_mb") or 0
+                    if max_mb:
+                        size_mb = attachment.stat().st_size / (1024 * 1024)
+                        if size_mb > max_mb:
+                            on_oversized = self.config.get("on_oversized", "fail")
+                            if on_oversized == "skip":
+                                ctx.log(
+                                    f"Avertissement : pièce jointe ignorée — {size_mb:.1f} Mo "
+                                    f"dépasse la limite de {max_mb:g} Mo."
+                                )
+                                attachment = None
+                            else:
+                                result.error = (
+                                    f"Pièce jointe trop volumineuse : {size_mb:.1f} Mo "
+                                    f"(limite : {max_mb:g} Mo)."
+                                )
+                                return result
                 else:
                     ctx.log("Avertissement : pièce jointe demandée mais aucun fichier disponible.")
 

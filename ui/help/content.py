@@ -133,7 +133,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 ## Notification & intégration
 
 - **Notification email (`EMAIL_NOTIFY`)** — envoie un email (sujet et corps personnalisables, avec
-  jetons), peut joindre le fichier produit par une étape précédente.
+  jetons), peut joindre le fichier produit par une étape précédente. Une taille max. de pièce
+  jointe optionnelle protège des rejets par un serveur mail d'entreprise : au-delà, le pipeline
+  échoue proprement (par défaut) ou l'envoi continue sans pièce jointe, selon le réglage choisi.
+  Voir aussi l'étape Compression (`COMPRESS`) pour réduire la taille du fichier en amont.
 - **Requête HTTP (`HTTP_REQUEST`)** — appelle une URL (webhook, API interne…).
 
 ## Contrôle de flux

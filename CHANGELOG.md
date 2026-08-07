@@ -29,6 +29,16 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.9.0] - 2026-08-07
+
+### Ajouté
+- Étape `EMAIL_NOTIFY` : garde-fou de taille sur la pièce jointe (« Taille max. pièce jointe »,
+  0/vide = aucune limite). Au-delà, deux comportements configurables (« Si dépassement ») :
+  échouer le pipeline (par défaut) ou ignorer la pièce jointe et envoyer l'email quand même.
+  Évite qu'une limite de taille imposée par un serveur mail d'entreprise ne surgisse en aval
+  sous la forme d'une exception SMTP brute. Se combine avec la nouvelle étape `COMPRESS` pour
+  réduire la taille du fichier en amont.
+
 ## [0.8.0] - 2026-08-07
 
 ### Ajouté
