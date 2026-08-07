@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
-from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext
+from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext, StepResult
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +196,56 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
 
 
 # ──────────────────────────────────────────────
+#  EXÉCUTION D'UNE ÉTAPE — timeout + relance (partagé linéaire/graphe)
+# ──────────────────────────────────────────────
+
+def _run_step_with_policy(executor, ctx, step, step_progress, result):
+    """
+    Exécute une étape avec sa politique de délai (timeout_s) et de relance (retry_count).
+    Un timeout est traité comme n'importe quel échec par la boucle de relance qui suit
+    (retenter a du sens pour un blocage réseau transitoire).
+
+    CPython ne peut pas tuer un thread de force : un appel réellement bloqué (socket SSH/
+    FTP/HTTP sans timeout propre) continue en arrière-plan au-delà de timeout_s — le
+    *pipeline*, lui, avance et marque l'étape en échec. C'est le compromis standard des
+    orchestrateurs sur exécuteur non-forké (ex : execution_timeout d'Airflow) ; une vraie
+    interruption exigerait du multiprocessing et une refonte de StepContext pour être sûre
+    entre process, hors scope. Volontairement pas de concurrent.futures.ThreadPoolExecutor
+    ici : son shutdown(wait=True) implicite à la sortie d'un `with` bloquerait quand même
+    jusqu'à la fin de l'appel bloquant (annulant l'effet du timeout), et ses threads sont
+    suivis par un joiner atexit qui empêcherait la fermeture de l'app tant qu'un appel
+    resterait bloqué — un thread daemon simple n'a ni l'un ni l'autre défaut.
+    """
+    retry_count = step.retry_count or 0
+    timeout_s   = step.timeout_s or 0
+    attempt     = 0
+    while True:
+        if not timeout_s:
+            step_result = executor.run(ctx, on_progress=step_progress)
+        else:
+            box = {}
+            def _runner():
+                box["result"] = executor.run(ctx, on_progress=step_progress)
+            t = threading.Thread(target=_runner, daemon=True, name="step_timeout")
+            t.start()
+            t.join(timeout_s)
+            if t.is_alive():
+                step_result = StepResult(success=False, error=f"Délai dépassé ({timeout_s}s) — étape abandonnée.")
+            else:
+                step_result = box.get("result") or StepResult(success=False, error="Étape terminée sans résultat.")
+
+        for line in ctx.log_lines:
+            result.log_lines.append(line)
+        ctx.log_lines.clear()
+
+        if step_result.success or attempt >= retry_count:
+            return step_result
+        attempt += 1
+        result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
+        time.sleep(RETRY_DELAY_S)
+
+
+# ──────────────────────────────────────────────
 #  EXÉCUTION LINÉAIRE (comportement historique, inchangé)
 # ──────────────────────────────────────────────
 
@@ -247,21 +297,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        retry_count = step.retry_count or 0
-        attempt     = 0
-        while True:
-            step_result = executor.run(ctx, on_progress=step_progress)
-
-            # Récupération des logs accumulés dans le contexte
-            for line in ctx.log_lines:
-                result.log_lines.append(line)
-            ctx.log_lines.clear()
-
-            if step_result.success or attempt >= retry_count:
-                break
-            attempt += 1
-            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-            time.sleep(RETRY_DELAY_S)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
 
         if step_result.success:
             # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
@@ -431,20 +467,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        retry_count = step.retry_count or 0
-        attempt     = 0
-        while True:
-            step_result = executor.run(ctx, on_progress=step_progress)
-
-            for line in ctx.log_lines:
-                result.log_lines.append(line)
-            ctx.log_lines.clear()
-
-            if step_result.success or attempt >= retry_count:
-                break
-            attempt += 1
-            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-            time.sleep(RETRY_DELAY_S)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
 
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
@@ -564,6 +587,7 @@ def _steps_to_dicts(pipeline_id: int) -> list[dict]:
             "config":      json.loads(s.config_json or "{}"),
             "retry_count": s.retry_count or 0,
             "run_always":  bool(s.run_always),
+            "timeout_s":   s.timeout_s or 0,
         }
         for s in db.get_steps(pipeline_id)
     ]

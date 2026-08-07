@@ -334,6 +334,7 @@ class PipelineStep(Base):
     config_json = Column(Text, nullable=False, default="{}")
     retry_count = Column(Integer, default=0, nullable=False)
     run_always  = Column(Boolean, default=False, nullable=False)
+    timeout_s   = Column(Integer, default=0, nullable=False)   # 0 = aucune limite — chantier J.1
     pos_x       = Column(Integer, nullable=False, default=0)   # position canevas — chantier 6a/6b
     pos_y       = Column(Integer, nullable=False, default=0)
 

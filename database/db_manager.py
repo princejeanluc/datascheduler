@@ -134,6 +134,11 @@ def _migrate(engine) -> None:
                 "ALTER TABLE pipeline_steps ADD COLUMN run_always BOOLEAN NOT NULL DEFAULT 0"
             ))
             conn.commit()
+        if "timeout_s" not in step_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_steps ADD COLUMN timeout_s INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
         # Position sur le canevas (chantier 6a/6b) — DEFAULT 0 constant pour toutes les lignes,
         # pas besoin d'un backfill ligne par ligne comme pour uuid (valeurs devant être distinctes).
         for col in ("pos_x", "pos_y"):
@@ -1061,7 +1066,7 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
     Chaque dict : {"step_type": str, "label": str|None, "config": dict,
-                    "retry_count": int|None, "run_always": bool|None}
+                    "retry_count": int|None, "run_always": bool|None, "timeout_s": int|None}
     """
     import json
     with get_session() as s:
@@ -1075,6 +1080,7 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
+                timeout_s=step.get("timeout_s") or 0,
             ))
     pipeline = get_pipeline(pipeline_id)
     log_audit_event(
@@ -1115,6 +1121,7 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) 
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
+                timeout_s=step.get("timeout_s") or 0,
                 pos_x=step.get("pos_x", 0),
                 pos_y=step.get("pos_y", 0),
             ))

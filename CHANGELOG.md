@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.10.0] - 2026-08-07
+
+### Ajouté
+- Délai maximal configurable par étape (« Délai maximal », 0 = aucune limite, dans la politique
+  d'exécution commune à tous les types d'étape). Une étape qui dépasse ce délai (ex : connexion
+  SSH/Spark, FTP ou appel HTTP resté bloqué) est marquée en échec proprement au lieu de geler le
+  pipeline indéfiniment ; le pipeline continue normalement ensuite (relance, `run_always`,
+  reste des étapes). Limite assumée : CPython ne peut pas interrompre un appel bloquant de
+  force — le pipeline avance, mais l'appel sous-jacent peut se terminer en arrière-plan plus
+  tard sans effet sur l'exécution déjà passée à la suite (voir le commentaire de
+  `_run_step_with_policy` dans `core/pipeline.py`).
+
 ## [0.9.0] - 2026-08-07
 
 ### Ajouté

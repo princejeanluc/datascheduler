@@ -315,6 +315,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "config":      exported_config,
                 "retry_count": step.retry_count,
                 "run_always":  step.run_always,
+                "timeout_s":   step.timeout_s,
                 "pos_x":       step.pos_x,
                 "pos_y":       step.pos_y,
             })
@@ -628,6 +629,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 "config":      config,
                 "retry_count": step.get("retry_count", 0),
                 "run_always":  step.get("run_always", False),
+                "timeout_s":   step.get("timeout_s", 0),
                 "pos_x":       step.get("pos_x", 0),
                 "pos_y":       step.get("pos_y", 0),
             })
