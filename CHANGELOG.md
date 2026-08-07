@@ -29,6 +29,39 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.7.0] - 2026-08-06
+
+### Ajouté
+- Bouton "Télécharger un modèle de script" sur l'étape `PYTHON_SCRIPT` — enregistre un fichier
+  `.py` commenté et fonctionnel, couvrant les 3 cas d'usage (script autonome, lecture de
+  `{ds_context_in}`, publication via `{ds_context_out}`) pour quelqu'un qui découvre l'application
+  et doit y brancher son propre script sans lire le code source de DataScheduler.
+
+## [0.6.6] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : un script en échec ne remontait que "Script terminé avec le code N" —
+  la vraie raison (dernière ligne de stderr, en général le message d'exception d'un traceback)
+  était loggée ligne par ligne mais absente du message d'erreur principal. Ajoutée comme
+  premier indice, sans remplacer le log complet déjà disponible.
+
+## [0.6.5] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : le champ "Exécutable Python" était pré-rempli avec `sys.executable`
+  (trompeur — voir 0.6.4) et jamais validé. Devenu un champ obligatoire (comme le chemin du
+  script), plus jamais pré-rempli automatiquement ; tooltip corrigé.
+
+## [0.6.4] - 2026-08-06
+
+### Corrigé
+- Étape `PYTHON_SCRIPT` : dans l'`.exe` packagé, `sys.executable` (valeur par défaut du champ
+  "Exécutable Python", présentée comme sûre par le tooltip) est le chemin de DataScheduler.exe
+  lui-même, pas un interpréteur Python (piège déjà documenté dans `docs/COOKBOOK.md`, jamais
+  protégé jusqu'ici). Une étape gardant ce défaut ne lançait pas le script : elle relançait une
+  deuxième instance complète de l'application et restait bloquée jusqu'au timeout. Détecté et
+  refusé proprement au démarrage de l'étape, avec un message explicite.
+
 ## [0.6.3] - 2026-08-06
 
 ### Corrigé

@@ -7,10 +7,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPlainTextEdit, QPushButton,
     QWidget, QFileDialog, QMessageBox,
 )
+from PySide6.QtCore import QSize
 from PySide6.QtGui import QFont
 from ui.styles import COLORS
-from .common import TOKENS_HINT
+from .common import TOKENS_HINT, _icon
 from .base_config_dialog import _BaseStepConfigDialog
+from .python_script_template import PYTHON_SCRIPT_TEMPLATE
 
 
 class _PythonScriptConfigDialog(_BaseStepConfigDialog):
@@ -28,9 +30,22 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        title_row = QHBoxLayout()
         title = QLabel("Exécution d'un script Python")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        root.addWidget(title); root.addWidget(self._sep())
+        title_row.addWidget(title); title_row.addStretch()
+        btn_template = QPushButton("  Télécharger un modèle de script")
+        btn_template.setObjectName("secondary")
+        btn_template.setFixedHeight(32)
+        btn_template.setIcon(_icon("fa5s.file-download", COLORS["text_main"]))
+        btn_template.setIconSize(QSize(12, 12))
+        btn_template.setToolTip(
+            "Enregistre un fichier .py commenté, prêt à adapter — couvre les 3 cas d'usage "
+            "(script autonome, lecture du contexte, publication d'un résultat)."
+        )
+        btn_template.clicked.connect(self._download_template)
+        title_row.addWidget(btn_template)
+        root.addLayout(title_row); root.addWidget(self._sep())
 
         form = self._form()
         self._add_label_row(form)
@@ -48,14 +63,17 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         sw = QWidget(); sw.setLayout(script_row)
         form.addRow(self._lbl("Script * (.py)"), sw)
 
-        # Python exe
-        self.inp_py_exe = self._input("ex : python  ou  C:/Python311/python.exe")
+        # Python exe — obligatoire : DataScheduler n'a pas de "Python par défaut" utilisable pour
+        # lancer un script une fois packagé en .exe (voir tooltip). Champ jamais pré-rempli
+        # automatiquement pour éviter de suggérer une valeur qui n'existe pas.
+        self.inp_py_exe = self._input("ex : C:/mon_projet/venv/Scripts/python.exe")
         self.inp_py_exe.setToolTip(
-            "Interpréteur Python à utiliser — laissez tel quel pour celui utilisé par "
-            "DataScheduler, ou précisez un chemin complet pour un environnement virtuel "
-            "spécifique au script."
+            "Chemin complet vers le python.exe du script (son propre venv/conda — jamais celui "
+            "de DataScheduler, qui n'existe pas en tant qu'interpréteur autonome une fois "
+            "l'application packagée en .exe). Chaque étape peut pointer vers un environnement "
+            "différent si vos scripts viennent de projets distincts."
         )
-        form.addRow(self._lbl("Exécutable Python"), self.inp_py_exe)
+        form.addRow(self._lbl("Exécutable Python *"), self.inp_py_exe)
 
         # Arguments (un par ligne)
         self.txt_args = QPlainTextEdit()
@@ -138,6 +156,19 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         root.addStretch()
         self._buttons(root)
 
+    def _download_template(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Enregistrer le modèle de script", "mon_script_datascheduler.py",
+            "Scripts Python (*.py)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(PYTHON_SCRIPT_TEMPLATE)
+        except OSError as e:
+            QMessageBox.critical(self, "Échec de l'enregistrement", str(e))
+
     def _browse_script(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Choisir le script Python", "", "Scripts Python (*.py)"
@@ -151,10 +182,9 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
             self.inp_workdir.setText(path)
 
     def _prefill(self):
-        import sys as _sys
         c = self._config
         self.inp_script.setText(c.get("script_path", ""))
-        self.inp_py_exe.setText(c.get("python_executable", _sys.executable))
+        self.inp_py_exe.setText(c.get("python_executable", ""))
         args = c.get("args", [])
         self.txt_args.setPlainText("\n".join(args))
         self.inp_workdir.setText(c.get("working_dir", ""))
@@ -162,14 +192,12 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         self.inp_output_names.setText(", ".join(c.get("output_names", [])))
 
     def _collect_config(self) -> dict:
-        import sys as _sys
         raw  = self.txt_args.toPlainText()
         args = [a.strip() for a in raw.splitlines() if a.strip()]
-        exe  = self.inp_py_exe.text().strip() or _sys.executable
         output_names = [n.strip() for n in self.inp_output_names.text().split(",") if n.strip()]
         return {
             "script_path":        self.inp_script.text().strip(),
-            "python_executable":  exe,
+            "python_executable":  self.inp_py_exe.text().strip(),
             "args":               args,
             "working_dir":        self.inp_workdir.text().strip() or None,
             "timeout":            self.inp_timeout.value(),
@@ -179,5 +207,13 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
     def _on_ok(self):
         if not self.inp_script.text().strip():
             QMessageBox.warning(self, "Champ requis", "Saisir le chemin du script Python.")
+            return
+        if not self.inp_py_exe.text().strip():
+            QMessageBox.warning(
+                self, "Champ requis",
+                "Saisir le chemin de l'exécutable Python (python.exe du venv/conda du script) — "
+                "DataScheduler n'a pas d'interpréteur par défaut utilisable pour ça une fois "
+                "packagé en .exe.",
+            )
             return
         self.accept()

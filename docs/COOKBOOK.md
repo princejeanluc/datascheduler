@@ -235,7 +235,11 @@ supprimez le fichier `datascheduler.db`, relancez — `init_db()` en recrée un 
   du `.exe` lui-même. L'étape `PYTHON_SCRIPT` doit donc toujours recevoir un
   `python_executable` explicite (chemin vers le `python.exe` d'un venv/conda cible) une fois
   packagé ; le champ par défaut (`sys.executable`) ne fonctionne qu'en lançant `python main.py`
-  directement.
+  directement. **Depuis le chantier "script Python pour un utilisateur inconnu de l'app"**,
+  `PythonScriptStep.run()` détecte ce cas précis (`sys.frozen` + `python_executable` résolu ==
+  `sys.executable`) et refuse proprement avec un message explicite, plutôt que de relancer une
+  deuxième instance complète de DataScheduler et de bloquer jusqu'au timeout — voir
+  `core/steps/python_script.py::_same_executable()`.
 - **`pandas.read_sql()` avec une connexion `oracledb` brute** émet un `UserWarning` — cosmétique,
   pas un bug (voir `docs/LIBRARIES.md`).
 - **`chunk.where(chunk.notnull(), None)`** ne convertit pas vraiment les `NaN` en `None` sur une

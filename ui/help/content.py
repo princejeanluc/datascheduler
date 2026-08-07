@@ -112,8 +112,11 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 - **Exécution SQL (`DB_EXECUTE`)** — exécute une requête ou une procédure stockée sans forcément
   produire de fichier (ex : rafraîchir une vue matérialisée).
 - **Script Python (`PYTHON_SCRIPT`)** — lance un script externe avec des arguments personnalisés.
-  Peut lire/écrire le contexte du pipeline via un contrat JSON optionnel (voir *Jetons et
-  artefacts*).
+  Le champ *Exécutable Python* est obligatoire : il doit pointer vers le `python.exe` du projet
+  concerné (son propre venv/conda), jamais vers DataScheduler — l'application n'a pas
+  d'interpréteur Python "par défaut" utilisable pour ça. Chaque étape peut viser un environnement
+  différent si vos scripts viennent de projets distincts. Peut lire/écrire le contexte du
+  pipeline via un contrat JSON optionnel (voir *Jetons et artefacts*).
 - **Spark SQL (`SPARK_SQL`)** — exécute une requête sur un cluster Hadoop via un nœud edge :
   connexion SSH, authentification Kerberos, puis exécution de la requête. Case *Récupérer le
   résultat* pour choisir entre une exécution simple (ex : `INSERT`, rafraîchissement de cache)
