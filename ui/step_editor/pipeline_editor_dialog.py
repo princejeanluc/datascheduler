@@ -390,6 +390,9 @@ class PipelineEditorDialog(QDialog):
             if query: parts.append(f"Requête: {query.name}")
             parts.append("avec résultat" if config.get("fetch_result") else "sans résultat")
             return " · ".join(parts) or "(non configuré)"
+        elif step_type == "COMPRESS":
+            name = config.get("archive_name_tpl", "")
+            return name[:80] if name else "(nom auto)"
         return ""
 
     def _on_add_step(self):

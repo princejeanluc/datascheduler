@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.8.0] - 2026-08-07
+
+### Ajouté
+- Nouveau type d'étape `COMPRESS` : compresse le fichier de contexte (ou une source explicite/
+  ciblée) en archive ZIP — utile pour réduire la taille d'un fichier avant diffusion (email, FTP),
+  notamment quand un serveur mail d'entreprise limite la taille des pièces jointes. Conçue dès le
+  départ avec les 3 modes de source (étape précédente par défaut, Source ciblée explicitement,
+  chemin explicite manuel) plutôt qu'en retrofit ultérieur.
+
 ## [0.7.0] - 2026-08-06
 
 ### Ajouté

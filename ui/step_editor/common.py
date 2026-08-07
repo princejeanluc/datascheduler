@@ -29,6 +29,8 @@ STEP_META = {
                        "category": "Transfert & diffusion"},
     "LOCAL_COPY":     {"label": "Copie locale",       "color": "#66bb6a",
                        "category": "Transfert & diffusion"},
+    "COMPRESS":       {"label": "Compression (ZIP)",  "color": "#8d6e63",
+                       "category": "Transfert & diffusion"},
     "DB_EXECUTE":     {"label": "Exécution base de données", "color": "#29b6f6",
                        "category": "Exécution & scripts"},
     "PYTHON_SCRIPT":  {"label": "Script Python",      "color": "#ce93d8",

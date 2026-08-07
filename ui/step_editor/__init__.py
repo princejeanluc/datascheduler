@@ -19,6 +19,7 @@ from .email_notify_config_dialog import _EmailNotifyConfigDialog
 from .http_request_config_dialog import _HttpRequestConfigDialog
 from .condition_config_dialog import _ConditionConfigDialog
 from .spark_sql_config_dialog import _SparkSqlConfigDialog
+from .compress_config_dialog import _CompressConfigDialog
 
 __all__ = ["STEP_META", "PipelineEditorDialog", "_open_config_dialog"]
 
@@ -52,6 +53,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         "HTTP_REQUEST":   _HttpRequestConfigDialog,
         "CONDITION":      _ConditionConfigDialog,
         "SPARK_SQL":      _SparkSqlConfigDialog,
+        "COMPRESS":       _CompressConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None
