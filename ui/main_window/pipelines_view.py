@@ -154,6 +154,12 @@ class PipelinesView(QWidget):
             act_graph.triggered.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
             act_validate = menu.addAction("Valider (à blanc)")
             act_validate.triggered.connect(lambda _, i=pid, n=pname: self._on_validate_pipeline(i, n))
+            resumable_run = db.get_last_resumable_run(pid)
+            if resumable_run:
+                act_resume = menu.addAction("Reprendre depuis l'échec")
+                act_resume.triggered.connect(
+                    lambda _, i=pid, n=pname, r=resumable_run.id: self._on_resume_pipeline(i, n, r)
+                )
             act_dup = menu.addAction("Dupliquer")
             act_dup.triggered.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
             act_export = menu.addAction("Exporter")
@@ -319,6 +325,11 @@ class PipelinesView(QWidget):
             return
 
         RunProgressDialog(pipeline_id, p.name, self).exec()
+        self.refresh()
+
+    def _on_resume_pipeline(self, pipeline_id: int, pipeline_name: str, resume_from_run_id: int):
+        from ui.dialogs import RunProgressDialog
+        RunProgressDialog(pipeline_id, pipeline_name, self, resume_from_run_id=resume_from_run_id).exec()
         self.refresh()
 
     def _on_delete_pipeline(self, pipeline_id: int):

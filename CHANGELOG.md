@@ -29,6 +29,19 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.11.0] - 2026-08-07
+
+### Ajouté
+- Reprise depuis l'échec : quand un pipeline échoue ou est interrompu après qu'au moins une
+  étape a réussi, une action « Reprendre depuis l'échec » (menu « ⋯ » de Pipelines, bouton
+  proposé après un échec dans la fenêtre d'exécution, ou depuis le log d'un run) relance le
+  pipeline en sautant les étapes déjà réussies plutôt que de tout rejouer depuis le début. Les
+  artefacts produits par ces étapes sont préservés (non nettoyés) tant qu'ils n'ont pas été
+  consommés par une reprise ou remplacés par un nouveau run. La reprise est refusée proprement
+  (message clair, pas de crash) si le pipeline a été modifié depuis l'échec ou si un fichier
+  temporaire a expiré entre-temps. Fonctionne aussi bien en mode linéaire qu'en mode graphe, y
+  compris pour restaurer la bonne branche active d'un routeur `CONDITION` déjà résolu.
+
 ## [0.10.0] - 2026-08-07
 
 ### Ajouté

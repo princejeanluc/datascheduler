@@ -391,6 +391,15 @@ class PipelineRun(Base):
     error_message = Column(Text,     nullable=True)
     log_text      = Column(Text,     nullable=True)   # log complet de l'exécution
 
+    # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
+    # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté
+    # uniquement quand ce run échoue/est annulé ET qu'au moins une étape a réussi avant l'échec.
+    # NULL = rien à reprendre (run réussi, ou état déjà consommé par une reprise/purgé).
+    resumable_state_json = Column(Text, nullable=True)
+    # Informatif seulement (affichage "Reprise du run #N") — pas de contrainte FK, cohérent avec
+    # le reste du schéma SQLite de cette app.
+    resumed_from_run_id  = Column(Integer, nullable=True)
+
     # Relation
     pipeline = relationship("Pipeline", back_populates="runs")
 
