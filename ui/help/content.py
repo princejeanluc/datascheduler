@@ -106,6 +106,11 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   chemin source explicite.
 - **Copie locale (`LOCAL_COPY`)** — copie un fichier vers un dossier local ou réseau (ex : un
   partage sur le réseau interne).
+- **Compression (`COMPRESS`)** — compresse un fichier en archive ZIP, par exemple avant un envoi
+  email ou FTP limité en taille. Même souplesse de source que les autres étapes de ce groupe :
+  étape précédente par défaut, *Source* ciblée explicitement, ou **chemin source explicite** si
+  l'étape doit fonctionner seule. Le nom de l'archive est personnalisable (jetons acceptés) —
+  c'est ce nom qui apparaît comme nom de pièce jointe si l'archive est ensuite envoyée par email.
 
 ## Exécution & scripts
 
@@ -128,7 +133,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 ## Notification & intégration
 
 - **Notification email (`EMAIL_NOTIFY`)** — envoie un email (sujet et corps personnalisables, avec
-  jetons), peut joindre le fichier produit par une étape précédente.
+  jetons), peut joindre le fichier produit par une étape précédente. Une taille max. de pièce
+  jointe optionnelle protège des rejets par un serveur mail d'entreprise : au-delà, le pipeline
+  échoue proprement (par défaut) ou l'envoi continue sans pièce jointe, selon le réglage choisi.
+  Voir aussi l'étape Compression (`COMPRESS`) pour réduire la taille du fichier en amont.
 - **Requête HTTP (`HTTP_REQUEST`)** — appelle une URL (webhook, API interne…).
 
 ## Contrôle de flux

@@ -70,6 +70,7 @@ class StepType(str, enum.Enum):
     DB_LOAD        = "DB_LOAD"         # Chargement d'un CSV vers une table (tout moteur)
     CONDITION      = "CONDITION"       # Routeur conditionnel (ports de sortie nommés) — chantier 6a
     SPARK_SQL      = "SPARK_SQL"       # Requête Spark SQL via edge node SSH + Kerberos
+    COMPRESS       = "COMPRESS"        # Compression en archive ZIP
 
 
 # ──────────────────────────────────────────────

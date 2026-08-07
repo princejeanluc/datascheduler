@@ -10,6 +10,7 @@ from .db_execute     import DbExecuteStep
 from .db_load        import DbLoadStep
 from .condition      import ConditionStep
 from .spark_sql      import SparkSqlStep
+from .compress       import CompressStep
 
 _REGISTRY: dict[str, type[BaseStep]] = {
     "FTP_UPLOAD":     FtpUploadStep,
@@ -23,6 +24,7 @@ _REGISTRY: dict[str, type[BaseStep]] = {
     "DB_LOAD":        DbLoadStep,
     "CONDITION":      ConditionStep,
     "SPARK_SQL":      SparkSqlStep,
+    "COMPRESS":       CompressStep,
 }
 
 

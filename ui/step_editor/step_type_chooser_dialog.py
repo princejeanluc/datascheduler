@@ -26,6 +26,7 @@ _DESCRIPTIONS = {
     "DB_EXTRACT":     "Connexion à une base (Oracle, MySQL, PostgreSQL, SQL Server), exécution SQL, export CSV vers fichier temporaire.",
     "FTP_UPLOAD":     "Upload du fichier produit vers un serveur FTP / FTPS / SFTP.",
     "LOCAL_COPY":     "Copie du fichier produit dans un dossier local (avec tokens datetime).",
+    "COMPRESS":       "Compression du fichier produit en archive ZIP (utile avant une diffusion limitée en taille).",
     "PYTHON_SCRIPT":  "Exécution d'un script Python avec arguments (tokens datetime + contexte).",
     "SPARK_SQL":      "Requête Spark SQL sur un cluster Hadoop via un nœud edge (SSH + Kerberos).",
     "DB_EXECUTE":     "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction, tout moteur.",
