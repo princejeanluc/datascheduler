@@ -134,6 +134,24 @@ def _migrate(engine) -> None:
                 "ALTER TABLE pipeline_steps ADD COLUMN run_always BOOLEAN NOT NULL DEFAULT 0"
             ))
             conn.commit()
+        if "timeout_s" not in step_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_steps ADD COLUMN timeout_s INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
+        # Reprise depuis l'échec (chantier J.2) — colonnes nullables, pas de backfill nécessaire.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "resumable_state_json" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN resumable_state_json TEXT"
+            ))
+            conn.commit()
+        if "resumed_from_run_id" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN resumed_from_run_id INTEGER"
+            ))
+            conn.commit()
         # Position sur le canevas (chantier 6a/6b) — DEFAULT 0 constant pour toutes les lignes,
         # pas besoin d'un backfill ligne par ligne comme pour uuid (valeurs devant être distinctes).
         for col in ("pos_x", "pos_y"):
@@ -821,7 +839,8 @@ def create_run(pipeline_id: int) -> PipelineRun:
 
 
 def finish_run(run_id: int, status: str, rows_exported=None,
-               remote_path=None, error_message=None, log_text=None) -> bool:
+               remote_path=None, error_message=None, log_text=None,
+               resumable_state_json=None, resumed_from_run_id=None) -> bool:
     from datetime import datetime
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
@@ -833,6 +852,37 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.remote_path   = remote_path
         run.error_message = error_message
         run.log_text      = log_text
+        run.resumable_state_json = resumable_state_json
+        run.resumed_from_run_id  = resumed_from_run_id
+        return True
+
+
+def get_run(run_id: int) -> PipelineRun | None:
+    with get_session() as s:
+        return s.get(PipelineRun, run_id)
+
+
+def get_last_resumable_run(pipeline_id: int) -> PipelineRun | None:
+    """Dernier run de ce pipeline avec un état de reprise persisté (chantier J.2) — au plus un
+    à la fois par construction (run_pipeline() purge tout état non consommé avant chaque
+    nouveau run pour ce pipeline)."""
+    with get_session() as s:
+        return (
+            s.query(PipelineRun)
+            .filter(PipelineRun.pipeline_id == pipeline_id,
+                    PipelineRun.resumable_state_json.isnot(None))
+            .order_by(PipelineRun.started_at.desc())
+            .first()
+        )
+
+
+def clear_resumable_state(run_id: int) -> bool:
+    """Remet resumable_state_json à NULL — état consommé par une reprise, ou purgé car périmé."""
+    with get_session() as s:
+        run = s.get(PipelineRun, run_id)
+        if not run:
+            return False
+        run.resumable_state_json = None
         return True
 
 
@@ -1061,7 +1111,7 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
     Chaque dict : {"step_type": str, "label": str|None, "config": dict,
-                    "retry_count": int|None, "run_always": bool|None}
+                    "retry_count": int|None, "run_always": bool|None, "timeout_s": int|None}
     """
     import json
     with get_session() as s:
@@ -1075,6 +1125,7 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
+                timeout_s=step.get("timeout_s") or 0,
             ))
     pipeline = get_pipeline(pipeline_id)
     log_audit_event(
@@ -1115,6 +1166,7 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) 
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
                 run_always=step.get("run_always") or False,
+                timeout_s=step.get("timeout_s") or 0,
                 pos_x=step.get("pos_x", 0),
                 pos_y=step.get("pos_y", 0),
             ))

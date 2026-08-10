@@ -29,7 +29,7 @@ bas pour son introduction).
 
 ## [Non publié]
 
-## [0.10.0] - 2026-08-10
+## [0.12.0] - 2026-08-10
 
 ### Ajouté
 - Nouveau type d'étape `SQOOP_EXPORT` : exporte une table Hive/HCatalog vers Oracle via `sqoop
@@ -41,6 +41,31 @@ bas pour son introduction).
 - `core/hadoop_edge.py` (nouveau) : mécanique SSH/Kerberos extraite de `core/spark.py` pour être
   partagée avec `SQOOP_EXPORT` — refactor sans changement de comportement, `core/spark.py`
   ré-exporte les noms historiquement importés depuis là.
+
+## [0.11.0] - 2026-08-07
+
+### Ajouté
+- Reprise depuis l'échec : quand un pipeline échoue ou est interrompu après qu'au moins une
+  étape a réussi, une action « Reprendre depuis l'échec » (menu « ⋯ » de Pipelines, bouton
+  proposé après un échec dans la fenêtre d'exécution, ou depuis le log d'un run) relance le
+  pipeline en sautant les étapes déjà réussies plutôt que de tout rejouer depuis le début. Les
+  artefacts produits par ces étapes sont préservés (non nettoyés) tant qu'ils n'ont pas été
+  consommés par une reprise ou remplacés par un nouveau run. La reprise est refusée proprement
+  (message clair, pas de crash) si le pipeline a été modifié depuis l'échec ou si un fichier
+  temporaire a expiré entre-temps. Fonctionne aussi bien en mode linéaire qu'en mode graphe, y
+  compris pour restaurer la bonne branche active d'un routeur `CONDITION` déjà résolu.
+
+## [0.10.0] - 2026-08-07
+
+### Ajouté
+- Délai maximal configurable par étape (« Délai maximal », 0 = aucune limite, dans la politique
+  d'exécution commune à tous les types d'étape). Une étape qui dépasse ce délai (ex : connexion
+  SSH/Spark, FTP ou appel HTTP resté bloqué) est marquée en échec proprement au lieu de geler le
+  pipeline indéfiniment ; le pipeline continue normalement ensuite (relance, `run_always`,
+  reste des étapes). Limite assumée : CPython ne peut pas interrompre un appel bloquant de
+  force — le pipeline avance, mais l'appel sous-jacent peut se terminer en arrière-plan plus
+  tard sans effet sur l'exécution déjà passée à la suite (voir le commentaire de
+  `_run_step_with_policy` dans `core/pipeline.py`).
 
 ## [0.9.0] - 2026-08-07
 

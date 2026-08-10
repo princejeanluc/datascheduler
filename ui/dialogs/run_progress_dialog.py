@@ -21,15 +21,17 @@ class RunProgressThread(QThread):
     progress_signal = Signal(str, int)   # step, pct
     finished_signal = Signal(object)     # PipelineResult
 
-    def __init__(self, pipeline_id: int):
+    def __init__(self, pipeline_id: int, resume_from_run_id: int | None = None):
         super().__init__()
         self.pipeline_id = pipeline_id
+        self.resume_from_run_id = resume_from_run_id
 
     def run(self):
         from core.pipeline import run_pipeline
         result = run_pipeline(
             self.pipeline_id,
             on_progress=lambda step, pct: self.progress_signal.emit(step, pct),
+            resume_from_run_id=self.resume_from_run_id,
         )
         self.finished_signal.emit(result)
 
@@ -41,15 +43,20 @@ class RunProgressDialog(QDialog):
     Ne peut pas être fermé pendant l'exécution.
     """
 
-    def __init__(self, pipeline_id: int, pipeline_name: str, parent=None):
+    def __init__(self, pipeline_id: int, pipeline_name: str, parent=None,
+                 resume_from_run_id: int | None = None):
         super().__init__(parent)
         self._thread = None
-        self.setWindowTitle(f"Exécution — {pipeline_name}")
+        self._pipeline_id = pipeline_id
+        self._pipeline_name = pipeline_name
+        self._resume_from_run_id = resume_from_run_id
+        title = f"Reprise — {pipeline_name}" if resume_from_run_id else f"Exécution — {pipeline_name}"
+        self.setWindowTitle(title)
         self.setMinimumSize(500, 340)
         self.setModal(True)
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui(pipeline_name)
-        self._start(pipeline_id)
+        self._start(pipeline_id, resume_from_run_id)
 
     def _build_ui(self, pipeline_name: str):
         root = QVBoxLayout(self)
@@ -106,6 +113,12 @@ class RunProgressDialog(QDialog):
         root.addStretch()
 
         btn_row = QHBoxLayout(); btn_row.addStretch()
+        self.btn_resume = QPushButton("Reprendre depuis l'échec")
+        self.btn_resume.setObjectName("secondary")
+        self.btn_resume.setFixedHeight(34)
+        self.btn_resume.setVisible(False)
+        self.btn_resume.clicked.connect(self._on_resume_clicked)
+        btn_row.addWidget(self.btn_resume)
         self.btn_close = QPushButton("Fermer")
         self.btn_close.setFixedHeight(34)
         self.btn_close.setEnabled(False)
@@ -113,8 +126,8 @@ class RunProgressDialog(QDialog):
         btn_row.addWidget(self.btn_close)
         root.addLayout(btn_row)
 
-    def _start(self, pipeline_id: int):
-        self._thread = RunProgressThread(pipeline_id)
+    def _start(self, pipeline_id: int, resume_from_run_id: int | None = None):
+        self._thread = RunProgressThread(pipeline_id, resume_from_run_id)
         self._thread.progress_signal.connect(self._on_progress)
         self._thread.finished_signal.connect(self._on_finished)
         self._thread.start()
@@ -126,6 +139,7 @@ class RunProgressDialog(QDialog):
 
     def _on_finished(self, result):
         self.btn_close.setEnabled(True)
+        self._last_result = result
         if result.success:
             m, s = divmod(int(result.duration_s), 60)
             dur = f"{m}m {s:02d}s" if m else f"{s}s"
@@ -138,12 +152,29 @@ class RunProgressDialog(QDialog):
             txt   = f"❌  Erreur : {result.error}"
             color = COLORS["danger"]
             self.lbl_step.setText("Échec")
+            self._offer_resume_if_available(result)
 
         self.lbl_result.setText(txt)
         self.lbl_result.setStyleSheet(
             f"color: {color}; font-size: 13px; font-weight: 600;"
         )
         self.lbl_result.setVisible(True)
+
+    def _offer_resume_if_available(self, result):
+        if not result.run_id:
+            return
+        from database import db_manager as db
+        resumable = db.get_last_resumable_run(self._pipeline_id)
+        if resumable and resumable.id == result.run_id:
+            self.btn_resume.setVisible(True)
+
+    def _on_resume_clicked(self):
+        run_id = self._last_result.run_id
+        self.accept()
+        RunProgressDialog(
+            self._pipeline_id, self._pipeline_name, self.parent(),
+            resume_from_run_id=run_id,
+        ).exec()
 
     def closeEvent(self, event):
         if self._thread and self._thread.isRunning():

@@ -182,6 +182,7 @@ class PipelineGraphEditorDialog(QDialog):
             label=step.get("label", ""),
             retry_count=step.get("retry_count", 0),
             run_always=step.get("run_always", False),
+            timeout_s=step.get("timeout_s", 0),
             prior_steps=[],
         )
         if config_dlg and config_dlg.exec():

@@ -24,12 +24,13 @@ class _BaseStepConfigDialog(QDialog):
     SIDE_EFFECT_TYPES = {"FTP_UPLOAD", "EMAIL_NOTIFY", "HTTP_REQUEST", "DB_EXECUTE"}
 
     def __init__(self, config: dict, parent=None, label: str = "",
-                 retry_count: int = 0, run_always: bool = False):
+                 retry_count: int = 0, run_always: bool = False, timeout_s: int = 0):
         super().__init__(parent)
         self._config = config
         self._init_label = label
         self._init_retry_count = retry_count
         self._init_run_always  = run_always
+        self._init_timeout_s   = timeout_s
         self.setMinimumWidth(500)
         self.setStyleSheet(DIALOG_STYLE)
 
@@ -47,6 +48,7 @@ class _BaseStepConfigDialog(QDialog):
             "config":      config,
             "retry_count": self.inp_retry.value() if hasattr(self, "inp_retry") else 0,
             "run_always":  self.chk_run_always.isChecked() if hasattr(self, "chk_run_always") else False,
+            "timeout_s":   self.inp_timeout.value() if hasattr(self, "inp_timeout") else 0,
         }
 
     def _get_label(self) -> str:
@@ -98,6 +100,19 @@ class _BaseStepConfigDialog(QDialog):
             "même si une étape en amont a échoué."
         )
         form.addRow("", self.chk_run_always)
+
+        self.inp_timeout = QSpinBox()
+        self.inp_timeout.setRange(0, 21600)
+        self.inp_timeout.setValue(self._init_timeout_s)
+        self.inp_timeout.setSuffix(" s")
+        self.inp_timeout.setSpecialValueText("Aucune limite")
+        self.inp_timeout.setStyleSheet(self._spinbox_style())
+        self.inp_timeout.setToolTip(
+            "Délai maximal avant d'abandonner l'étape (0 = aucune limite). Utile pour une "
+            "connexion SSH/Spark, FTP ou un appel HTTP qui pourrait rester bloqué indéfiniment. "
+            "Un dépassement compte comme un échec normal (donc soumis à la relance ci-dessus)."
+        )
+        form.addRow(self._lbl("Délai maximal"), self.inp_timeout)
 
     def _profile_row(self, form: QFormLayout, label: str, items: list,
                      empty_label: str, new_fn) -> QComboBox:

@@ -5,8 +5,7 @@ réutilisé aussi par la vue détail par pipeline (chantier UX fiabilité, D.1),
 construction du dialogue.
 """
 
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QTextEdit, QLabel, QPushButton
-from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton
 from PySide6.QtGui import QFont
 from ui.styles import COLORS, DIALOG_STYLE
 from .widgets import _status_str, FONT_MONO
@@ -20,10 +19,12 @@ def open_run_log_dialog(parent, run_id: int) -> None:
         run = s.get(PipelineRun, run_id)
         if not run:
             return
-        pname    = run.pipeline.name if run.pipeline else str(run.pipeline_id)
-        st       = _status_str(run.status)
-        log_text = run.log_text or "(aucun log enregistré)"
-        err_text = run.error_message or ""
+        pipeline_id  = run.pipeline_id
+        pname        = run.pipeline.name if run.pipeline else str(run.pipeline_id)
+        st           = _status_str(run.status)
+        log_text     = run.log_text or "(aucun log enregistré)"
+        err_text     = run.error_message or ""
+        is_resumable = bool(run.resumable_state_json)
 
     dlg = QDialog(parent)
     dlg.setWindowTitle(f"Log — {pname}")
@@ -57,9 +58,24 @@ def open_run_log_dialog(parent, run_id: int) -> None:
     txt.setPlainText(log_text)
     vl.addWidget(txt)
 
+    btn_row = QHBoxLayout(); btn_row.addStretch()
+
+    if is_resumable:
+        def _on_resume_clicked():
+            from ui.dialogs import RunProgressDialog
+            dlg.accept()
+            RunProgressDialog(pipeline_id, pname, parent, resume_from_run_id=run_id).exec()
+
+        btn_resume = QPushButton("Reprendre depuis l'échec")
+        btn_resume.setObjectName("secondary")
+        btn_resume.setFixedHeight(34)
+        btn_resume.clicked.connect(_on_resume_clicked)
+        btn_row.addWidget(btn_resume)
+
     btn_close = QPushButton("Fermer")
     btn_close.setFixedHeight(34)
     btn_close.clicked.connect(dlg.accept)
-    vl.addWidget(btn_close, alignment=Qt.AlignRight)
+    btn_row.addWidget(btn_close)
+    vl.addLayout(btn_row)
 
     dlg.exec()
