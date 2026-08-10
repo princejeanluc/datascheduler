@@ -27,8 +27,12 @@ def _make_pipeline_with_oracle_extract(test_db):
         "step_type": "DB_EXTRACT",
         "label": "Extraction ventes",
         "config": {"db_type": "ORACLE", "profile_id": profile.id, "sql_query_id": query.id},
-        "retry_count": 0,
-        "run_always": False,
+        # Valeurs non triviales délibérément (pas 0/False/0) — ce sont aussi les valeurs par
+        # défaut côté lecture (step.get(clé, 0)), donc un bug de câblage qui perdrait ces champs
+        # à l'export passerait inaperçu avec 0/False/0. Voir test_export_includes_execution_policy.
+        "retry_count": 2,
+        "run_always": True,
+        "timeout_s": 600,
     }])
     return pipeline, profile, query
 
@@ -63,6 +67,19 @@ def test_export_bundle_shape(test_db):
     assert bundle["profiles"]["oracle"][0]["uuid"] == profile.uuid
     assert len(bundle["sql_queries"]) == 1
     assert bundle["sql_queries"][0]["uuid"] == query.uuid
+
+
+def test_export_includes_execution_policy(test_db):
+    """retry_count/run_always/timeout_s sont des colonnes PipelineStep (pas du config_json) —
+    vérifie qu'elles survivent bien dans le bundle exporté, avec des valeurs non triviales."""
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+
+    result = export_pipeline(pipeline.id)
+
+    step = result.bundle["pipeline"]["steps"][0]
+    assert step["retry_count"] == 2
+    assert step["run_always"] is True
+    assert step["timeout_s"] == 600
 
 
 def test_export_translates_profile_references_to_uuid(test_db):

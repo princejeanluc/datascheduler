@@ -27,6 +27,12 @@ def _make_spark_pipeline():
             "fetch_result": True, "output_name": "spark_result",
             "spark_conf": "--conf spark.yarn.queue=default",
         },
+        # Valeurs non triviales délibérément (pas 0/False/0) — ce sont aussi les valeurs par
+        # défaut côté lecture, donc un bug de câblage qui perdrait ces champs à l'export/import
+        # passerait inaperçu avec 0/False/0. Voir test_export_import_preserves_execution_policy.
+        "retry_count": 2,
+        "run_always": True,
+        "timeout_s": 600,
     }])
     return pipeline, edge, krb, query
 
@@ -100,10 +106,16 @@ def test_import_into_fresh_db_recreates_profiles_with_same_uuid_and_password(tes
     assert crypto.decrypt(new_krb.password) == "krbsecret"
 
     steps = db.get_steps(apply_result.pipeline_id)
-    config = json.loads(steps[0].config_json)
+    step = steps[0]
+    config = json.loads(step.config_json)
     assert config["edge_profile_id"] == new_edge.id
     assert config["kerberos_profile_id"] == new_krb.id
     assert config["output_name"] == "spark_result"
+    # Politique d'exécution (colonnes PipelineStep, pas du config_json) — tout aussi essentielle
+    # à préserver dans le bundle. Valeurs non triviales (voir _make_spark_pipeline).
+    assert step.retry_count == 2
+    assert step.run_always is True
+    assert step.timeout_s == 600
 
 
 def test_reimport_into_same_db_reuses_existing_profiles(test_db, tmp_path):
