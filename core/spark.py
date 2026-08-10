@@ -19,7 +19,7 @@ from pathlib import Path
 from core.hadoop_edge import (  # noqa: F401 — ré-export, voir docstring ci-dessus
     SshExecConfig, KerberosConfig, ConnectionTestResult,
     config_from_profile, kerberos_config_from_profile,
-    _connect, _kinit, test_ssh_connection, test_kerberos_auth,
+    _connect, _close_all, _kinit, test_ssh_connection, test_kerberos_auth,
     read_remote_file as _read_remote_file,
 )
 
@@ -116,4 +116,4 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
                 client.exec_command(f"rm -f {remote_sql} {remote_out} {remote_err}")
             except Exception:
                 pass
-            client.close()
+            _close_all(client)

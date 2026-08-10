@@ -128,12 +128,29 @@ class FakeInteractiveChannel:
         return chunk.encode("utf-8", errors="replace")
 
 
+class FakeTransport:
+    """Simule le Transport d'un client bastion — utilisé par _connect() (core/hadoop_edge.py,
+    chantier M) pour ouvrir un canal direct-tcpip vers le saut suivant, exactement comme
+    ssh -J. open_channel() n'a pas besoin de retourner un vrai canal exploitable : le fake
+    client cible ne s'en sert jamais (connect() l'accepte mais l'ignore, voir FakeSSHClient),
+    seul le fait qu'il soit transmis tel quel est vérifié par les tests."""
+
+    def __init__(self):
+        self.open_channel_calls = []
+
+    def open_channel(self, kind, dest_addr, src_addr, timeout=None):
+        self.open_channel_calls.append((kind, dest_addr, src_addr, timeout))
+        return f"<fake-channel to {dest_addr}>"
+
+
 class FakeSSHClient:
     """`exec_fn(cmd, get_pty, timeout) -> (stdin, stdout, stderr)` décide du comportement par
     commande — laisse le test scripter kinit vs. la commande distante vs. le nettoyage.
     `sftp_files` simule le système de fichiers distant vu par open_sftp() (déposer une requête,
     lire un fichier d'erreur via core.hadoop_edge.read_remote_file, rapatrier un résultat).
-    `shell_script_fn`, s'il est fourni, alimente invoke_shell() (voir FakeInteractiveChannel)."""
+    `shell_script_fn`, s'il est fourni, alimente invoke_shell() (voir FakeInteractiveChannel).
+    `connect()` accepte et enregistre `sock=` (chantier M, chaînage bastion) sans s'en servir —
+    la fausse cible n'a pas besoin d'un vrai tunnel, seul l'objet transmis compte pour les tests."""
 
     def __init__(self, exec_fn=None, connect_should_fail: bool = False, shell_script_fn=None):
         self._exec_fn = exec_fn
@@ -142,11 +159,14 @@ class FakeSSHClient:
         self.closed = False
         self.exec_calls = []
         self.sftp_files: dict = {}
+        self.received_sock = "__not_called__"
+        self._transport = FakeTransport()
 
     def set_missing_host_key_policy(self, policy):
         pass
 
-    def connect(self, hostname, port, username, password, timeout):
+    def connect(self, hostname, port, username, password, timeout, sock=None):
+        self.received_sock = sock
         if self._connect_should_fail:
             raise OSError("connexion refusée")
 
@@ -160,12 +180,16 @@ class FakeSSHClient:
     def open_sftp(self):
         return FakeSftp(self.sftp_files)
 
+    def get_transport(self):
+        return self._transport
+
     def close(self):
         self.closed = True
 
 
-def ssh_cfg():
-    return SshExecConfig(host="edge01", port=22, username="jdupont", password="pwd")
+def ssh_cfg(jump_via=None):
+    return SshExecConfig(host="edge01", port=22, username="jdupont", password="pwd",
+                          jump_via=jump_via)
 
 
 def krb_cfg():
@@ -179,3 +203,14 @@ def elevation_cfg():
 def install_fake_client(monkeypatch, client: FakeSSHClient):
     import paramiko
     monkeypatch.setattr(paramiko, "SSHClient", lambda: client)
+
+
+def install_fake_client_sequence(monkeypatch, clients: list):
+    """Pour les tests de chaînage bastion (chantier M) : _connect() appelle paramiko.SSHClient()
+    une fois par saut (bastion d'abord — récursion — puis cible), donc un simple monkeypatch qui
+    renvoie toujours la même instance ne peut pas représenter deux hôtes distincts. `clients` est
+    consommé dans l'ordre d'appel : clients[0] pour le premier saut ouvert (le bastion le plus
+    en amont de la chaîne), clients[-1] pour la cible finale."""
+    import paramiko
+    it = iter(clients)
+    monkeypatch.setattr(paramiko, "SSHClient", lambda: next(it))

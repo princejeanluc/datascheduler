@@ -56,6 +56,71 @@ def test_ssh_profile_health_board_wiring(test_db):
 
 
 # ──────────────────────────────────────────────
+#  SshProfile.jump_via_id — chaînage bastion (chantier M)
+# ──────────────────────────────────────────────
+
+def test_ssh_profile_jump_via_crud(test_db):
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw",
+                                    jump_via_id=edge01.id)
+    assert db.get_ssh_profile(edge03.id).jump_via_id == edge01.id
+
+    db.update_ssh_profile(edge03.id, name="EDGE03", host="edge03", port=22, username="u",
+                           jump_via_id=None)
+    assert db.get_ssh_profile(edge03.id).jump_via_id is None
+
+    db.update_ssh_profile(edge03.id, name="EDGE03", host="edge03", port=22, username="u",
+                           jump_via_id=edge01.id)
+    assert db.get_ssh_profile(edge03.id).jump_via_id == edge01.id
+
+
+def test_ssh_profile_jump_via_rejects_self_reference(test_db):
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    try:
+        db.update_ssh_profile(edge01.id, name="EDGE01", host="edge01", port=22, username="u",
+                               jump_via_id=edge01.id)
+        assert False, "devait lever ValueError (boucle A->A)"
+    except ValueError as e:
+        assert "boucle" in str(e)
+
+
+def test_ssh_profile_jump_via_rejects_two_hop_cycle(test_db):
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw",
+                                    jump_via_id=edge01.id)
+    try:
+        db.update_ssh_profile(edge01.id, name="EDGE01", host="edge01", port=22, username="u",
+                               jump_via_id=edge03.id)
+        assert False, "devait lever ValueError (boucle EDGE01->EDGE03->EDGE01)"
+    except ValueError as e:
+        assert "boucle" in str(e)
+    # La tentative rejetée ne doit pas avoir modifié EDGE01 en base.
+    assert db.get_ssh_profile(edge01.id).jump_via_id is None
+
+
+def test_delete_ssh_profile_used_as_bastion_clears_dependents(test_db):
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw",
+                                    jump_via_id=edge01.id)
+    assert db.find_ssh_profiles_using_as_bastion(edge01.id) == ["EDGE03"]
+
+    db.delete_ssh_profile(edge01.id)
+    assert db.get_ssh_profile(edge03.id).jump_via_id is None
+
+
+def test_set_ssh_profile_jump_via(test_db):
+    """Setter minimal utilisé par l'import (database/export_import.py) — ne touche que cette
+    colonne, ne redemande pas host/port/etc. comme le ferait update_ssh_profile."""
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw")
+
+    db.set_ssh_profile_jump_via(edge03.id, edge01.id)
+    reloaded = db.get_ssh_profile(edge03.id)
+    assert reloaded.jump_via_id == edge01.id
+    assert reloaded.host == "edge03"   # champs non touchés
+
+
+# ──────────────────────────────────────────────
 #  KerberosProfile
 # ──────────────────────────────────────────────
 
@@ -158,7 +223,7 @@ def test_init_db_creates_ssh_and_kerberos_tables_with_expected_columns(tmp_path)
                 .execute(text("PRAGMA table_info(kerberos_profiles)")).fetchall()}
     cols_elevation = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
                 .execute(text("PRAGMA table_info(elevation_profiles)")).fetchall()}
-    for col in ("uuid", "name", "host", "port", "username", "password",
+    for col in ("uuid", "name", "host", "port", "username", "password", "jump_via_id",
                 "last_tested_at", "last_test_success"):
         assert col in cols_ssh
     for col in ("uuid", "name", "principal", "password", "last_tested_at", "last_test_success"):
@@ -168,5 +233,29 @@ def test_init_db_creates_ssh_and_kerberos_tables_with_expected_columns(tmp_path)
 
     # Idempotence : un second démarrage ne doit pas planter.
     db.init_db(db_path)
+    db._engine = None
+    db._SessionFactory = None
+
+
+def test_migrate_adds_jump_via_id_to_a_pre_existing_ssh_profiles_table(tmp_path):
+    """Contrairement au test ci-dessus (table neuve, créée avec toutes ses colonnes d'un coup
+    par Base.metadata.create_all()), ce test crée une vraie table ssh_profiles "legacy" —
+    antérieure au chantier M — pour exercer réellement le bloc ALTER TABLE ajouté à _migrate()."""
+    db_path = tmp_path / "legacy_ssh.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE ssh_profiles (id INTEGER PRIMARY KEY, uuid VARCHAR(36), "
+            "name VARCHAR(100), host VARCHAR(255), port INTEGER, username VARCHAR(100), "
+            "password VARCHAR(255))"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(ssh_profiles)")).fetchall()}
+    assert "jump_via_id" in cols
+
     db._engine = None
     db._SessionFactory = None

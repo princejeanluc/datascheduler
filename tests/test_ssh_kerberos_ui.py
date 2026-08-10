@@ -65,6 +65,76 @@ def test_ssh_profile_dialog_requires_fields(qapp, test_db):
 
 
 # ──────────────────────────────────────────────
+#  SshProfileDialog — chaînage bastion (chantier M)
+# ──────────────────────────────────────────────
+
+def test_ssh_profile_dialog_bastion_combo_excludes_self_when_editing(qapp, test_db):
+    from ui.dialogs import SshProfileDialog
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw")
+
+    dlg = SshProfileDialog(None, profile=edge03)
+    names = [dlg.cb_bastion.itemText(i) for i in range(dlg.cb_bastion.count())]
+    assert "EDGE01" in names
+    assert "EDGE03" not in names   # ne peut pas être son propre bastion
+
+
+def test_ssh_profile_dialog_saves_and_prefills_jump_via(qapp, test_db):
+    from ui.dialogs import SshProfileDialog
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+
+    dlg = SshProfileDialog(None)
+    dlg.inp_name.setText("EDGE03")
+    dlg.inp_host.setText("edge03")
+    dlg.inp_user.setText("jdupont")
+    dlg.inp_pass.setText("secret")
+    idx = dlg.cb_bastion.findData(edge01.id)
+    dlg.cb_bastion.setCurrentIndex(idx)
+    dlg._on_save()
+
+    edge03 = db.get_ssh_profiles()[-1]
+    assert edge03.jump_via_id == edge01.id
+
+    dlg2 = SshProfileDialog(None, profile=edge03)
+    assert dlg2.cb_bastion.currentData() == edge01.id
+
+
+def test_ssh_profile_dialog_build_config_resolves_bastion_chain(qapp, test_db):
+    from ui.dialogs import SshProfileDialog
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+
+    dlg = SshProfileDialog(None)
+    dlg.inp_host.setText("edge03")
+    dlg.inp_user.setText("jdupont")
+    dlg.inp_pass.setText("secret")
+    idx = dlg.cb_bastion.findData(edge01.id)
+    dlg.cb_bastion.setCurrentIndex(idx)
+
+    config = dlg._build_config()
+    assert config.jump_via is not None
+    assert config.jump_via.host == "edge01"
+
+
+def test_ssh_profile_dialog_rejects_cycle_and_shows_error(qapp, test_db):
+    from ui.dialogs import SshProfileDialog
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="pw")
+    edge03 = db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="pw",
+                                    jump_via_id=edge01.id)
+
+    dlg = SshProfileDialog(None, profile=edge01)
+    idx = dlg.cb_bastion.findData(edge03.id)
+    dlg.cb_bastion.setCurrentIndex(idx)
+    dlg._on_save()   # EDGE01 -> EDGE03 -> EDGE01 : doit être rejeté, pas planter
+
+    assert db.get_ssh_profile(edge01.id).jump_via_id is None
+    assert "boucle" in dlg.lbl_test_result.text()
+
+
+# ──────────────────────────────────────────────
 #  KerberosProfileDialog
 # ──────────────────────────────────────────────
 
@@ -129,6 +199,39 @@ def test_connections_view_delete_ssh_checks_pipeline_usage(qapp, test_db, monkey
     view = cv_module.ConnectionsView()
     view._on_delete_ssh(p.id)   # répond "No" -> pas supprimé
     assert db.get_ssh_profile(p.id) is not None
+
+
+def test_connections_view_ssh_via_column_shows_bastion_name_or_dash(qapp, test_db):
+    from ui.main_window.connections_view import ConnectionsView
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
+    db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="p",
+                           jump_via_id=edge01.id)
+
+    view = ConnectionsView()
+    rows = {view.ssh_table.item(r, 0).text(): view.ssh_table.item(r, 4).text()
+            for r in range(view.ssh_table.rowCount())}
+    assert rows["EDGE01"] == "—"
+    assert rows["EDGE03"] == "EDGE01"
+
+
+def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, monkeypatch):
+    from ui.main_window import connections_view as cv_module
+
+    edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
+    db.create_ssh_profile(name="EDGE03", host="edge03", port=22, username="u", password="p",
+                           jump_via_id=edge01.id)
+
+    captured = {}
+    def _fake_question(self_, title, msg, *a, **kw):
+        captured["msg"] = msg
+        return cv_module.QMessageBox.No
+    monkeypatch.setattr(cv_module.QMessageBox, "question", _fake_question)
+
+    view = cv_module.ConnectionsView()
+    view._on_delete_ssh(edge01.id)
+    assert "EDGE03" in captured["msg"]
+    assert "bastion" in captured["msg"]
 
 
 # ──────────────────────────────────────────────

@@ -35,6 +35,10 @@ class SshExecConfig:
     username: str
     password: str
     timeout: int = 30
+    # Bastion optionnel (chantier M) : si renseigné, _connect() se connecte d'abord à jump_via
+    # puis ouvre un tunnel direct-tcpip depuis son canal vers (host, port) — équivalent de
+    # `ssh -J`. Récursif : jump_via peut lui-même avoir un jump_via, chaîne de longueur arbitraire.
+    jump_via: "SshExecConfig | None" = None
 
 
 @dataclass
@@ -56,10 +60,18 @@ class ElevationConfig:
 
 
 def config_from_profile(profile) -> SshExecConfig:
-    from database import crypto
+    """Résout aussi la chaîne de bastions (jump_via_id, chantier M) récursivement, via de
+    nouvelles requêtes explicites plutôt qu'une relationship ORM — voir la note dans
+    database/models.py::SshProfile sur pourquoi (DetachedInstanceError)."""
+    from database import crypto, db_manager as db
+    jump = None
+    if profile.jump_via_id:
+        jump_profile = db.get_ssh_profile(profile.jump_via_id)
+        if jump_profile:
+            jump = config_from_profile(jump_profile)
     return SshExecConfig(
         host=profile.host, port=profile.port, username=profile.username,
-        password=crypto.decrypt(profile.password),
+        password=crypto.decrypt(profile.password), jump_via=jump,
     )
 
 
@@ -82,14 +94,70 @@ def config_from_elevation_profile(profile) -> ElevationConfig:
 # ──────────────────────────────────────────────
 
 def _connect(cfg: SshExecConfig):
+    """
+    Connexion SSH directe, ou en chaîne via un ou plusieurs bastions (cfg.jump_via, chantier M) :
+    technique standard paramiko pour un jump host (équivalent de `ssh -J`) — se connecter d'abord
+    au bastion, ouvrir un canal `direct-tcpip` sur son Transport vers (host, port), l'utiliser
+    comme `sock=` pour la connexion cible (le tunnel tient lieu de socket TCP). Récursif : chaque
+    bastion peut lui-même en avoir un. Sans jump_via, comportement strictement identique à avant
+    (sock=None) — aucun risque de régression pour un profil SSH direct.
+
+    Trois échecs distincts et clairement préfixés (utile pour savoir lequel des sauts pose
+    problème depuis le résultat d'un test de connexion) : bastion injoignable, tunnel impossible
+    (bastion joint mais route fermée vers la cible), cible injoignable via un tunnel pourtant
+    valide (bastion + tunnel OK, mais échec SSH sur la cible elle-même).
+    """
     import paramiko
+    sock = None
+    bastion_client = None
+    if cfg.jump_via:
+        try:
+            bastion_client = _connect(cfg.jump_via)
+        except Exception as e:
+            raise ConnectionError(
+                f"Bastion {cfg.jump_via.host}:{cfg.jump_via.port} injoignable : {e}"
+            ) from e
+        try:
+            sock = bastion_client.get_transport().open_channel(
+                "direct-tcpip", (cfg.host, cfg.port), ("localhost", 0), timeout=cfg.timeout,
+            )
+        except Exception as e:
+            _close_all(bastion_client)
+            raise ConnectionError(
+                f"Tunnel vers {cfg.host}:{cfg.port} via le bastion {cfg.jump_via.host} "
+                f"impossible : {e}"
+            ) from e
+
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=cfg.host, port=cfg.port, username=cfg.username, password=cfg.password,
-        timeout=cfg.timeout,
-    )
+    try:
+        client.connect(
+            hostname=cfg.host, port=cfg.port, username=cfg.username, password=cfg.password,
+            timeout=cfg.timeout, sock=sock,
+        )
+    except Exception as e:
+        if bastion_client is not None:
+            _close_all(bastion_client)
+            raise ConnectionError(
+                f"Bastion {cfg.jump_via.host} OK, mais connexion à {cfg.host}:{cfg.port} "
+                f"via le tunnel a échoué : {e}"
+            ) from e
+        raise
+    if bastion_client is not None:
+        client._ds_bastion_chain = [bastion_client]
     return client
+
+
+def _close_all(client) -> None:
+    """Ferme client puis, en cascade, tout bastion intermédiaire ouvert pour l'atteindre (voir
+    _connect) — sans quoi une session SSH sur le bastion resterait ouverte indéfiniment (fuite de
+    connexion, visible côté audit/logs du bastion). Sans jump_via, se comporte exactement comme
+    client.close() d'avant — aucun changement de comportement pour les profils directs."""
+    try:
+        client.close()
+    finally:
+        for bastion in getattr(client, "_ds_bastion_chain", []):
+            _close_all(bastion)
 
 
 def test_ssh_connection(cfg: SshExecConfig) -> ConnectionTestResult:
@@ -102,7 +170,7 @@ def test_ssh_connection(cfg: SshExecConfig) -> ConnectionTestResult:
         return ConnectionTestResult(False, str(e))
     finally:
         if client is not None:
-            client.close()
+            _close_all(client)
 
 
 # ──────────────────────────────────────────────
@@ -160,7 +228,7 @@ def test_kerberos_auth(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig) -> Conne
         return ConnectionTestResult(False, str(e))
     finally:
         if client is not None:
-            client.close()
+            _close_all(client)
 
 
 # ──────────────────────────────────────────────
@@ -248,7 +316,7 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
     except Exception as e:
         return False, str(e)
     finally:
-        client.close()
+        _close_all(client)
 
 
 def test_elevation_auth(ssh_cfg: SshExecConfig, elevation_cfg: ElevationConfig) -> ConnectionTestResult:

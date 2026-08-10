@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from core.hadoop_edge import (
     SshExecConfig, KerberosConfig, ElevationConfig,
-    _connect, _kinit, read_remote_file, run_command_with_elevation,
+    _connect, _close_all, _kinit, read_remote_file, run_command_with_elevation,
 )
 from core.sql_db import SqlDbConfig
 
@@ -146,4 +146,4 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
                 client.exec_command(f"rm -f {remote_out} {remote_err}")
             except Exception:
                 pass
-            client.close()
+            _close_all(client)
