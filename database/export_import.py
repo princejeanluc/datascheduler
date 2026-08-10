@@ -48,6 +48,13 @@ _STEP_REFERENCES = {
     "SPARK_SQL":    [("edge_profile_id", "edge_profile"),
                       ("kerberos_profile_id", "kerberos_profile"),
                       ("sql_query_id", "sql_query")],
+    "SQOOP_EXPORT": [("edge_profile_id", "edge_profile"),
+                      ("kerberos_profile_id", "kerberos_profile"),
+                      # "db_profile" (pas un ref_type dédié) : _resolve_reference()/
+                      # _category_for_ref() retombent sur ORACLE par défaut quand "db_type" est
+                      # absent de la config — exactement le cas ici, l'étape étant scopée Oracle
+                      # uniquement dès la conception (pas de champ db_type du tout).
+                      ("oracle_profile_id", "db_profile")],
 }
 
 _UUID_KEY_FOR = {
@@ -57,6 +64,7 @@ _UUID_KEY_FOR = {
     "smtp_profile_id":     "smtp_profile_uuid",
     "edge_profile_id":     "edge_profile_uuid",
     "kerberos_profile_id": "kerberos_profile_uuid",
+    "oracle_profile_id":   "oracle_profile_uuid",
 }
 
 

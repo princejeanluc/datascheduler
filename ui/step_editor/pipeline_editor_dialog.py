@@ -393,6 +393,10 @@ class PipelineEditorDialog(QDialog):
         elif step_type == "COMPRESS":
             name = config.get("archive_name_tpl", "")
             return name[:80] if name else "(nom auto)"
+        elif step_type == "SQOOP_EXPORT":
+            hcat = config.get("hcatalog_table", "")
+            ora  = config.get("oracle_table", "")
+            return f"{hcat} → {ora}"[:80] if (hcat or ora) else "(non configuré)"
         return ""
 
     def _on_add_step(self):

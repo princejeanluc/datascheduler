@@ -71,6 +71,7 @@ class StepType(str, enum.Enum):
     CONDITION      = "CONDITION"       # Routeur conditionnel (ports de sortie nommés) — chantier 6a
     SPARK_SQL      = "SPARK_SQL"       # Requête Spark SQL via edge node SSH + Kerberos
     COMPRESS       = "COMPRESS"        # Compression en archive ZIP
+    SQOOP_EXPORT   = "SQOOP_EXPORT"    # Export Hive/HCatalog → Oracle via Sqoop, edge node SSH + Kerberos
 
 
 # ──────────────────────────────────────────────

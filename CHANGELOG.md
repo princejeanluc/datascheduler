@@ -29,6 +29,19 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.10.0] - 2026-08-10
+
+### Ajouté
+- Nouveau type d'étape `SQOOP_EXPORT` : exporte une table Hive/HCatalog vers Oracle via `sqoop
+  export`, sur un nœud edge (même mécanique de connexion que Spark SQL : SSH + authentification
+  Kerberos). Les identifiants Oracle cible viennent d'un profil existant (jamais de champ texte
+  libre en clair dans la configuration de l'étape) ; le mot de passe n'apparaît jamais dans les
+  journaux d'exécution (commande masquée avant toute journalisation). Base HCatalog, table
+  HCatalog source et table Oracle cible acceptent les jetons (`{yyyy}`, `{MM}`...).
+- `core/hadoop_edge.py` (nouveau) : mécanique SSH/Kerberos extraite de `core/spark.py` pour être
+  partagée avec `SQOOP_EXPORT` — refactor sans changement de comportement, `core/spark.py`
+  ré-exporte les noms historiquement importés depuis là.
+
 ## [0.9.0] - 2026-08-07
 
 ### Ajouté

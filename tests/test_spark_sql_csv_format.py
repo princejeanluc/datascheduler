@@ -160,7 +160,8 @@ def _spark_sql_cmd(client) -> str:
 
 
 def test_header_conf_is_injected_when_fetch_result_true(monkeypatch, tmp_path):
-    from tests.test_spark import _make_client, _install_fake_client, _ssh_cfg, _krb_cfg
+    from tests.test_spark import _make_client
+    from tests._fake_ssh import install_fake_client as _install_fake_client, ssh_cfg as _ssh_cfg, krb_cfg as _krb_cfg
 
     client = _make_client()
     _install_fake_client(monkeypatch, client)
@@ -174,7 +175,8 @@ def test_header_conf_is_injected_when_fetch_result_true(monkeypatch, tmp_path):
 
 
 def test_header_conf_not_injected_when_fetch_result_false(monkeypatch, tmp_path):
-    from tests.test_spark import _make_client, _install_fake_client, _ssh_cfg, _krb_cfg
+    from tests.test_spark import _make_client
+    from tests._fake_ssh import install_fake_client as _install_fake_client, ssh_cfg as _ssh_cfg, krb_cfg as _krb_cfg
 
     client = _make_client()
     _install_fake_client(monkeypatch, client)
@@ -188,7 +190,8 @@ def test_header_conf_not_injected_when_fetch_result_false(monkeypatch, tmp_path)
 
 
 def test_header_conf_not_duplicated_if_user_already_set_it(monkeypatch, tmp_path):
-    from tests.test_spark import _make_client, _install_fake_client, _ssh_cfg, _krb_cfg
+    from tests.test_spark import _make_client
+    from tests._fake_ssh import install_fake_client as _install_fake_client, ssh_cfg as _ssh_cfg, krb_cfg as _krb_cfg
 
     client = _make_client()
     _install_fake_client(monkeypatch, client)
