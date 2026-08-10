@@ -80,6 +80,7 @@ class ConnectionsView(QWidget):
         tab_bigdata_layout.setContentsMargins(0, 16, 0, 0); tab_bigdata_layout.setSpacing(20)
         tab_bigdata_layout.addWidget(self._build_ssh_panel())
         tab_bigdata_layout.addWidget(self._build_kerberos_panel())
+        tab_bigdata_layout.addWidget(self._build_elevation_panel())
         tab_bigdata_layout.addStretch()
         self.tabs.addTab(tab_bigdata, "Big Data / Spark SQL")
 
@@ -199,6 +200,29 @@ class ConnectionsView(QWidget):
         vl.addWidget(self._kerberos_empty)
         return card
 
+    def _build_elevation_panel(self) -> QFrame:
+        card = QFrame(); card.setObjectName("card")
+        vl = QVBoxLayout(card); vl.setContentsMargins(20, 18, 20, 18); vl.setSpacing(14)
+
+        top = QHBoxLayout()
+        lbl = QLabel("Élévation (sudo su — étape Export Sqoop)")
+        lbl.setStyleSheet("font-size: 14px; font-weight: 700; background: transparent; border: none;")
+        btn = QPushButton("  Nouveau profil d'élévation"); btn.setFixedHeight(32)
+        btn.setIcon(_icon("fa5s.plus", "#000000")); btn.setIconSize(QSize(12, 12))
+        btn.clicked.connect(self._on_new_elevation)
+        top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
+        vl.addLayout(top)
+
+        hdrs = ["Nom", "Utilisateur cible", "État"]
+        self.elevation_table = self._make_table(hdrs, stretch_cols={0, 1})
+        vl.addWidget(self.elevation_table)
+        self._elevation_empty = _make_empty_label(
+            "Aucun profil d'élévation — cliquez sur « Nouveau profil d'élévation »."
+        )
+        self._elevation_empty.setVisible(False)
+        vl.addWidget(self._elevation_empty)
+        return card
+
     def _make_table(self, headers: list, stretch_cols: set) -> QTableWidget:
         t = QTableWidget(0, len(headers) + 1)
         t.setHorizontalHeaderLabels(headers + [""])
@@ -219,6 +243,7 @@ class ConnectionsView(QWidget):
         _filter_table_rows(self.smtp_table, text, columns=[0, 1, 2, 3, 4])
         _filter_table_rows(self.ssh_table, text, columns=[0, 1, 2, 3])
         _filter_table_rows(self.kerberos_table, text, columns=[0, 1])
+        _filter_table_rows(self.elevation_table, text, columns=[0, 1])
 
     # ── Refresh ──────────────────────────────────
 
@@ -228,6 +253,7 @@ class ConnectionsView(QWidget):
         self._refresh_smtp()
         self._refresh_ssh()
         self._refresh_kerberos()
+        self._refresh_elevation()
         self._on_search_changed(self.inp_search.text())
 
     def _refresh_databases(self):
@@ -348,6 +374,29 @@ class ConnectionsView(QWidget):
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
             self.kerberos_table.setCellWidget(r_idx, 3, w)
             self.kerberos_table.setRowHeight(r_idx, 44)
+
+    def _refresh_elevation(self):
+        from database import db_manager as db
+        profiles = db.get_elevation_profiles()
+        self.elevation_table.setVisible(bool(profiles))
+        self._elevation_empty.setVisible(not profiles)
+        self.elevation_table.setRowCount(len(profiles))
+        for r_idx, p in enumerate(profiles):
+            cells = [p.name, p.target_user]
+            for c_idx, cell in enumerate(cells):
+                item = QTableWidgetItem(cell)
+                item.setForeground(QColor(COLORS["text_main"]))
+                self.elevation_table.setItem(r_idx, c_idx, item)
+            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
+            pid = p.id
+            w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
+            btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
+            btn_del  = _action_btn("fa5s.trash-alt",  object_name="danger",    tooltip="Supprimer")
+            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_elevation(i))
+            btn_del.clicked.connect(lambda _, i=pid: self._on_delete_elevation(i))
+            hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
+            self.elevation_table.setCellWidget(r_idx, 3, w)
+            self.elevation_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────
 
@@ -473,6 +522,27 @@ class ConnectionsView(QWidget):
             return
         db.delete_kerberos_profile(profile_id)
         self._refresh_kerberos()
+
+    def _on_new_elevation(self):
+        from ui.dialogs import ElevationProfileDialog
+        dlg = ElevationProfileDialog(self)
+        if dlg.exec():
+            self._refresh_elevation()
+
+    def _on_edit_elevation(self, profile_id: int):
+        from database import db_manager as db
+        from ui.dialogs import ElevationProfileDialog
+        p = db.get_elevation_profile(profile_id)
+        if p and ElevationProfileDialog(self, profile=p).exec():
+            self._refresh_elevation()
+
+    def _on_delete_elevation(self, profile_id: int):
+        from database import db_manager as db
+        used_by = db.find_pipelines_using_profile("elevation_profile_id", profile_id)
+        if not self._confirm_delete("d'élévation", used_by):
+            return
+        db.delete_elevation_profile(profile_id)
+        self._refresh_elevation()
 
     def _confirm_delete(self, profile_kind: str, used_by: list) -> bool:
         """Confirmation de suppression — avertit si des pipelines utilisent ce profil."""

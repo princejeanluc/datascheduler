@@ -18,12 +18,13 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
                           run_always=_.get("run_always", False),
                           timeout_s=_.get("timeout_s", 0))
         from database import db_manager as db
-        # ssh_profiles/kerberos_profiles ne font pas partie du kwargs partagé de
-        # _open_config_dialog() (oracle/ftp/smtp/db/sql_query seulement, historique) — même
+        # ssh_profiles/kerberos_profiles/elevation_profiles ne font pas partie du kwargs partagé
+        # de _open_config_dialog() (oracle/ftp/smtp/db/sql_query seulement, historique) — même
         # principe que _SparkSqlConfigDialog, qui les récupère déjà lui-même pour la même raison.
-        self._ssh_profiles      = db.get_ssh_profiles()
-        self._kerberos_profiles = db.get_kerberos_profiles()
-        self._oracle_profiles   = _.get("oracle_profiles") or []
+        self._ssh_profiles       = db.get_ssh_profiles()
+        self._kerberos_profiles  = db.get_kerberos_profiles()
+        self._elevation_profiles = db.get_elevation_profiles()
+        self._oracle_profiles    = _.get("oracle_profiles") or []
         self.setWindowTitle("Étape — Export Sqoop (→ Oracle)")
         self.setMinimumSize(560, 560)
         self._build_ui()
@@ -31,7 +32,7 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
 
     def _build_ui(self):
         root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
-        title = QLabel("Export Hive/HCatalog → Oracle (Sqoop, nœud edge + Kerberos)")
+        title = QLabel("Export Hive/HCatalog → Oracle (Sqoop, nœud edge)")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
 
@@ -45,9 +46,23 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
             self._new_ssh_profile,
         )
         self.cb_kerberos = self._profile_row(
-            form, "Profil Kerberos *",
-            self._kerberos_profiles, "— Sélectionner un profil Kerberos —",
+            form, "Profil Kerberos",
+            self._kerberos_profiles, "— Aucun (pas de kinit) —",
             self._new_kerberos_profile,
+        )
+        self.cb_kerberos.setToolTip(
+            "Facultatif — laissez « Aucun » si votre edge ne nécessite pas de ticket Kerberos "
+            "pour Sqoop (ex : élévation vers un compte technique ci-dessous à la place)."
+        )
+        self.cb_elevation = self._profile_row(
+            form, "Profil d'élévation (sudo su)",
+            self._elevation_profiles, "— Aucune élévation —",
+            self._new_elevation_profile,
+        )
+        self.cb_elevation.setToolTip(
+            "Facultatif — bascule vers un utilisateur technique (ex : « nifi ») après connexion "
+            "SSH, avant kinit/sqoop, via sudo su. Utile pour les équipes qui passent par un "
+            "compte partagé plutôt que par Kerberos."
         )
         self.cb_oracle = self._profile_row(
             form, "Profil Oracle cible *",
@@ -114,6 +129,15 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
             for p in self._kerberos_profiles: cb.addItem(p.name, p.id)
             cb.setCurrentIndex(cb.count() - 1)
 
+    def _new_elevation_profile(self, cb: QComboBox):
+        from ui.dialogs import ElevationProfileDialog
+        from database import db_manager as db
+        if ElevationProfileDialog(self).exec():
+            self._elevation_profiles = db.get_elevation_profiles()
+            cb.clear(); cb.addItem("— Aucune élévation —", None)
+            for p in self._elevation_profiles: cb.addItem(p.name, p.id)
+            cb.setCurrentIndex(cb.count() - 1)
+
     def _new_oracle_profile(self, cb: QComboBox):
         from ui.dialogs import OracleDialog
         from database import db_manager as db
@@ -127,6 +151,7 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
         c = self._config
         self._set_combo(self.cb_ssh, c.get("edge_profile_id"))
         self._set_combo(self.cb_kerberos, c.get("kerberos_profile_id"))
+        self._set_combo(self.cb_elevation, c.get("elevation_profile_id"))
         self._set_combo(self.cb_oracle, c.get("oracle_profile_id"))
         self.inp_hcat_db.setText(c.get("hcatalog_database", ""))
         self.inp_hcat_table.setText(c.get("hcatalog_table", ""))
@@ -135,9 +160,10 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
 
     def _collect_config(self) -> dict:
         return {
-            "edge_profile_id":     self.cb_ssh.currentData(),
-            "kerberos_profile_id": self.cb_kerberos.currentData(),
-            "oracle_profile_id":   self.cb_oracle.currentData(),
+            "edge_profile_id":      self.cb_ssh.currentData(),
+            "kerberos_profile_id":  self.cb_kerberos.currentData(),
+            "elevation_profile_id": self.cb_elevation.currentData(),
+            "oracle_profile_id":    self.cb_oracle.currentData(),
             "hcatalog_database":   self.inp_hcat_db.text().strip(),
             "hcatalog_table":      self.inp_hcat_table.text().strip(),
             "oracle_table":        self.inp_oracle_table.text().strip(),
@@ -147,9 +173,6 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
     def _on_ok(self):
         if not self.cb_ssh.currentData():
             QMessageBox.warning(self, "Champ requis", "Sélectionner un profil SSH.")
-            return
-        if not self.cb_kerberos.currentData():
-            QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Kerberos.")
             return
         if not self.cb_oracle.currentData():
             QMessageBox.warning(self, "Champ requis", "Sélectionner un profil Oracle.")

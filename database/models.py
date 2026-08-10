@@ -237,6 +237,31 @@ class KerberosProfile(Base):
 
 
 # ──────────────────────────────────────────────
+#  PROFIL D'ÉLÉVATION (sudo su) — étape SQOOP_EXPORT
+# ──────────────────────────────────────────────
+
+class ElevationProfile(Base):
+    """Élévation de privilèges (sudo su <target_user>) sur un nœud edge — étape SQOOP_EXPORT,
+    pour les utilisateurs qui passent par un compte technique partagé (ex : "nifi") plutôt que
+    par Kerberos. Comme KerberosProfile, ne peut pas se tester seule : requiert un SshProfile
+    pour tenter réellement le sudo su (voir core/hadoop_edge.py)."""
+    __tablename__ = "elevation_profiles"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    uuid        = Column(String(36), unique=True, nullable=False, default=_new_uuid)
+    name        = Column(String(100), unique=True, nullable=False)
+    target_user = Column(String(100), nullable=False)  # ex: "nifi"
+    password    = Column(String(255), nullable=False)  # chiffré, généralement partagé par l'équipe
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_tested_at    = Column(DateTime, nullable=True)
+    last_test_success = Column(Boolean, nullable=True)
+
+    def __repr__(self):
+        return f"<ElevationProfile name={self.name} target_user={self.target_user}>"
+
+
+# ──────────────────────────────────────────────
 #  REQUÊTE SQL RÉUTILISABLE
 # ──────────────────────────────────────────────
 

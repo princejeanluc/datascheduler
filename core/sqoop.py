@@ -15,7 +15,10 @@ import time
 import uuid as _uuid_module
 from dataclasses import dataclass
 
-from core.hadoop_edge import SshExecConfig, KerberosConfig, _connect, _kinit, read_remote_file
+from core.hadoop_edge import (
+    SshExecConfig, KerberosConfig, ElevationConfig,
+    _connect, _kinit, read_remote_file, run_command_with_elevation,
+)
 from core.sql_db import SqlDbConfig
 
 
@@ -65,19 +68,46 @@ def build_sqoop_export_command(connect_url: str, username: str, password: str,
     return cmd
 
 
-def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, oracle_cfg: SqlDbConfig,
+def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, oracle_cfg: SqlDbConfig,
                       hcatalog_database: str, hcatalog_table: str, oracle_table: str,
-                      sqoop_conf: str, timeout: int = 3600) -> SqoopExportResult:
+                      sqoop_conf: str, timeout: int = 3600,
+                      elevation_cfg: ElevationConfig | None = None) -> SqoopExportResult:
     """
-    SSH → kinit → exécute `sqoop export` non-interactivement, sortie redirigée vers des fichiers
-    distants et bornée par `timeout` (l'utilitaire shell, pas seulement le paramètre côté
-    client — exec_command() ne borne pas la durée du process distant lui-même) → sur échec, lit
-    le fichier d'erreur distant → nettoie les fichiers temporaires distants (best-effort, jamais
-    bloquant) → ferme toujours la connexion SSH (finally). Même patron que
-    core/spark.py::run_spark_sql(), sans rapatriement de résultat (sqoop export ne produit rien
-    à récupérer localement — l'étape ne touche jamais ctx.output_file).
+    Deux chemins distincts, choisis selon `elevation_cfg` :
+
+    - **Sans élévation** (chemin historique, inchangé) : SSH → kinit optionnel (`krb_cfg` peut
+      être `None` — certaines équipes n'utilisent pas Kerberos pour Sqoop) → exécute `sqoop
+      export` non-interactivement, sortie redirigée vers des fichiers distants et bornée par
+      `timeout` → sur échec, lit le fichier d'erreur distant → nettoie les fichiers temporaires
+      distants (best-effort) → ferme toujours la connexion SSH.
+    - **Avec élévation** (`sudo su <target_user>`, ex : compte technique partagé "nifi") :
+      délègue entièrement à `core.hadoop_edge.run_command_with_elevation()`, qui enchaîne
+      élévation + kinit optionnel + la commande réelle sur UN SEUL canal shell interactif —
+      nécessaire car un `sudo su` réussi ne survit jamais à un `exec_command()` séparé (voir
+      docstring de ce module dans core/hadoop_edge.py). `krb_cfg`, s'il est fourni, s'applique
+      alors APRÈS l'élévation (l'utilisateur cible peut avoir sa propre identité Kerberos).
     """
     start = time.monotonic()
+    connect_url = build_oracle_jdbc_url(oracle_cfg)
+    real_cmd = build_sqoop_export_command(
+        connect_url, oracle_cfg.username, oracle_cfg.password,
+        hcatalog_database, hcatalog_table, oracle_table, sqoop_conf, masked=False,
+    )
+
+    if elevation_cfg:
+        try:
+            ok, output = run_command_with_elevation(
+                ssh_cfg, real_cmd, timeout, elevation_cfg=elevation_cfg, krb_cfg=krb_cfg,
+            )
+            if not ok:
+                return SqoopExportResult(
+                    success=False, error=f"sqoop export a échoué : {output}",
+                    duration_s=time.monotonic() - start,
+                )
+            return SqoopExportResult(success=True, duration_s=time.monotonic() - start)
+        except Exception as e:
+            return SqoopExportResult(success=False, error=str(e), duration_s=time.monotonic() - start)
+
     client = None
     token = _uuid_module.uuid4().hex
     remote_out = f"/tmp/ds_sqoop_{token}.out"
@@ -86,18 +116,14 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, oracle_cfg
     try:
         client = _connect(ssh_cfg)
 
-        ok, message = _kinit(client, krb_cfg)
-        if not ok:
-            return SqoopExportResult(
-                success=False, error=f"Authentification Kerberos : {message}",
-                duration_s=time.monotonic() - start,
-            )
+        if krb_cfg:
+            ok, message = _kinit(client, krb_cfg)
+            if not ok:
+                return SqoopExportResult(
+                    success=False, error=f"Authentification Kerberos : {message}",
+                    duration_s=time.monotonic() - start,
+                )
 
-        connect_url = build_oracle_jdbc_url(oracle_cfg)
-        real_cmd = build_sqoop_export_command(
-            connect_url, oracle_cfg.username, oracle_cfg.password,
-            hcatalog_database, hcatalog_table, oracle_table, sqoop_conf, masked=False,
-        )
         full_cmd = f"timeout {int(timeout)}s {real_cmd} > {remote_out} 2>{remote_err}"
 
         _stdin, stdout, _stderr = client.exec_command(full_cmd, timeout=timeout + 30)

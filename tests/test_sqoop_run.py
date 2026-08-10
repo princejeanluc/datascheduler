@@ -6,9 +6,13 @@ formée, court-circuit propre sur échec Kerberos, échec propre sur code de sor
 masquage du mot de passe pour la journalisation, nettoyage/fermeture systématiques.
 """
 
+import core.sqoop as sqoop_module
 from core.sql_db import SqlDbConfig
 from core.sqoop import build_sqoop_export_command, run_sqoop_export
-from tests._fake_ssh import FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient, ssh_cfg, krb_cfg, install_fake_client
+from tests._fake_ssh import (
+    FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
+    ssh_cfg, krb_cfg, elevation_cfg, install_fake_client,
+)
 
 
 def _oracle_cfg():
@@ -105,3 +109,64 @@ def test_run_sqoop_export_never_leaks_password_in_result_error(monkeypatch):
         ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
     )
     assert "s3cr3t" not in result.error
+
+
+def test_run_sqoop_export_skips_kinit_entirely_when_krb_cfg_is_none(monkeypatch):
+    """Chantier L : certaines équipes n'utilisent pas Kerberos pour Sqoop du tout — krb_cfg=None
+    ne doit jamais déclencher kinit (aucun exec_command avec get_pty=True)."""
+    def exec_fn(cmd, get_pty=False, timeout=None):
+        assert not get_pty, "kinit ne doit jamais être tenté quand krb_cfg est None"
+        channel = FakeChannel(exit_status=0, has_prompt=False)
+        return FakeStdin(), FakeStdout(channel), FakeStderr()
+
+    client = FakeSSHClient(exec_fn)
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_export(
+        ssh_cfg(), None, _oracle_cfg(), "DD", "T", "xxx.t", "",
+    )
+
+    assert result.success, result.error
+
+
+def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatch):
+    """elevation_cfg fourni → le chemin exec_command/kinit classique n'est jamais emprunté,
+    tout passe par core.hadoop_edge.run_command_with_elevation (déjà testé en détail dans
+    tests/test_hadoop_edge_elevation.py — ici on vérifie seulement le bon aiguillage/passage
+    des paramètres)."""
+    captured = {}
+
+    def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
+                                         krb_cfg=None):
+        captured["command"] = command
+        captured["elevation_cfg"] = elevation_cfg
+        captured["krb_cfg"] = krb_cfg
+        return True, "ok"
+
+    monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+        elevation_cfg=elevation_cfg(),
+    )
+
+    assert result.success, result.error
+    assert captured["elevation_cfg"].target_user == "nifi"
+    assert captured["krb_cfg"] is not None
+    assert "sqoop export" in captured["command"]
+
+
+def test_run_sqoop_export_elevation_path_reports_failure(monkeypatch):
+    def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
+                                         krb_cfg=None):
+        return False, "sudo su : délai dépassé en attendant l'invite de mot de passe."
+
+    monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
+
+    result = run_sqoop_export(
+        ssh_cfg(), None, _oracle_cfg(), "DD", "T", "xxx.t", "",
+        elevation_cfg=elevation_cfg(),
+    )
+
+    assert not result.success
+    assert "délai dépassé" in result.error
