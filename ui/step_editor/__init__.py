@@ -20,6 +20,7 @@ from .http_request_config_dialog import _HttpRequestConfigDialog
 from .condition_config_dialog import _ConditionConfigDialog
 from .spark_sql_config_dialog import _SparkSqlConfigDialog
 from .compress_config_dialog import _CompressConfigDialog
+from .sqoop_export_config_dialog import _SqoopExportConfigDialog
 
 __all__ = ["STEP_META", "PipelineEditorDialog", "_open_config_dialog"]
 
@@ -55,6 +56,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         "CONDITION":      _ConditionConfigDialog,
         "SPARK_SQL":      _SparkSqlConfigDialog,
         "COMPRESS":       _CompressConfigDialog,
+        "SQOOP_EXPORT":   _SqoopExportConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None

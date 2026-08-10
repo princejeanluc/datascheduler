@@ -1,0 +1,123 @@
+"""
+DataScheduler — core/sqoop.py
+Exécution de `sqoop export` (Hive/HCatalog → Oracle) sur un cluster Hadoop via un nœud edge —
+miroir de core/spark.py pour la mécanique SSH/kinit (voir core/hadoop_edge.py, chantier K,
+extrait de core/spark.py précisément pour être partagé ici sans dupliquer la logique kinit par
+pseudo-terminal).
+
+Portée volontairement limitée à Oracle (le besoin exprimé est spécifiquement `jdbc:oracle:thin`)
+et à `sqoop export` (pas `sqoop import`, confirmé avec l'utilisateur) — pas de généralisation
+spéculative à d'autres moteurs/sens non demandés.
+"""
+
+import shlex
+import time
+import uuid as _uuid_module
+from dataclasses import dataclass
+
+from core.hadoop_edge import SshExecConfig, KerberosConfig, _connect, _kinit, read_remote_file
+from core.sql_db import SqlDbConfig
+
+
+@dataclass
+class SqoopExportResult:
+    success: bool
+    error: str = ""
+    duration_s: float = 0.0
+
+
+def build_oracle_jdbc_url(cfg: SqlDbConfig) -> str:
+    """
+    jdbc:oracle:thin:@(DESCRIPTION=...) — le format TNS complet attendu par le driver JDBC
+    Oracle utilisé par Sqoop (un outil Java, donc pas le DSN python-oracledb de core/sql_db.py,
+    un format distinct). SERVICE_NAME si renseigné sur le profil, sinon SID.
+    """
+    conn_data = f"SERVICE_NAME={cfg.service_name}" if cfg.service_name else f"SID={cfg.sid}"
+    return (
+        f"jdbc:oracle:thin:@(DESCRIPTION=(ADDRESS_LIST=(ADDRESS=(PROTOCOL=TCP)"
+        f"(HOST={cfg.host})(PORT={cfg.port})))(CONNECT_DATA=({conn_data})))"
+    )
+
+
+def build_sqoop_export_command(connect_url: str, username: str, password: str,
+                                hcatalog_database: str, hcatalog_table: str, oracle_table: str,
+                                sqoop_conf: str, masked: bool = False) -> str:
+    """
+    Construit la commande `sqoop export`. `masked=True` remplace le mot de passe par `****` —
+    utilisé exclusivement pour la journalisation (ctx.log()/PipelineRun.log_text), jamais pour
+    l'exécution réelle : le mot de passe Oracle ne doit JAMAIS apparaître en clair dans les logs
+    persistés. Chaque valeur passe par shlex.quote() (absent de l'exemple d'origine mais
+    nécessaire dès qu'un mot de passe/nom de table arrive dans une commande shell distante).
+    """
+    pw = "****" if masked else password
+    parts = [
+        "sqoop export -jt local",
+        f"--connect {shlex.quote(connect_url)}",
+        f"--username {shlex.quote(username)}",
+        f"--password {shlex.quote(pw)}",
+        f"--hcatalog-table {shlex.quote(hcatalog_table)}",
+        f"--hcatalog-database {shlex.quote(hcatalog_database)}",
+        f"--table {shlex.quote(oracle_table)}",
+    ]
+    cmd = " ".join(parts)
+    if sqoop_conf:
+        cmd = f"{cmd} {sqoop_conf}"
+    return cmd
+
+
+def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, oracle_cfg: SqlDbConfig,
+                      hcatalog_database: str, hcatalog_table: str, oracle_table: str,
+                      sqoop_conf: str, timeout: int = 3600) -> SqoopExportResult:
+    """
+    SSH → kinit → exécute `sqoop export` non-interactivement, sortie redirigée vers des fichiers
+    distants et bornée par `timeout` (l'utilitaire shell, pas seulement le paramètre côté
+    client — exec_command() ne borne pas la durée du process distant lui-même) → sur échec, lit
+    le fichier d'erreur distant → nettoie les fichiers temporaires distants (best-effort, jamais
+    bloquant) → ferme toujours la connexion SSH (finally). Même patron que
+    core/spark.py::run_spark_sql(), sans rapatriement de résultat (sqoop export ne produit rien
+    à récupérer localement — l'étape ne touche jamais ctx.output_file).
+    """
+    start = time.monotonic()
+    client = None
+    token = _uuid_module.uuid4().hex
+    remote_out = f"/tmp/ds_sqoop_{token}.out"
+    remote_err = f"/tmp/ds_sqoop_{token}.err"
+
+    try:
+        client = _connect(ssh_cfg)
+
+        ok, message = _kinit(client, krb_cfg)
+        if not ok:
+            return SqoopExportResult(
+                success=False, error=f"Authentification Kerberos : {message}",
+                duration_s=time.monotonic() - start,
+            )
+
+        connect_url = build_oracle_jdbc_url(oracle_cfg)
+        real_cmd = build_sqoop_export_command(
+            connect_url, oracle_cfg.username, oracle_cfg.password,
+            hcatalog_database, hcatalog_table, oracle_table, sqoop_conf, masked=False,
+        )
+        full_cmd = f"timeout {int(timeout)}s {real_cmd} > {remote_out} 2>{remote_err}"
+
+        _stdin, stdout, _stderr = client.exec_command(full_cmd, timeout=timeout + 30)
+        exit_status = stdout.channel.recv_exit_status()
+
+        if exit_status != 0:
+            err_text = read_remote_file(client, remote_err)
+            return SqoopExportResult(
+                success=False, error=f"sqoop export a échoué (code {exit_status}) : {err_text}",
+                duration_s=time.monotonic() - start,
+            )
+
+        return SqoopExportResult(success=True, duration_s=time.monotonic() - start)
+
+    except Exception as e:
+        return SqoopExportResult(success=False, error=str(e), duration_s=time.monotonic() - start)
+    finally:
+        if client is not None:
+            try:
+                client.exec_command(f"rm -f {remote_out} {remote_err}")
+            except Exception:
+                pass
+            client.close()

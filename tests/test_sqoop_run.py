@@ -1,0 +1,107 @@
+"""
+DataScheduler — tests/test_sqoop_run.py
+Vérifie core.sqoop.run_sqoop_export()/build_sqoop_export_command() via de fausses classes
+paramiko (tests/_fake_ssh.py) — même principe que tests/test_spark.py. Couvre : commande bien
+formée, court-circuit propre sur échec Kerberos, échec propre sur code de sortie non nul,
+masquage du mot de passe pour la journalisation, nettoyage/fermeture systématiques.
+"""
+
+from core.sql_db import SqlDbConfig
+from core.sqoop import build_sqoop_export_command, run_sqoop_export
+from tests._fake_ssh import FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient, ssh_cfg, krb_cfg, install_fake_client
+
+
+def _oracle_cfg():
+    return SqlDbConfig(db_type="ORACLE", host="10.0.0.5", port=1521, username="ORAUSER",
+                        password="s3cr3t", service_name="PRODDB")
+
+
+def _kinit_ok_exec_fn(cmd, get_pty=False, timeout=None):
+    channel = FakeChannel(prompt_bytes=b"Password: ", exit_status=0, has_prompt=True)
+    return FakeStdin(), FakeStdout(channel), FakeStderr()
+
+
+def _make_client(sqoop_exit_status: int = 0, sqoop_stderr: bytes = b"") -> FakeSSHClient:
+    def exec_fn(cmd, get_pty=False, timeout=None):
+        if get_pty:
+            return _kinit_ok_exec_fn(cmd, get_pty=get_pty, timeout=timeout)
+        if "sqoop export" in cmd and sqoop_stderr:
+            import re
+            m = re.search(r"2>(\S+)", cmd)
+            if m:
+                client.sftp_files[m.group(1)] = sqoop_stderr
+        channel = FakeChannel(exit_status=sqoop_exit_status, has_prompt=False)
+        return FakeStdin(), FakeStdout(channel), FakeStderr(remaining=sqoop_stderr)
+    client = FakeSSHClient(exec_fn)
+    return client
+
+
+def test_build_sqoop_export_command_masked_hides_password():
+    cmd_real = build_sqoop_export_command(
+        "jdbc:oracle:thin:@...", "ORAUSER", "s3cr3t",
+        "DD", "FINAL_EQUIPEMENT_CLIENT", "xxx.xxxxx", "", masked=False,
+    )
+    cmd_masked = build_sqoop_export_command(
+        "jdbc:oracle:thin:@...", "ORAUSER", "s3cr3t",
+        "DD", "FINAL_EQUIPEMENT_CLIENT", "xxx.xxxxx", "", masked=True,
+    )
+    assert "s3cr3t" in cmd_real
+    assert "s3cr3t" not in cmd_masked
+    assert "****" in cmd_masked
+    assert "--hcatalog-table FINAL_EQUIPEMENT_CLIENT" in cmd_real
+    assert "--hcatalog-database DD" in cmd_real
+    assert "--table xxx.xxxxx" in cmd_real
+    assert "-jt local" in cmd_real
+
+
+def test_run_sqoop_export_success(monkeypatch):
+    client = _make_client(sqoop_exit_status=0)
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(),
+        "DD", "FINAL_EQUIPEMENT_CLIENT", "xxx.xxxxx", "",
+    )
+
+    assert result.success, result.error
+    assert client.closed is True
+    assert any(c.startswith("rm -f") for c in client.exec_calls)
+
+
+def test_run_sqoop_export_short_circuits_on_kinit_failure(monkeypatch):
+    def exec_fn(cmd, get_pty=False, timeout=None):
+        if get_pty:
+            channel = FakeChannel(prompt_bytes=b"Password: ", exit_status=1, has_prompt=True)
+            return FakeStdin(), FakeStdout(channel, remaining=b"kinit: bad password"), FakeStderr()
+        raise AssertionError("sqoop ne doit jamais être lancé si kinit a échoué")
+
+    client = FakeSSHClient(exec_fn)
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+    )
+    assert not result.success
+    assert "Authentification Kerberos" in result.error
+    assert client.closed is True
+
+
+def test_run_sqoop_export_reports_nonzero_exit_status(monkeypatch):
+    client = _make_client(sqoop_exit_status=1, sqoop_stderr=b"ORA-00942: table or view does not exist")
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+    )
+    assert not result.success
+    assert "ORA-00942" in result.error
+
+
+def test_run_sqoop_export_never_leaks_password_in_result_error(monkeypatch):
+    client = _make_client(sqoop_exit_status=1, sqoop_stderr=b"connection refused")
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+    )
+    assert "s3cr3t" not in result.error

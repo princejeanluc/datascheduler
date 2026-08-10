@@ -37,6 +37,8 @@ STEP_META = {
                        "category": "Exécution & scripts"},
     "SPARK_SQL":      {"label": "Spark SQL",          "color": "#e57373",
                        "category": "Exécution & scripts"},
+    "SQOOP_EXPORT":   {"label": "Export Sqoop (→ Oracle)", "color": "#f06292",
+                       "category": "Exécution & scripts"},
     "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350",
                        "category": "Notification & intégration"},
     "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc",

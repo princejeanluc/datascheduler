@@ -129,6 +129,13 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   le remet en forme en CSV véritable, avec les mêmes réglages que l'étape Extraction base de
   données (séparateur, encodage, guillemets), en-tête de colonnes toujours inclus. Nécessite un
   profil SSH et un profil Kerberos, configurés dans **Connexions**.
+- **Export Sqoop (`SQOOP_EXPORT`)** — exporte une table Hive/HCatalog vers Oracle via `sqoop
+  export`, sur un nœud edge (même mécanique de connexion que Spark SQL : SSH + authentification
+  Kerberos). Les identifiants Oracle viennent d'un profil existant (**Connexions**) — jamais
+  saisis en clair dans l'étape, et le mot de passe n'apparaît jamais dans les journaux
+  d'exécution. Base, table HCatalog source et table Oracle cible acceptent les jetons
+  (`{yyyy}`, `{MM}`...) pour les tables partitionnées par date. Nécessite un profil SSH, un
+  profil Kerberos et un profil Oracle, configurés dans **Connexions**.
 
 ## Notification & intégration
 
