@@ -17,9 +17,9 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "",
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
-                 retry_count: int = 0, run_always: bool = False,
+                 retry_count: int = 0, run_always: bool = False, timeout_s: int = 0,
                  prior_steps=None):
-        super().__init__(config, parent, label, retry_count, run_always)
+        super().__init__(config, parent, label, retry_count, run_always, timeout_s)
         self._ftp_profiles = ftp_profiles or []
         self._prior_steps  = prior_steps or []
         self.setWindowTitle("Étape — Envoi FTP")

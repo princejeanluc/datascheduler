@@ -28,7 +28,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
                         oracle_profiles, ftp_profiles, sql_queries,
                         smtp_profiles=None, db_profiles=None,
                         label: str = "", retry_count: int = 0,
-                        run_always: bool = False,
+                        run_always: bool = False, timeout_s: int = 0,
                         prior_steps: list | None = None) -> _BaseStepConfigDialog | None:
     kwargs = dict(
         config=config, parent=parent, label=label,
@@ -39,6 +39,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         db_profiles=db_profiles,
         retry_count=retry_count,
         run_always=run_always,
+        timeout_s=timeout_s,
         prior_steps=prior_steps,
     )
     mapping = {

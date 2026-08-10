@@ -264,6 +264,8 @@ class PipelineEditorDialog(QDialog):
             extras.append(f"retry×{step['retry_count']}")
         if step.get("run_always"):
             extras.append("toujours exécuté")
+        if step.get("timeout_s"):
+            extras.append(f"délai {step['timeout_s']}s")
         if extras:
             summary = (summary + "  ·  " if summary else "") + " · ".join(extras)
 
@@ -422,6 +424,7 @@ class PipelineEditorDialog(QDialog):
             label=step.get("label", ""),
             retry_count=step.get("retry_count", 0),
             run_always=step.get("run_always", False),
+            timeout_s=step.get("timeout_s", 0),
             prior_steps=self._steps_data[:idx],
         )
         if config_dlg and config_dlg.exec():
@@ -588,6 +591,7 @@ class PipelineEditorDialog(QDialog):
                 "config":      json.loads(s.config_json or "{}"),
                 "retry_count": s.retry_count or 0,
                 "run_always":  bool(s.run_always),
+                "timeout_s":   s.timeout_s or 0,
             })
         self._rebuild_step_list()
 

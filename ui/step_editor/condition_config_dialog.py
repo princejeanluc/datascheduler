@@ -17,7 +17,8 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "", **_):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
-                          run_always=_.get("run_always", False))
+                          run_always=_.get("run_always", False),
+                          timeout_s=_.get("timeout_s", 0))
         self.setWindowTitle("Étape — Condition / Routeur")
         self._build_ui()
         self._prefill()

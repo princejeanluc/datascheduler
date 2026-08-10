@@ -18,7 +18,8 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "", **_):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
-                          run_always=_.get("run_always", False))
+                          run_always=_.get("run_always", False),
+                          timeout_s=_.get("timeout_s", 0))
         from database import db_manager as db
         # ssh_profiles/kerberos_profiles ne font pas partie du kwargs partagé de
         # _open_config_dialog() (oracle/ftp/smtp/db/sql_query seulement, historique) — pas

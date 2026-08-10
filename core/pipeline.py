@@ -3,6 +3,7 @@ DataScheduler — core/pipeline.py
 Exécuteur de pipeline : itère sur les PipelineStep dans l'ordre et passe le contexte.
 """
 
+import hashlib
 import json
 import logging
 import threading
@@ -11,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
-from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext
+from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext, StepResult
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,10 @@ class PipelineResult:
         self.log_lines     = []
         self.started_at    = datetime.utcnow()
         self.finished_at   = None
+        # ID du PipelineRun créé pour cette exécution — absent (None) si l'échec est survenu
+        # avant l'enregistrement du run (pipeline introuvable, aucune étape, reprise invalide...).
+        # Permet à l'UI de proposer une reprise sans requête DB supplémentaire (chantier J.2).
+        self.run_id: int | None = None
 
     def log(self, msg: str):
         ts = datetime.utcnow().strftime("%H:%M:%S")
@@ -196,19 +201,144 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
 
 
 # ──────────────────────────────────────────────
+#  EXÉCUTION D'UNE ÉTAPE — timeout + relance (partagé linéaire/graphe)
+# ──────────────────────────────────────────────
+
+def _run_step_with_policy(executor, ctx, step, step_progress, result):
+    """
+    Exécute une étape avec sa politique de délai (timeout_s) et de relance (retry_count).
+    Un timeout est traité comme n'importe quel échec par la boucle de relance qui suit
+    (retenter a du sens pour un blocage réseau transitoire).
+
+    CPython ne peut pas tuer un thread de force : un appel réellement bloqué (socket SSH/
+    FTP/HTTP sans timeout propre) continue en arrière-plan au-delà de timeout_s — le
+    *pipeline*, lui, avance et marque l'étape en échec. C'est le compromis standard des
+    orchestrateurs sur exécuteur non-forké (ex : execution_timeout d'Airflow) ; une vraie
+    interruption exigerait du multiprocessing et une refonte de StepContext pour être sûre
+    entre process, hors scope. Volontairement pas de concurrent.futures.ThreadPoolExecutor
+    ici : son shutdown(wait=True) implicite à la sortie d'un `with` bloquerait quand même
+    jusqu'à la fin de l'appel bloquant (annulant l'effet du timeout), et ses threads sont
+    suivis par un joiner atexit qui empêcherait la fermeture de l'app tant qu'un appel
+    resterait bloqué — un thread daemon simple n'a ni l'un ni l'autre défaut.
+    """
+    retry_count = step.retry_count or 0
+    timeout_s   = step.timeout_s or 0
+    attempt     = 0
+    while True:
+        if not timeout_s:
+            step_result = executor.run(ctx, on_progress=step_progress)
+        else:
+            box = {}
+            def _runner():
+                box["result"] = executor.run(ctx, on_progress=step_progress)
+            t = threading.Thread(target=_runner, daemon=True, name="step_timeout")
+            t.start()
+            t.join(timeout_s)
+            if t.is_alive():
+                step_result = StepResult(success=False, error=f"Délai dépassé ({timeout_s}s) — étape abandonnée.")
+            else:
+                step_result = box.get("result") or StepResult(success=False, error="Étape terminée sans résultat.")
+
+        for line in ctx.log_lines:
+            result.log_lines.append(line)
+        ctx.log_lines.clear()
+
+        if step_result.success or attempt >= retry_count:
+            return step_result
+        attempt += 1
+        result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
+        time.sleep(RETRY_DELAY_S)
+
+
+# ──────────────────────────────────────────────
+#  REPRISE DEPUIS L'ÉCHEC (chantier J.2) — empreintes, purge, snapshot
+# ──────────────────────────────────────────────
+
+def _step_fingerprint(config: dict) -> str:
+    """Empreinte stable de la config d'une étape — sert à détecter qu'une étape déjà "réussie"
+    lors d'un run précédent a été modifiée depuis (sa _step_key, elle, survit à une édition :
+    save_steps()/save_pipeline_graph() ne la régénèrent jamais)."""
+    return hashlib.sha1(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _edges_fingerprint(edges) -> str | None:
+    """None pour un pipeline linéaire (pas d'arêtes) — distinct d'une empreinte d'une liste
+    vide, pour ne jamais invalider une reprise sur un pipeline qui n'a jamais eu d'arêtes."""
+    if not edges:
+        return None
+    canon = sorted((e.from_step_key, e.from_port, e.to_step_key, e.to_port) for e in edges)
+    return hashlib.sha1(json.dumps(canon).encode("utf-8")).hexdigest()
+
+
+def _purge_resumable_run(run) -> None:
+    """Supprime les fichiers temporaires référencés par un état de reprise devenu périmé (un
+    nouveau run pour ce pipeline démarre, repris ou non, mais pas CE run précis) et efface la
+    colonne — appelé par run_pipeline() avant toute exécution, sous _active_runs_lock."""
+    try:
+        state = json.loads(run.resumable_state_json or "{}")
+    except (ValueError, TypeError):
+        state = {}
+    for p in (state.get("artifacts") or {}).values():
+        path = Path(p)
+        if path.exists():
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    db.clear_resumable_state(run.id)
+
+
+def _build_resumable_state_json(steps, edges, completed_step_keys: set[str],
+                                 active_ports: dict[str, str], ctx: StepContext) -> str:
+    """Snapshot persisté quand un run échoue/est annulé avec au moins une étape déjà réussie —
+    voir _step_fingerprint()/_edges_fingerprint() pour la détection de fraîcheur à la reprise."""
+    configs_by_key: dict[str, dict] = {}
+    for s in steps:
+        cfg = json.loads(s.config_json or "{}")
+        k = cfg.get("_step_key")
+        if k:
+            configs_by_key[k] = cfg
+    step_fingerprints = {
+        k: _step_fingerprint(configs_by_key[k])
+        for k in completed_step_keys if k in configs_by_key
+    }
+    state = {
+        "completed_step_keys": sorted(completed_step_keys),
+        "step_fingerprints":   step_fingerprints,
+        "edges_fingerprint":   _edges_fingerprint(edges),
+        "active_ports":        {k: v for k, v in active_ports.items() if k in completed_step_keys},
+        # Snapshot complet de ctx.artifacts (pas seulement les entrées indexées par
+        # completed_step_keys) — une étape juste après le préfixe repris peut lire
+        # ctx.output_file par défaut (sans reads_from_step_key explicite), ou un alias
+        # output_name, qui doivent donc aussi survivre au réamorçage.
+        "artifacts":           {k: str(v) for k, v in ctx.artifacts.items() if isinstance(v, Path)},
+        "rows_count":          ctx.rows_count,
+    }
+    return json.dumps(state)
+
+
+# ──────────────────────────────────────────────
 #  EXÉCUTION LINÉAIRE (comportement historique, inchangé)
 # ──────────────────────────────────────────────
 
-def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, bool]:
+def _execute_linear(steps, ctx, progress, result, cancel_event,
+                     skip_step_keys: frozenset = frozenset()) -> tuple:
     """
     Boucle d'exécution actuelle, extraite telle quelle de run_pipeline() — chemin emprunté
     pour tout pipeline sans arête explicite (`db.get_edges()` vide), donc pour tous les
     pipelines existants et pour l'éditeur linéaire (PipelineEditorDialog), inchangés par le
-    chantier 6a. Retourne (pipeline_failed, pipeline_cancelled).
+    chantier 6a. Retourne (pipeline_failed, pipeline_cancelled, completed_step_keys, {}) — le
+    4e élément (ports actifs) est toujours vide en mode linéaire, présent uniquement pour un
+    type de retour uniforme avec _execute_graph (chantier J.2).
+
+    skip_step_keys (chantier J.2) : étapes déjà réussies lors d'un run précédent, dont la
+    sortie a été réamorcée dans ctx.artifacts par run_pipeline() avant l'appel — on ne les
+    ré-exécute pas, on se contente de les compter comme réussies.
     """
     total = len(steps)
     pipeline_failed  = False
     pipeline_cancelled = False
+    completed_step_keys: set = set(skip_step_keys)
 
     for i, step in enumerate(steps):
         if cancel_event.is_set():
@@ -219,6 +349,13 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
         step_type  = str(step.step_type).replace("StepType.", "")
         step_label = step.label or step_type
         config     = json.loads(step.config_json or "{}")
+        step_key   = config.get("_step_key")
+
+        if step_key and step_key in skip_step_keys:
+            next_pct = int((i + 1) * 90 / total)
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} déjà réussie (reprise) — ignorée. ---")
+            progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
+            continue
 
         if pipeline_failed and not step.run_always:
             continue
@@ -247,21 +384,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        retry_count = step.retry_count or 0
-        attempt     = 0
-        while True:
-            step_result = executor.run(ctx, on_progress=step_progress)
-
-            # Récupération des logs accumulés dans le contexte
-            for line in ctx.log_lines:
-                result.log_lines.append(line)
-            ctx.log_lines.clear()
-
-            if step_result.success or attempt >= retry_count:
-                break
-            attempt += 1
-            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-            time.sleep(RETRY_DELAY_S)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
 
         if step_result.success:
             # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
@@ -271,7 +394,6 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
             # PRODUCES statique de la classe (qui reste vide pour SPARK_SQL/PYTHON_SCRIPT,
             # une production conditionnelle à la config, pas connaissable avant l'exécution).
-            step_key = config.get("_step_key")
             if ctx.output_file != before_output_file and step_key:
                 ctx.artifacts[step_key] = ctx.output_file
             # Alias cosmétique en plus (chantier UX — ports nommés) : ne remplace jamais la
@@ -282,6 +404,13 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
             output_name = config.get("output_name")
             if output_name:
                 ctx.artifacts[output_name] = ctx.output_file
+            # Règle de sécurité (chantier J.2) : une étape run_always exécutée APRÈS que le
+            # pipeline soit déjà en échec (ex : notification de secours) n'est jamais marquée
+            # "complétée" pour une future reprise — sinon une 2e reprise qui échoue à nouveau
+            # plus loin sauterait silencieusement cette étape, et l'utilisateur ne serait
+            # jamais prévenu du second échec.
+            if step_key and not (pipeline_failed and step.run_always):
+                completed_step_keys.add(step_key)
 
         if not step_result.success:
             if not pipeline_failed:
@@ -292,7 +421,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event) -> tuple[bool, b
             elif step.run_always:
                 result.log(f"Étape 'toujours exécutée' {i + 1} ({step_label}) en échec : {step_result.error}")
 
-    return pipeline_failed, pipeline_cancelled
+    return pipeline_failed, pipeline_cancelled, completed_step_keys, {}
 
 
 # ──────────────────────────────────────────────
@@ -348,17 +477,30 @@ def _topological_order(steps, edges):
     return [by_key[k] for k in ordered_keys] + keyless
 
 
-def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[bool, bool]:
+def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
+                    skip_step_keys: frozenset = frozenset(),
+                    active_ports_seed: dict | None = None) -> tuple:
     """
     Exécution en ordre topologique. L'échec d'une étape ne bloque que ses dépendants (directs ou
     indirects) — les branches indépendantes continuent. Un nœud à ports multiples (ex:
     ConditionStep) détermine, via `StepResult.active_port`, quelle(s) arête(s) sortante(s) sont
     actives — les autres sont traitées comme une branche non sélectionnée (skip, pas un échec).
+
+    Retourne (pipeline_failed, pipeline_cancelled, completed_step_keys, active_port) — le 4e
+    élément est le dict complet des ports actifs en fin d'exécution (chantier J.2, persisté dans
+    le snapshot de reprise pour qu'une étape en aval d'un routeur CONDITION déjà réussi retrouve
+    la bonne branche active après réamorçage).
+
+    skip_step_keys/active_ports_seed (chantier J.2) : étapes déjà réussies lors d'un run
+    précédent — on ne les ré-exécute pas, on restaure directement leur statut "success" (et leur
+    port actif) dès qu'on atteint leur tour dans l'ordre topologique, avant que la boucle
+    n'atteigne un dépendant (garanti par construction : `order` est topologique).
     """
+    active_ports_seed = active_ports_seed or {}
     order = _topological_order(steps, edges)
     if order is None:
         result.fail("Le graphe de ce pipeline contient un cycle — exécution impossible.")
-        return True, False
+        return True, False, set(), {}
 
     total = len(order)
     configs  = {id(s): json.loads(s.config_json or "{}") for s in order}
@@ -372,6 +514,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
     active_port: dict = {}    # step_key -> port actif (steps à ports multiples)
     pipeline_failed    = False
     pipeline_cancelled = False
+    completed_step_keys: set = set(skip_step_keys)
 
     for i, step in enumerate(order):
         if cancel_event.is_set():
@@ -383,6 +526,15 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
         step_label = step.label or step_type
         config     = configs[id(step)]
         step_key   = key_of[id(step)]
+
+        if step_key and step_key in skip_step_keys:
+            step_status[step_key] = "success"
+            if step_key in active_ports_seed:
+                active_port[step_key] = active_ports_seed[step_key]
+            next_pct = int((i + 1) * 90 / total)
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} déjà réussie (reprise) — ignorée. ---")
+            progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
+            continue
 
         incoming    = incoming_by_key.get(step_key, []) if step_key else []
         unavailable = []
@@ -431,20 +583,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        retry_count = step.retry_count or 0
-        attempt     = 0
-        while True:
-            step_result = executor.run(ctx, on_progress=step_progress)
-
-            for line in ctx.log_lines:
-                result.log_lines.append(line)
-            ctx.log_lines.clear()
-
-            if step_result.success or attempt >= retry_count:
-                break
-            attempt += 1
-            result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-            time.sleep(RETRY_DELAY_S)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
 
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
@@ -459,6 +598,11 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
                 step_status[step_key] = "success"
                 if step_result.active_port:
                     active_port[step_key] = step_result.active_port
+                # Règle de sécurité (chantier J.2) : voir le commentaire équivalent dans
+                # _execute_linear — une étape run_always exécutée après un échec déjà survenu
+                # n'est jamais marquée "complétée" pour une future reprise.
+                if not (pipeline_failed and step.run_always):
+                    completed_step_keys.add(step_key)
         else:
             if step_key:
                 step_status[step_key] = "failed"
@@ -469,7 +613,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event) -> tuple[b
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
 
-    return pipeline_failed, pipeline_cancelled
+    return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
 
 
 # ──────────────────────────────────────────────
@@ -564,6 +708,7 @@ def _steps_to_dicts(pipeline_id: int) -> list[dict]:
             "config":      json.loads(s.config_json or "{}"),
             "retry_count": s.retry_count or 0,
             "run_always":  bool(s.run_always),
+            "timeout_s":   s.timeout_s or 0,
         }
         for s in db.get_steps(pipeline_id)
     ]
@@ -679,14 +824,17 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
 #  EXÉCUTEUR PRINCIPAL
 # ──────────────────────────────────────────────
 
-def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
+def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | None = None) -> PipelineResult:
     """
     Exécute un pipeline en enchaînant ses PipelineStep dans l'ordre.
     Le contexte (fichier, nombre de lignes, etc.) est transmis d'étape en étape.
 
     Paramètres :
-        pipeline_id  : ID du pipeline en base
-        on_progress  : callback(step: str, pct: int) pour alimenter l'UI
+        pipeline_id         : ID du pipeline en base
+        on_progress         : callback(step: str, pct: int) pour alimenter l'UI
+        resume_from_run_id  : (chantier J.2) reprend depuis l'échec d'un run précédent — les
+                               étapes déjà réussies ne sont pas ré-exécutées, leurs artefacts
+                               sont réamorcés dans le contexte. Voir _build_resumable_state_json.
 
     Retourne un PipelineResult (ne lève jamais d'exception).
     """
@@ -719,14 +867,93 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
 
         result.log(f"Pipeline : {pipeline.name} ({len(steps)} étape(s))")
 
+        # ── Reprise depuis l'échec (chantier J.2) ──
+        # Effectuée AVANT create_run() : un échec de validation de reprise ne doit pas laisser
+        # de ligne d'historique vide, comme les autres sorties anticipées ci-dessus.
+        ctx = StepContext()
+        skip_step_keys: set = set()
+        active_ports_seed: dict = {}
+
+        # Réclamation protégée par _active_runs_lock — évite que deux run_pipeline() concurrents
+        # pour le même pipeline_id ne touchent les mêmes fichiers temporaires du même état de
+        # reprise (purge et consommation sont donc mutuellement exclusives avec tout autre run
+        # déjà en cours pour ce pipeline).
+        # La purge elle-même reste À L'INTÉRIEUR du verrou (pas seulement sa détection) : sinon
+        # deux appels concurrents pourraient tous deux lire le même état périmé avant que l'un
+        # des deux ait eu le temps de le purger, et tenter de supprimer les mêmes fichiers en
+        # parallèle. Section courte (une poignée d'unlink() au pire), coût de contention
+        # négligeable sur ce chemin froid (une seule fois par démarrage de run).
+        with _active_runs_lock:
+            already_running = pipeline_id in _active_runs
+            if not already_running:
+                stale = db.get_last_resumable_run(pipeline_id)
+                if stale and stale.id != resume_from_run_id:
+                    _purge_resumable_run(stale)
+
+        if resume_from_run_id:
+            if already_running:
+                result.fail("Reprise impossible : un autre run de ce pipeline est déjà en cours.")
+                result.finish(); return result
+
+            resume_run = db.get_run(resume_from_run_id)
+            state = None
+            if resume_run and resume_run.resumable_state_json:
+                try:
+                    state = json.loads(resume_run.resumable_state_json)
+                except (ValueError, TypeError):
+                    state = None
+            if not state:
+                result.fail("Reprise impossible : aucun état de reprise disponible pour ce run.")
+                result.finish(); return result
+
+            configs_by_key = {}
+            for s in steps:
+                cfg = json.loads(s.config_json or "{}")
+                k = cfg.get("_step_key")
+                if k:
+                    configs_by_key[k] = cfg
+            edges_now = db.get_edges(pipeline_id)
+
+            invalid = False
+            for key, fp in (state.get("step_fingerprints") or {}).items():
+                cfg = configs_by_key.get(key)
+                if cfg is None or _step_fingerprint(cfg) != fp:
+                    invalid = True
+                    break
+            if not invalid and state.get("edges_fingerprint") != _edges_fingerprint(edges_now):
+                invalid = True
+            if not invalid:
+                for p in (state.get("artifacts") or {}).values():
+                    if not Path(p).exists():
+                        invalid = True
+                        break
+
+            if invalid:
+                result.fail(
+                    "Reprise impossible : le pipeline a été modifié ou les fichiers temporaires "
+                    "ont expiré depuis l'échec — relancez une exécution complète."
+                )
+                result.finish(); return result
+
+            for k, p in (state.get("artifacts") or {}).items():
+                ctx.artifacts[k] = Path(p)
+            ctx.rows_count     = state.get("rows_count", 0)
+            skip_step_keys     = set(state.get("completed_step_keys") or [])
+            active_ports_seed  = dict(state.get("active_ports") or {})
+            db.clear_resumable_state(resume_from_run_id)
+            result.log(
+                f"Reprise du run #{resume_from_run_id} — "
+                f"{len(skip_step_keys)} étape(s) déjà réussie(s) ignorée(s)."
+            )
+
         # ── Enregistrement du run ─────────────────
         run    = db.create_run(pipeline_id)
         run_id = run.id
+        result.run_id = run_id
         result.log(f"Run ID : {run_id}")
         _update_pipeline_status(pipeline_id, "RUNNING")
 
-        # ── Contexte partagé + enregistrement du verrou ──
-        ctx    = StepContext()
+        # ── Enregistrement du verrou ──────────────
         cancel_event = threading.Event()
         with _active_runs_lock:
             _active_runs[pipeline_id] = cancel_event
@@ -737,41 +964,50 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
         # inchangée : zéro changement de comportement pour tous les pipelines existants.
         edges = db.get_edges(pipeline_id)
         if edges:
-            pipeline_failed, pipeline_cancelled = _execute_graph(
-                steps, edges, ctx, progress, result, cancel_event
+            pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph(
+                steps, edges, ctx, progress, result, cancel_event, skip_step_keys, active_ports_seed
             )
         else:
-            pipeline_failed, pipeline_cancelled = _execute_linear(
-                steps, ctx, progress, result, cancel_event
+            pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_linear(
+                steps, ctx, progress, result, cancel_event, skip_step_keys
             )
 
-        # ── Nettoyage des fichiers temporaires (inconditionnel) ──
-        # Plusieurs artefacts nommés peuvent désormais être vivants simultanément (ex : deux
-        # DB_EXTRACT en amont de deux consommateurs différents) — le set déduplique le cas
-        # courant où le même Path apparaît à la fois sous "output_file" et sous une clé
-        # d'étape spécifique.
-        temp_paths = {p for p in ctx.artifacts.values() if isinstance(p, Path)}
-        for p in temp_paths:
-            if p.exists():
-                try:
-                    p.unlink()
-                    result.log(f"Fichier temporaire supprimé : {p}")
-                except Exception as e:
-                    result.log(f"Avertissement : impossible de supprimer le tmp {p} : {e}")
+        # ── Nettoyage des fichiers temporaires ────
+        # Sauté quand un état de reprise va être persisté (échec/annulation avec au moins une
+        # étape réussie) — les fichiers doivent survivre pour une reprise éventuelle. Comportement
+        # inchangé dans tous les autres cas (succès, ou échec/annulation sans rien à reprendre).
+        preserve_for_resume = (pipeline_failed or pipeline_cancelled) and bool(completed_step_keys)
+        if not preserve_for_resume:
+            # Plusieurs artefacts nommés peuvent être vivants simultanément (ex : deux DB_EXTRACT
+            # en amont de deux consommateurs différents) — le set déduplique le cas courant où le
+            # même Path apparaît à la fois sous "output_file" et sous une clé d'étape spécifique.
+            temp_paths = {p for p in ctx.artifacts.values() if isinstance(p, Path)}
+            for p in temp_paths:
+                if p.exists():
+                    try:
+                        p.unlink()
+                        result.log(f"Fichier temporaire supprimé : {p}")
+                    except Exception as e:
+                        result.log(f"Avertissement : impossible de supprimer le tmp {p} : {e}")
 
-        with _active_runs_lock:
-            _active_runs.pop(pipeline_id, None)
+        resumable_json = None
+        if preserve_for_resume:
+            resumable_json = _build_resumable_state_json(steps, edges, completed_step_keys, active_ports, ctx)
 
         # ── Issue ─────────────────────────────────
         result.finish()
         if pipeline_cancelled:
-            _update_run(run_id, "CANCELLED", result)
+            _update_run(run_id, "CANCELLED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "CANCELLED")
+            with _active_runs_lock:
+                _active_runs.pop(pipeline_id, None)
             return result
 
         if pipeline_failed:
-            _update_run(run_id, "FAILED", result)
+            _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
+            with _active_runs_lock:
+                _active_runs.pop(pipeline_id, None)
             return result
 
         result.success       = True
@@ -782,8 +1018,10 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
             f"Pipeline terminé en {result.duration_s:.1f}s"
             + (f" — {result.rows_exported:,} lignes exportées." if result.rows_exported else ".")
         )
-        _update_run(run_id, "SUCCESS", result)
+        _update_run(run_id, "SUCCESS", result, None, resume_from_run_id)
         _update_pipeline_status(pipeline_id, "SUCCESS")
+        with _active_runs_lock:
+            _active_runs.pop(pipeline_id, None)
         return result
 
     except Exception as e:
@@ -802,7 +1040,8 @@ def run_pipeline(pipeline_id: int, on_progress=None) -> PipelineResult:
 #  HELPERS DB
 # ──────────────────────────────────────────────
 
-def _update_run(run_id: int, status: str, result: PipelineResult):
+def _update_run(run_id: int, status: str, result: PipelineResult,
+                 resumable_state_json: str | None = None, resumed_from_run_id: int | None = None):
     db.finish_run(
         run_id,
         status=status,
@@ -810,6 +1049,8 @@ def _update_run(run_id: int, status: str, result: PipelineResult):
         remote_path=result.remote_path,
         error_message=result.error,
         log_text=result.log_text,
+        resumable_state_json=resumable_state_json,
+        resumed_from_run_id=resumed_from_run_id,
     )
 
 
