@@ -29,6 +29,26 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.13.0] - 2026-08-10
+
+### Ajouté
+- Étape `SQOOP_EXPORT` : nouveau profil d'**élévation de privilèges** (`sudo su`), pour les
+  équipes qui basculent vers un compte technique partagé (ex : « nifi ») après connexion SSH,
+  plutôt que d'utiliser Kerberos. Le mot de passe partagé est chiffré au repos comme tout autre
+  profil, jamais en clair dans la configuration de l'étape ni dans les journaux d'exécution.
+  Élévation et Kerberos sont désormais tous deux **facultatifs** sur cette étape (l'un, l'autre,
+  les deux, ou aucun), configurables dans **Connexions** → onglet « Big Data / Spark SQL ».
+- `core/hadoop_edge.py` : nouveau moteur d'exécution à canal shell interactif persistant
+  (`run_command_with_elevation`), nécessaire pour enchaîner élévation + kinit optionnel + la
+  commande réelle dans une même identité — un `sudo su` réussi ne survit jamais à un
+  `exec_command()` séparé, contrairement à ce que le modèle d'exécution précédent permettait.
+  Utilisé uniquement quand un profil d'élévation est configuré ; le chemin existant (sans
+  élévation) reste strictement inchangé.
+
+### Corrigé
+- Étape `SQOOP_EXPORT` : le profil Kerberos, rendu obligatoire par erreur dès la conception
+  initiale, est maintenant facultatif — certaines équipes n'en ont jamais eu besoin pour Sqoop.
+
 ## [0.12.0] - 2026-08-10
 
 ### Ajouté

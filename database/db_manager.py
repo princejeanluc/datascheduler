@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile
 
 
 # ──────────────────────────────────────────────
@@ -227,7 +227,7 @@ def _migrate(engine) -> None:
         # trois étapes (colonne / backfill / index) est indépendamment idempotente.
         for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles",
                       "database_profiles", "sql_queries", "pipelines",
-                      "ssh_profiles", "kerberos_profiles"):
+                      "ssh_profiles", "kerberos_profiles", "elevation_profiles"):
             cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
             if "uuid" not in cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN uuid VARCHAR(36)"))
@@ -248,7 +248,7 @@ def _migrate(engine) -> None:
         # Bilan de santé des connexions (chantier UX fiabilité) — mémorise le résultat du
         # dernier test entre deux sessions, sur les 4 tables de profils.
         for table in ("oracle_profiles", "ftp_profiles", "smtp_profiles", "database_profiles",
-                      "ssh_profiles", "kerberos_profiles"):
+                      "ssh_profiles", "kerberos_profiles", "elevation_profiles"):
             profile_cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({table})")).fetchall()}
             if "last_tested_at" not in profile_cols:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_tested_at DATETIME"))
@@ -521,6 +521,56 @@ def get_kerberos_profile_by_uuid(uuid: str) -> KerberosProfile | None:
 def delete_kerberos_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(KerberosProfile, profile_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────
+#  HELPERS PROFIL D'ÉLÉVATION (sudo su) — étape SQOOP_EXPORT
+# ──────────────────────────────────────────────
+
+def create_elevation_profile(name, target_user, password, uuid=None) -> ElevationProfile:
+    with get_session() as s:
+        kwargs = dict(name=name, target_user=target_user, password=crypto.encrypt(password))
+        if uuid:
+            kwargs["uuid"] = uuid
+        profile = ElevationProfile(**kwargs)
+        s.add(profile)
+    return profile
+
+
+def update_elevation_profile(profile_id, name, target_user, password=None) -> ElevationProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+    with get_session() as s:
+        p = s.get(ElevationProfile, profile_id)
+        if not p:
+            return None
+        p.name = name; p.target_user = target_user
+        if password:
+            p.password = crypto.encrypt(password)
+    return p
+
+
+def get_elevation_profiles() -> list[ElevationProfile]:
+    with get_session() as s:
+        return s.query(ElevationProfile).order_by(ElevationProfile.name).all()
+
+
+def get_elevation_profile(profile_id: int) -> ElevationProfile | None:
+    with get_session() as s:
+        return s.get(ElevationProfile, profile_id)
+
+
+def get_elevation_profile_by_uuid(uuid: str) -> ElevationProfile | None:
+    with get_session() as s:
+        return s.query(ElevationProfile).filter_by(uuid=uuid).first()
+
+
+def delete_elevation_profile(profile_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(ElevationProfile, profile_id)
         if obj:
             s.delete(obj)
             return True
@@ -991,8 +1041,9 @@ _PROFILE_MODEL_BY_CATEGORY = {
     "ftp":      FtpProfile,
     "smtp":     SmtpProfile,
     "database": DatabaseProfile,
-    "ssh":      SshProfile,
-    "kerberos": KerberosProfile,
+    "ssh":        SshProfile,
+    "kerberos":   KerberosProfile,
+    "elevation":  ElevationProfile,
 }
 
 

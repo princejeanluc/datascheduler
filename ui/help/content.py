@@ -130,12 +130,14 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   données (séparateur, encodage, guillemets), en-tête de colonnes toujours inclus. Nécessite un
   profil SSH et un profil Kerberos, configurés dans **Connexions**.
 - **Export Sqoop (`SQOOP_EXPORT`)** — exporte une table Hive/HCatalog vers Oracle via `sqoop
-  export`, sur un nœud edge (même mécanique de connexion que Spark SQL : SSH + authentification
-  Kerberos). Les identifiants Oracle viennent d'un profil existant (**Connexions**) — jamais
-  saisis en clair dans l'étape, et le mot de passe n'apparaît jamais dans les journaux
-  d'exécution. Base, table HCatalog source et table Oracle cible acceptent les jetons
-  (`{yyyy}`, `{MM}`...) pour les tables partitionnées par date. Nécessite un profil SSH, un
-  profil Kerberos et un profil Oracle, configurés dans **Connexions**.
+  export`, sur un nœud edge. Les identifiants Oracle viennent d'un profil existant
+  (**Connexions**) — jamais saisis en clair dans l'étape, et le mot de passe n'apparaît jamais
+  dans les journaux d'exécution. Base, table HCatalog source et table Oracle cible acceptent les
+  jetons (`{yyyy}`, `{MM}`...) pour les tables partitionnées par date. Nécessite un profil SSH et
+  un profil Oracle ; deux mécanismes d'authentification distincts et **facultatifs**, à choisir
+  selon votre équipe (l'un, l'autre, les deux, ou aucun) : un profil **Kerberos** (kinit, comme
+  Spark SQL) et/ou un profil **d'élévation** (`sudo su` vers un compte technique partagé, ex :
+  « nifi » — l'élévation, si configurée, précède toujours le kinit).
 
 ## Notification & intégration
 

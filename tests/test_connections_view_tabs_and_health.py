@@ -37,6 +37,9 @@ def test_ssh_and_kerberos_panels_share_the_same_tab(qapp, test_db):
     bigdata_tab = view.tabs.widget(2)
     assert bigdata_tab.isAncestorOf(view.ssh_table)
     assert bigdata_tab.isAncestorOf(view.kerberos_table)
+    # Chantier L : le panneau Élévation (sudo su, étape SQOOP_EXPORT) rejoint la même famille
+    # "connexion edge" que SSH/Kerberos, pour la même raison qu'eux (toujours utilisés en paire).
+    assert bigdata_tab.isAncestorOf(view.elevation_table)
 
 
 @pytest.mark.parametrize("last_test_success,expected_text", [
@@ -53,6 +56,23 @@ def test_ssh_health_badge_reflects_last_test_success(qapp, test_db, last_test_su
 
     view = ConnectionsView()
     badge = view.ssh_table.cellWidget(0, 4)
+    assert badge.text() == expected_text
+
+
+@pytest.mark.parametrize("last_test_success,expected_text", [
+    (True, "OK"),
+    (False, "Échec"),
+    (None, "Jamais testé"),
+])
+def test_elevation_health_badge_reflects_last_test_success(qapp, test_db, last_test_success, expected_text):
+    from ui.main_window.connections_view import ConnectionsView
+
+    p = db.create_elevation_profile(name="NIFI", target_user="nifi", password="pw")
+    if last_test_success is not None:
+        db.record_profile_test_result("elevation", p.id, last_test_success)
+
+    view = ConnectionsView()
+    badge = view.elevation_table.cellWidget(0, 2)
     assert badge.text() == expected_text
 
 

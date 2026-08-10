@@ -49,7 +49,12 @@ _STEP_REFERENCES = {
                       ("kerberos_profile_id", "kerberos_profile"),
                       ("sql_query_id", "sql_query")],
     "SQOOP_EXPORT": [("edge_profile_id", "edge_profile"),
+                      # Kerberos et élévation sont tous deux optionnels sur cette étape (certaines
+                      # équipes n'utilisent ni l'un ni l'autre, ou l'un sans l'autre) — la boucle
+                      # de résolution de référence (plus bas) tolère déjà raw_id=None (config.get
+                      # renvoie None, "continue"), donc rien de spécial à faire ici pour ça.
                       ("kerberos_profile_id", "kerberos_profile"),
+                      ("elevation_profile_id", "elevation_profile"),
                       # "db_profile" (pas un ref_type dédié) : _resolve_reference()/
                       # _category_for_ref() retombent sur ORACLE par défaut quand "db_type" est
                       # absent de la config — exactement le cas ici, l'étape étant scopée Oracle
@@ -58,13 +63,14 @@ _STEP_REFERENCES = {
 }
 
 _UUID_KEY_FOR = {
-    "profile_id":          "profile_uuid",
-    "ftp_profile_id":      "ftp_profile_uuid",
-    "sql_query_id":        "sql_query_uuid",
-    "smtp_profile_id":     "smtp_profile_uuid",
-    "edge_profile_id":     "edge_profile_uuid",
-    "kerberos_profile_id": "kerberos_profile_uuid",
-    "oracle_profile_id":   "oracle_profile_uuid",
+    "profile_id":           "profile_uuid",
+    "ftp_profile_id":       "ftp_profile_uuid",
+    "sql_query_id":         "sql_query_uuid",
+    "smtp_profile_id":      "smtp_profile_uuid",
+    "edge_profile_id":      "edge_profile_uuid",
+    "kerberos_profile_id":  "kerberos_profile_uuid",
+    "oracle_profile_id":    "oracle_profile_uuid",
+    "elevation_profile_id": "elevation_profile_uuid",
 }
 
 
@@ -161,6 +167,8 @@ def _resolve_reference(ref_type: str, config: dict, raw_id: int):
         return db.get_ssh_profile(raw_id), "ssh"
     if ref_type == "kerberos_profile":
         return db.get_kerberos_profile(raw_id), "kerberos"
+    if ref_type == "elevation_profile":
+        return db.get_elevation_profile(raw_id), "elevation"
     return None, None
 
 
@@ -178,16 +186,19 @@ def _category_for_ref(ref_type: str, config: dict) -> str | None:
         return "ssh"
     if ref_type == "kerberos_profile":
         return "kerberos"
+    if ref_type == "elevation_profile":
+        return "elevation"
     return None
 
 
 _GETTER_BY_CATEGORY = {
-    "oracle":   db.get_oracle_profile_by_uuid,
-    "ftp":      db.get_ftp_profile_by_uuid,
-    "smtp":     db.get_smtp_profile_by_uuid,
-    "database": db.get_database_profile_by_uuid,
-    "ssh":      db.get_ssh_profile_by_uuid,
-    "kerberos": db.get_kerberos_profile_by_uuid,
+    "oracle":    db.get_oracle_profile_by_uuid,
+    "ftp":       db.get_ftp_profile_by_uuid,
+    "smtp":      db.get_smtp_profile_by_uuid,
+    "database":  db.get_database_profile_by_uuid,
+    "ssh":       db.get_ssh_profile_by_uuid,
+    "kerberos":  db.get_kerberos_profile_by_uuid,
+    "elevation": db.get_elevation_profile_by_uuid,
 }
 
 
@@ -252,6 +263,14 @@ def _serialize_kerberos_profile(p, fernet) -> dict:
     return d
 
 
+def _serialize_elevation_profile(p, fernet) -> dict:
+    d = {
+        "uuid": p.uuid, "name": p.name, "target_user": p.target_user,
+    }
+    d.update(_serialize_password(p.password, fernet))
+    return d
+
+
 def _serialize_sql_query(q) -> dict:
     return {
         "uuid": q.uuid, "name": q.name,
@@ -260,12 +279,13 @@ def _serialize_sql_query(q) -> dict:
 
 
 _SERIALIZERS = {
-    "oracle":   _serialize_oracle_profile,
-    "ftp":      _serialize_ftp_profile,
-    "smtp":     _serialize_smtp_profile,
-    "database": _serialize_database_profile,
-    "ssh":      _serialize_ssh_profile,
-    "kerberos": _serialize_kerberos_profile,
+    "oracle":    _serialize_oracle_profile,
+    "ftp":       _serialize_ftp_profile,
+    "smtp":      _serialize_smtp_profile,
+    "database":  _serialize_database_profile,
+    "ssh":       _serialize_ssh_profile,
+    "kerberos":  _serialize_kerberos_profile,
+    "elevation": _serialize_elevation_profile,
 }
 
 
@@ -290,7 +310,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
         # needed[catégorie][id_local] = objet résolu — dédupliqué par id, un profil référencé par
         # plusieurs étapes n'est sérialisé qu'une fois.
         needed = {"oracle": {}, "ftp": {}, "smtp": {}, "database": {}, "sql_query": {},
-                  "ssh": {}, "kerberos": {}}
+                  "ssh": {}, "kerberos": {}, "elevation": {}}
         exported_steps = []
 
         for step in steps:
@@ -462,6 +482,10 @@ def _create_profile_from_bundle(category: str, data: dict, fernet: Fernet | None
         obj = db.create_kerberos_profile(
             name=name, principal=data["principal"], password=password, uuid=data["uuid"],
         )
+    elif category == "elevation":
+        obj = db.create_elevation_profile(
+            name=name, target_user=data["target_user"], password=password, uuid=data["uuid"],
+        )
     else:
         raise ValueError(f"Catégorie de profil inconnue : {category!r}")
     return obj.id
@@ -597,6 +621,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             "pipeline":  {p.name for p in db.get_pipelines()},
             "ssh":       {p.name for p in db.get_ssh_profiles()},
             "kerberos":  {p.name for p in db.get_kerberos_profiles()},
+            "elevation": {p.name for p in db.get_elevation_profiles()},
         }
 
         # (catégorie, uuid) -> id local — construite au fil des décisions "reuse"/"create".

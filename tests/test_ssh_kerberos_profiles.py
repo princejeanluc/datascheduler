@@ -1,9 +1,10 @@
 """
 DataScheduler — tests/test_ssh_kerberos_profiles.py
-Vérifie les profils SSH (edge/master node) et Kerberos (étape SPARK_SQL) : CRUD, chiffrement du
-mot de passe, convention "vide en édition = conserver", identité UUID, câblage avec le bilan de
-santé des connexions, et migration idempotente sur une base "legacy" (avant l'ajout de ces deux
-tables) — même patron que tests/test_connection_health.py.
+Vérifie les profils SSH (edge/master node), Kerberos (étape SPARK_SQL) et Élévation — sudo su
+(étape SQOOP_EXPORT, chantier L) : CRUD, chiffrement du mot de passe, convention "vide en
+édition = conserver", identité UUID, câblage avec le bilan de santé des connexions, et migration
+idempotente sur une base "legacy" (avant l'ajout de ces tables) — même patron que
+tests/test_connection_health.py.
 """
 
 from sqlalchemy import create_engine, text
@@ -91,6 +92,48 @@ def test_kerberos_profile_health_board_wiring(test_db):
 
 
 # ──────────────────────────────────────────────
+#  ElevationProfile (sudo su — étape SQOOP_EXPORT, chantier L)
+# ──────────────────────────────────────────────
+
+def test_create_elevation_profile_encrypts_password(test_db):
+    p = db.create_elevation_profile(name="NIFI", target_user="nifi", password="secret")
+    assert p.password != "secret"
+    assert crypto.decrypt(p.password) == "secret"
+    assert p.uuid
+
+
+def test_elevation_profile_crud(test_db):
+    p = db.create_elevation_profile(name="NIFI", target_user="nifi", password="pw")
+    assert db.get_elevation_profile(p.id).target_user == "nifi"
+    assert len(db.get_elevation_profiles()) == 1
+    assert db.get_elevation_profile_by_uuid(p.uuid).id == p.id
+
+    db.update_elevation_profile(p.id, name="NIFI", target_user="nifi2", password=None)
+    reloaded = db.get_elevation_profile(p.id)
+    assert reloaded.target_user == "nifi2"
+    assert crypto.decrypt(reloaded.password) == "pw"   # mot de passe conservé (vide = inchangé)
+
+    db.update_elevation_profile(p.id, name="NIFI", target_user="nifi2", password="new")
+    assert crypto.decrypt(db.get_elevation_profile(p.id).password) == "new"
+
+    assert db.delete_elevation_profile(p.id) is True
+    assert db.get_elevation_profile(p.id) is None
+
+
+def test_elevation_profile_health_board_wiring(test_db):
+    p = db.create_elevation_profile(name="NIFI", target_user="nifi", password="pw")
+    assert p.last_tested_at is None and p.last_test_success is None
+
+    db.record_profile_test_result("elevation", p.id, True)
+    tested = db.get_elevation_profile(p.id)
+    assert tested.last_test_success is True
+    assert tested.last_tested_at is not None
+
+    db.record_profile_test_result("elevation", p.id, False)
+    assert db.get_elevation_profile(p.id).last_test_success is False
+
+
+# ──────────────────────────────────────────────
 #  Schéma — ssh_profiles/kerberos_profiles sont des tables neuves, toujours créées en entier
 #  par Base.metadata.create_all() (jamais de lignes existantes migrées colonne par colonne,
 #  contrairement à un ALTER TABLE sur une table déjà peuplée) — on vérifie juste que init_db()
@@ -113,11 +156,15 @@ def test_init_db_creates_ssh_and_kerberos_tables_with_expected_columns(tmp_path)
                 .execute(text("PRAGMA table_info(ssh_profiles)")).fetchall()}
     cols_krb = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
                 .execute(text("PRAGMA table_info(kerberos_profiles)")).fetchall()}
+    cols_elevation = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+                .execute(text("PRAGMA table_info(elevation_profiles)")).fetchall()}
     for col in ("uuid", "name", "host", "port", "username", "password",
                 "last_tested_at", "last_test_success"):
         assert col in cols_ssh
     for col in ("uuid", "name", "principal", "password", "last_tested_at", "last_test_success"):
         assert col in cols_krb
+    for col in ("uuid", "name", "target_user", "password", "last_tested_at", "last_test_success"):
+        assert col in cols_elevation
 
     # Idempotence : un second démarrage ne doit pas planter.
     db.init_db(db_path)
