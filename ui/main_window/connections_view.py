@@ -169,7 +169,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "État"]
+        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "Via", "État"]
         self.ssh_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ssh_table)
         self._ssh_empty = _make_empty_label("Aucun profil SSH — cliquez sur « Nouveau profil SSH ».")
@@ -332,16 +332,18 @@ class ConnectionsView(QWidget):
     def _refresh_ssh(self):
         from database import db_manager as db
         profiles = db.get_ssh_profiles()
+        name_by_id = {p.id: p.name for p in profiles}
         self.ssh_table.setVisible(bool(profiles))
         self._ssh_empty.setVisible(not profiles)
         self.ssh_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            cells = [p.name, p.host, str(p.port), p.username]
+            via = name_by_id.get(p.jump_via_id, "—") if p.jump_via_id else "—"
+            cells = [p.name, p.host, str(p.port), p.username, via]
             for c_idx, cell in enumerate(cells):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ssh_table.setItem(r_idx, c_idx, item)
-            self.ssh_table.setCellWidget(r_idx, 4, _health_badge(p.last_test_success))
+            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -349,7 +351,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ssh(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ssh(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ssh_table.setCellWidget(r_idx, 5, w)
+            self.ssh_table.setCellWidget(r_idx, 6, w)
             self.ssh_table.setRowHeight(r_idx, 44)
 
     def _refresh_kerberos(self):
@@ -497,7 +499,8 @@ class ConnectionsView(QWidget):
     def _on_delete_ssh(self, profile_id: int):
         from database import db_manager as db
         used_by = db.find_pipelines_using_profile("edge_profile_id", profile_id)
-        if not self._confirm_delete("SSH", used_by):
+        bastion_users = db.find_ssh_profiles_using_as_bastion(profile_id)
+        if not self._confirm_delete("SSH", used_by, bastion_users=bastion_users):
             return
         db.delete_ssh_profile(profile_id)
         self._refresh_ssh()
@@ -544,12 +547,21 @@ class ConnectionsView(QWidget):
         db.delete_elevation_profile(profile_id)
         self._refresh_elevation()
 
-    def _confirm_delete(self, profile_kind: str, used_by: list) -> bool:
-        """Confirmation de suppression — avertit si des pipelines utilisent ce profil."""
+    def _confirm_delete(self, profile_kind: str, used_by: list,
+                         bastion_users: list | None = None) -> bool:
+        """Confirmation de suppression — avertit si des pipelines utilisent ce profil, et (pour
+        un profil SSH) si d'autres profils SSH l'utilisent comme bastion."""
+        lines = []
         if used_by:
             names = ", ".join(used_by)
+            lines.append(f"utilisé par {len(used_by)} pipeline(s) : {names}")
+        if bastion_users:
+            names = ", ".join(bastion_users)
+            lines.append(f"utilisé comme bastion par {len(bastion_users)} profil(s) SSH : {names}"
+                          " (ils repasseront en connexion directe)")
+        if lines:
             msg = (
-                f"Ce profil {profile_kind} est utilisé par {len(used_by)} pipeline(s) : {names}.\n\n"
+                f"Ce profil {profile_kind} est " + " et ".join(lines) + ".\n\n"
                 f"Le(s) supprimer quand même ? Ces pipelines échoueront à leur prochaine exécution."
             )
         else:

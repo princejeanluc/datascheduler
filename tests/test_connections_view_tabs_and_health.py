@@ -55,7 +55,8 @@ def test_ssh_health_badge_reflects_last_test_success(qapp, test_db, last_test_su
         db.record_profile_test_result("ssh", p.id, last_test_success)
 
     view = ConnectionsView()
-    badge = view.ssh_table.cellWidget(0, 4)
+    # Colonne 5, pas 4 : "Via" (bastion, chantier M) s'est insérée avant "État".
+    badge = view.ssh_table.cellWidget(0, 5)
     assert badge.text() == expected_text
 
 

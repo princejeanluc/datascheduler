@@ -204,6 +204,17 @@ class SshProfile(Base):
     port       = Column(Integer, default=22, nullable=False)
     username   = Column(String(100), nullable=False)
     password   = Column(String(255), nullable=False)  # chiffré
+    # Bastion optionnel : si renseigné, ce profil n'est joignable qu'en passant d'abord par
+    # jump_via_id (ex: edge03 n'est accessible que depuis edge01) — chantier M. Auto-référence,
+    # premier cas de profil pointant vers un autre profil de la même table dans ce schéma.
+    # Volontairement pas de relationship() ORM ici : tout le reste du code de ce module accède
+    # aux profils via des requêtes explicites (get_session() par appel, jamais d'objet partagé
+    # entre sessions) — une relationship self-référentielle se chargerait paresseusement et
+    # lèverait DetachedInstanceError dès que l'appelant relit .jump_via après la fermeture de la
+    # session qui a chargé le profil (le cas normal : config_from_profile() est appelé bien après
+    # get_ssh_profile()). La résolution de la chaîne se fait via de nouveaux appels explicites à
+    # get_ssh_profile(profile.jump_via_id), cohérent avec le reste du fichier.
+    jump_via_id = Column(Integer, ForeignKey("ssh_profiles.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     last_tested_at    = Column(DateTime, nullable=True)

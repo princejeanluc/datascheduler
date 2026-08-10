@@ -6,7 +6,7 @@ Dialogue de création / édition d'un profil SSH (nœud edge/master d'un cluster
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QSpinBox, QPushButton, QFrame,
+    QLineEdit, QSpinBox, QComboBox, QPushButton, QFrame,
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from ui.styles import COLORS, DIALOG_STYLE
@@ -76,11 +76,25 @@ class SshProfileDialog(QDialog):
         self.inp_user = self._input("ex : jdupont")
         self.inp_pass = self._input("••••••••", password=True)
 
+        self.cb_bastion = QComboBox()
+        self.cb_bastion.setStyleSheet(self._combo_style())
+        self.cb_bastion.addItem("— Connexion directe —", None)
+        from database import db_manager as db
+        current_id = self._profile.id if self._profile else None
+        for p in db.get_ssh_profiles():
+            if p.id != current_id:
+                self.cb_bastion.addItem(p.name, p.id)
+        self.cb_bastion.setToolTip(
+            "Si ce nœud n'est joignable qu'en passant d'abord par un autre (ex : edge03 "
+            "accessible uniquement depuis edge01), sélectionnez ce bastion ici."
+        )
+
         form.addRow(self._label("Nom du profil *"), self.inp_name)
         form.addRow(self._label("Hôte *"),          self.inp_host)
         form.addRow(self._label("Port"),             self.inp_port)
         form.addRow(self._label("Utilisateur *"),    self.inp_user)
         form.addRow(self._label("Mot de passe *"),   self.inp_pass)
+        form.addRow(self._label("Via bastion (optionnel)"), self.cb_bastion)
         root.addLayout(form)
 
         root.addWidget(self._build_test_zone())
@@ -143,12 +157,20 @@ class SshProfileDialog(QDialog):
         port = self.inp_port.value()
         user = self.inp_user.text().strip()
         pwd  = self.inp_pass.text().strip()
+        jump_via_id = self.cb_bastion.currentData()
 
-        if self._profile:
-            db.update_ssh_profile(self._profile.id, name=name, host=host, port=port,
-                                  username=user, password=pwd or None)
-        else:
-            db.create_ssh_profile(name=name, host=host, port=port, username=user, password=pwd)
+        try:
+            if self._profile:
+                db.update_ssh_profile(self._profile.id, name=name, host=host, port=port,
+                                      username=user, password=pwd or None,
+                                      jump_via_id=jump_via_id)
+            else:
+                db.create_ssh_profile(name=name, host=host, port=port, username=user,
+                                       password=pwd, jump_via_id=jump_via_id)
+        except ValueError as e:
+            self.lbl_test_result.setText(f"❌  {e}")
+            self.lbl_test_result.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+            return
         self.accept()
 
     def _validate(self) -> bool:
@@ -164,8 +186,8 @@ class SshProfileDialog(QDialog):
         return True
 
     def _build_config(self):
-        from core.spark import SshExecConfig
-        from database import crypto
+        from core.spark import SshExecConfig, config_from_profile
+        from database import crypto, db_manager as db
         host = self.inp_host.text().strip()
         user = self.inp_user.text().strip()
         pwd  = self.inp_pass.text().strip()
@@ -175,7 +197,14 @@ class SshProfileDialog(QDialog):
             self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
             self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
             return None
-        return SshExecConfig(host=host, port=self.inp_port.value(), username=user, password=pwd)
+        jump_via = None
+        bastion_id = self.cb_bastion.currentData()
+        if bastion_id:
+            bastion_profile = db.get_ssh_profile(bastion_id)
+            if bastion_profile:
+                jump_via = config_from_profile(bastion_profile)
+        return SshExecConfig(host=host, port=self.inp_port.value(), username=user, password=pwd,
+                              jump_via=jump_via)
 
     def _fill_fields(self, profile):
         self.inp_name.setText(profile.name)
@@ -183,6 +212,10 @@ class SshProfileDialog(QDialog):
         self.inp_port.setValue(profile.port)
         self.inp_user.setText(profile.username)
         self.inp_pass.setPlaceholderText("•••••••• (laisser vide pour conserver)")
+        if profile.jump_via_id:
+            idx = self.cb_bastion.findData(profile.jump_via_id)
+            if idx >= 0:
+                self.cb_bastion.setCurrentIndex(idx)
 
     # ── Helpers visuels ──────────────────────
 
@@ -202,6 +235,21 @@ class SshProfileDialog(QDialog):
                 color: {COLORS['text_main']}; font-size: 13px;
             }}
             QLineEdit:focus, QSpinBox:focus {{ border-color: {COLORS['accent']}; }}
+        """
+
+    def _combo_style(self) -> str:
+        return f"""
+            QComboBox {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                border-radius: 4px; padding: 6px 10px;
+                color: {COLORS['text_main']}; font-size: 13px;
+            }}
+            QComboBox:focus {{ border-color: {COLORS['accent']}; }}
+            QComboBox::drop-down {{ border: none; padding-right: 8px; }}
+            QComboBox QAbstractItemView {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                selection-background-color: {COLORS['bg_active']}; color: {COLORS['text_main']};
+            }}
         """
 
     def _label(self, text: str) -> QLabel:

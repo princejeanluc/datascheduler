@@ -257,6 +257,13 @@ def _migrate(engine) -> None:
                 conn.execute(text(f"ALTER TABLE {table} ADD COLUMN last_test_success BOOLEAN"))
                 conn.commit()
 
+        # Chaînage SSH bastion / jump host (chantier M) — colonne propre à ssh_profiles
+        # seulement, ne rentre pas dans les boucles génériques ci-dessus.
+        ssh_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(ssh_profiles)")).fetchall()}
+        if "jump_via_id" not in ssh_cols:
+            conn.execute(text("ALTER TABLE ssh_profiles ADD COLUMN jump_via_id INTEGER"))
+            conn.commit()
+
         # Heure/jour du digest configurables (auparavant fixés en dur à 07:00 / lundi dans
         # core/scheduler.py::refresh_digest_job()).
         notif_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(notification_settings)")).fetchall()}
@@ -429,10 +436,29 @@ def delete_ftp_profile(profile_id: int) -> bool:
 #  HELPERS PROFIL SSH (edge/master node) — étape SPARK_SQL
 # ──────────────────────────────────────────────
 
-def create_ssh_profile(name, host, port, username, password, uuid=None) -> SshProfile:
+def _ssh_jump_chain_has_cycle(profile_id: int | None, jump_via_id: int | None) -> bool:
+    """Suit jump_via_id (et sa propre chaîne de bastions) ; True si ça reboucle jusqu'à
+    profile_id. Appelé avant toute écriture de jump_via_id pour ne jamais persister une chaîne
+    de connexion qui se mordrait la queue (récursion infinie dans config_from_profile/_connect)."""
+    seen: set[int] = set()
+    current = jump_via_id
+    with get_session() as s:
+        while current is not None:
+            if current == profile_id or current in seen:
+                return True
+            seen.add(current)
+            p = s.get(SshProfile, current)
+            current = p.jump_via_id if p else None
+    return False
+
+
+def create_ssh_profile(name, host, port, username, password, jump_via_id=None,
+                        uuid=None) -> SshProfile:
+    if jump_via_id is not None and _ssh_jump_chain_has_cycle(None, jump_via_id):
+        raise ValueError("Chaîne de bastions invalide : créerait une boucle.")
     with get_session() as s:
         kwargs = dict(name=name, host=host, port=port, username=username,
-                      password=crypto.encrypt(password))
+                      password=crypto.encrypt(password), jump_via_id=jump_via_id)
         if uuid:
             kwargs["uuid"] = uuid
         profile = SshProfile(**kwargs)
@@ -440,17 +466,42 @@ def create_ssh_profile(name, host, port, username, password, uuid=None) -> SshPr
     return profile
 
 
-def update_ssh_profile(profile_id, name, host, port, username, password=None) -> SshProfile | None:
-    """password=None (ou vide) conserve le mot de passe existant sans le toucher."""
+def update_ssh_profile(profile_id, name, host, port, username, password=None,
+                        jump_via_id=None) -> SshProfile | None:
+    """password=None (ou vide) conserve le mot de passe existant sans le toucher. jump_via_id
+    n'a pas cette convention : None signifie explicitement "connexion directe, pas de bastion"."""
+    if jump_via_id is not None and _ssh_jump_chain_has_cycle(profile_id, jump_via_id):
+        raise ValueError("Chaîne de bastions invalide : créerait une boucle.")
     with get_session() as s:
         p = s.get(SshProfile, profile_id)
         if not p:
             return None
         p.name = name; p.host = host; p.port = port
         p.username = username
+        p.jump_via_id = jump_via_id
         if password:
             p.password = crypto.encrypt(password)
     return p
+
+
+def set_ssh_profile_jump_via(profile_id: int, jump_via_id: int | None) -> None:
+    """Met à jour uniquement jump_via_id, sans toucher aux autres champs — utilisé par l'import
+    (database/export_import.py) qui doit câbler le bastion en une passe séparée, après que tous
+    les profils SSH du bundle ont été créés (voir sa docstring)."""
+    with get_session() as s:
+        p = s.get(SshProfile, profile_id)
+        if p:
+            p.jump_via_id = jump_via_id
+
+
+def find_ssh_profiles_using_as_bastion(profile_id: int) -> list[str]:
+    """Noms des profils SSH qui utilisent profile_id comme bastion (jump_via_id) — pour
+    avertir avant suppression, même esprit que find_pipelines_using_profile."""
+    with get_session() as s:
+        return [
+            p.name for p in
+            s.query(SshProfile).filter(SshProfile.jump_via_id == profile_id).all()
+        ]
 
 
 def get_ssh_profiles() -> list[SshProfile]:
@@ -472,6 +523,14 @@ def delete_ssh_profile(profile_id: int) -> bool:
     with get_session() as s:
         obj = s.get(SshProfile, profile_id)
         if obj:
+            # Pas d'enforcement de clé étrangère actif dans cette base (SQLite, PRAGMA
+            # foreign_keys jamais activé en permanence) — sans ce nettoyage, un profil qui
+            # utilisait celui-ci comme bastion garderait un jump_via_id pendant vers une ligne
+            # supprimée. Il repasse en connexion directe (échouera proprement à la prochaine
+            # tentative si c'était la seule route), plutôt que de dangler silencieusement.
+            s.query(SshProfile).filter(SshProfile.jump_via_id == profile_id).update(
+                {"jump_via_id": None}
+            )
             s.delete(obj)
             return True
     return False

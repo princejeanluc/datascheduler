@@ -29,6 +29,23 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.14.0] - 2026-08-10
+
+### Ajouté
+- Profil SSH (nœud edge/master) : chaînage **bastion / jump host**. Un profil peut désormais
+  déclarer qu'il n'est joignable qu'en passant d'abord par un autre profil SSH (« Via bastion »
+  dans le dialogue de profil et l'onglet **Connexions** → « Big Data / Spark SQL »), pour les
+  clusters où un nœud (ex : `edge03`) n'est accessible qu'en rebondissant depuis un autre
+  (`edge01`) — cas réel remonté par une équipe utilisant Sqoop derrière un bastion. Chaîne de
+  longueur arbitraire (récursif), pas seulement 2 sauts. Comme ce chaînage est résolu au point de
+  connexion SSH unique de l'application (`core/hadoop_edge.py::_connect`), toutes les étapes
+  concernées (`SPARK_SQL`, `SQOOP_EXPORT`), le tableau de bord de santé des connexions, le mode
+  simulation (dry-run) et les boutons de test des profils Kerberos/Élévation en bénéficient
+  automatiquement, sans aucune reconfiguration de pipeline existant.
+- Export/import de pipeline : un profil SSH utilisé uniquement comme bastion (jamais référencé
+  directement par une étape) est désormais inclus dans le bundle et recréé/câblé correctement à
+  l'import, quel que soit l'ordre d'apparition des profils dans le fichier.
+
 ## [0.13.0] - 2026-08-10
 
 ### Ajouté

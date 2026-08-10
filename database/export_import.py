@@ -247,9 +247,11 @@ def _serialize_database_profile(p, fernet) -> dict:
 
 
 def _serialize_ssh_profile(p, fernet) -> dict:
+    jump_via = db.get_ssh_profile(p.jump_via_id) if p.jump_via_id else None
     d = {
         "uuid": p.uuid, "name": p.name, "host": p.host, "port": p.port,
         "username": p.username,
+        "jump_via_uuid": jump_via.uuid if jump_via else None,
     }
     d.update(_serialize_password(p.password, fernet))
     return d
@@ -347,6 +349,18 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "pos_x":       step.pos_x,
                 "pos_y":       step.pos_y,
             })
+
+        # Un profil SSH utilisé comme bastion (jump_via_id, chantier M) par un autre profil du
+        # bundle n'est jamais référencé directement par une étape — il faut le découvrir
+        # transitivement, sans quoi l'export référencerait un jump_via_uuid absent du bundle.
+        frontier = list(needed["ssh"].values())
+        while frontier:
+            obj = frontier.pop()
+            if obj.jump_via_id and obj.jump_via_id not in needed["ssh"]:
+                jump_obj = db.get_ssh_profile(obj.jump_via_id)
+                if jump_obj:
+                    needed["ssh"][jump_obj.id] = jump_obj
+                    frontier.append(jump_obj)
 
         # Arêtes du graphe (chantier 6a) — référencent des _step_key, déjà présents tels quels
         # dans le config de chaque étape ci-dessus (aucune traduction UUID nécessaire, ce ne sont
@@ -634,6 +648,20 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 local_id = _create_profile_from_bundle(
                     decision.category, decision.data, plan.fernet, taken_names)
                 uuid_to_local_id[(decision.category, decision.uuid)] = local_id
+
+        # Câblage du bastion (jump_via_id, chantier M) en une passe séparée, après que TOUS les
+        # profils SSH du bundle ont été créés/réutilisés ci-dessus — évite un tri topologique :
+        # peu importe l'ordre d'apparition d'edge01/edge03 dans le bundle, uuid_to_local_id est
+        # déjà complet à ce stade. Les profils "reuse" ne sont jamais retouchés : on ne modifie
+        # jamais le câblage bastion d'un profil déjà existant en local.
+        for decision in plan.profile_decisions:
+            if decision.category == "ssh" and decision.action == "create":
+                jump_uuid = decision.data.get("jump_via_uuid")
+                if jump_uuid:
+                    jump_local_id = uuid_to_local_id.get(("ssh", jump_uuid))
+                    if jump_local_id is not None:
+                        db.set_ssh_profile_jump_via(
+                            uuid_to_local_id[("ssh", decision.uuid)], jump_local_id)
 
         for decision in plan.sql_query_decisions:
             if decision.action == "reuse":
