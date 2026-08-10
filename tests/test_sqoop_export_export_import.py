@@ -32,6 +32,11 @@ def _make_sqoop_pipeline():
             "hcatalog_database": "DD", "hcatalog_table": "FINAL_EQUIPEMENT_CLIENT",
             "oracle_table": "xxx.xxxxx",
         },
+        # Valeurs non triviales délibérément (pas 0/False) — retry_count=0/run_always=False
+        # "survivraient" même avec un bug de câblage (valeurs par défaut des deux côtés),
+        # ce qui ne prouverait rien. timeout_s vient du chantier J.1, mergé après la conception
+        # initiale de SQOOP_EXPORT — ce test verrouille qu'il fait bien partie du bundle exporté.
+        "retry_count": 3, "run_always": True, "timeout_s": 900,
     }])
     return pipeline, edge, krb, oracle
 
@@ -86,8 +91,14 @@ def test_import_into_fresh_db_recreates_all_three_profiles(test_db, tmp_path):
     assert crypto.decrypt(new_oracle.password) == "orasecret"
 
     steps = db.get_steps(apply_result.pipeline_id)
-    config = json.loads(steps[0].config_json)
+    step = steps[0]
+    config = json.loads(step.config_json)
     assert config["edge_profile_id"] == new_edge.id
     assert config["kerberos_profile_id"] == new_krb.id
     assert config["oracle_profile_id"] == new_oracle.id
     assert config["hcatalog_table"] == "FINAL_EQUIPEMENT_CLIENT"
+    # Politique d'exécution (retry_count/run_always/timeout_s) — des colonnes PipelineStep, pas
+    # du config_json, mais tout aussi essentielles à préserver dans le bundle.
+    assert step.retry_count == 3
+    assert step.run_always is True
+    assert step.timeout_s == 900
