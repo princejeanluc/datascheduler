@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.16.0] - 2026-08-12
+
+### Ajouté
+- Étapes `SPARK_SQL`/`SQOOP_EXPORT` : l'étape courante affichée pendant l'exécution (infobulle,
+  dialogue de log) distingue désormais précisément la connexion, l'authentification Kerberos,
+  l'élévation (`sudo su`, si configurée) et **l'exécution de la requête/commande elle-même** —
+  auparavant un seul libellé ("Authentification Kerberos…") restait affiché sans changer pendant
+  toute la durée de l'appel, y compris quand la vraie requête tournait déjà depuis longtemps sur
+  le cluster, rendant impossible de distinguer une authentification bloquée d'un traitement long
+  mais normal.
+
 ## [0.15.0] - 2026-08-11
 
 ### Ajouté

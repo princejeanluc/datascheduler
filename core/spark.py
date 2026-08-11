@@ -38,7 +38,7 @@ class SparkSqlResult:
 
 def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: str, query: str,
                    fetch_result: bool, local_output_path: Path | None = None,
-                   timeout: int = 3600) -> SparkSqlResult:
+                   timeout: int = 3600, on_progress=None) -> SparkSqlResult:
     """
     SSH → kinit → dépose la requête dans un fichier .sql temporaire distant (SFTP — évite tout
     problème d'échappement shell d'une requête inline) → exécute spark-sql non-interactivement,
@@ -48,6 +48,12 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
     temporaires distants (best-effort, jamais bloquant) → ferme toujours la connexion SSH
     (finally), même principe que le try/finally déjà appliqué aux steps DB_EXTRACT/DB_EXECUTE/
     DB_LOAD (core/steps/*.py).
+
+    `on_progress(msg, pct)`, si fourni, est appelé à chaque changement de phase (connexion,
+    kinit, envoi de la requête, exécution, récupération) — le point important est le tick juste
+    avant `exec_command()` : c'est l'attente potentiellement la plus longue (la requête tourne
+    réellement sur le cluster), auparavant indiscernable d'un kinit bloqué puisque aucun tick
+    n'était émis entre le début et la toute fin de cette fonction (chantier O).
     """
     start = time.monotonic()
     client = None
@@ -57,8 +63,12 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
     remote_err = f"/tmp/ds_spark_{token}.err"
 
     try:
+        if on_progress:
+            on_progress("Connexion au nœud edge…", 5)
         client = _connect(ssh_cfg)
 
+        if on_progress:
+            on_progress("Authentification Kerberos…", 15)
         ok, message = _kinit(client, krb_cfg)
         if not ok:
             return SparkSqlResult(
@@ -66,6 +76,8 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
                 duration_s=time.monotonic() - start,
             )
 
+        if on_progress:
+            on_progress("Envoi de la requête…", 30)
         sftp = client.open_sftp()
         try:
             with sftp.open(remote_sql, "w") as f:
@@ -85,6 +97,8 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
             f"timeout {int(timeout)}s spark-sql -S {effective_conf} "
             f"-f {remote_sql} > {remote_out} 2>{remote_err}"
         )
+        if on_progress:
+            on_progress("Exécution de la requête sur le cluster…", 40)
         _stdin, stdout, _stderr = client.exec_command(cmd, timeout=timeout + 30)
         exit_status = stdout.channel.recv_exit_status()
 
@@ -96,6 +110,8 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
             )
 
         if fetch_result and local_output_path is not None:
+            if on_progress:
+                on_progress("Récupération du résultat…", 85)
             sftp = client.open_sftp()
             try:
                 sftp.get(remote_out, str(local_output_path))

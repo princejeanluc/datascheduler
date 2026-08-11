@@ -69,10 +69,6 @@ class SparkSqlStep(BaseStep):
         raw_path: Path | None = None
         csv_path: Path | None = None
 
-        def progress(msg: str, pct: int):
-            if on_progress:
-                on_progress(msg, pct)
-
         try:
             from database import db_manager as db
             from core.spark import config_from_profile, kerberos_config_from_profile, run_spark_sql
@@ -108,20 +104,23 @@ class SparkSqlStep(BaseStep):
                 tmp.close()
 
             ctx.log(f"Spark SQL : {edge_profile.host} — authentification Kerberos…")
-            progress("Authentification Kerberos…", 20)
 
+            # run_spark_sql() connaît les phases réelles (connexion, kinit, requête, résultat) —
+            # on_progress lui est transmis directement plutôt que de deviner l'étape ici
+            # (chantier O : un seul tick avant/après ce bloc masquait de longues minutes de
+            # requête en cours derrière un libellé figé "Authentification Kerberos…").
             spark_result = run_spark_sql(
                 ssh_cfg, kerberos_cfg, spark_conf, query, fetch_result,
-                local_output_path=raw_path, timeout=timeout,
+                local_output_path=raw_path, timeout=timeout, on_progress=on_progress,
             )
-            progress("Exécution de la requête…", 70)
 
             if not spark_result.success:
                 result.error = spark_result.error
                 return result
 
             if fetch_result:
-                progress("Mise en forme du résultat…", 85)
+                if on_progress:
+                    on_progress("Mise en forme du résultat…", 90)
                 csv_tmp = tempfile.NamedTemporaryFile(suffix=".csv", delete=False, prefix="ds_spark_")
                 csv_path = Path(csv_tmp.name)
                 csv_tmp.close()

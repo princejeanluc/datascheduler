@@ -20,10 +20,6 @@ class SqoopExportStep(BaseStep):
     def run(self, ctx: StepContext, on_progress=None) -> StepResult:
         result = StepResult()
 
-        def progress(msg: str, pct: int):
-            if on_progress:
-                on_progress(msg, pct)
-
         try:
             from database import db_manager as db
             from core.hadoop_edge import (
@@ -84,14 +80,15 @@ class SqoopExportStep(BaseStep):
                 steps_desc.append("authentification Kerberos")
             ctx.log(f"Sqoop export : {edge_profile.host}" + (f" — {', '.join(steps_desc)}…" if steps_desc else ""))
             ctx.log(f"Sqoop export : {masked_cmd}")
-            progress("Connexion…", 20)
 
+            # run_sqoop_export() connaît les phases réelles (connexion, kinit/élévation, export
+            # en cours) — on_progress lui est transmis directement plutôt que de deviner l'étape
+            # ici (chantier O, même raisonnement que SparkSqlStep).
             sqoop_result = run_sqoop_export(
                 ssh_cfg, krb_cfg, oracle_cfg,
                 hcatalog_database, hcatalog_table, oracle_table, sqoop_conf,
-                elevation_cfg=elevation_cfg,
+                elevation_cfg=elevation_cfg, on_progress=on_progress,
             )
-            progress("Export Sqoop…", 80)
 
             if not sqoop_result.success:
                 result.error = sqoop_result.error

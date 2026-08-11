@@ -34,7 +34,7 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600):
+                            local_output_path=None, timeout=3600, on_progress=None):
         captured["fetch_result"] = fetch_result
         captured["raw_output_path"] = local_output_path
         # Sortie brute simulée de spark-sql : tabulée, sans guillemets.
@@ -65,6 +65,36 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     assert rows == [["a", "b"], ["1", "2"]]
 
 
+def test_run_passes_on_progress_through_to_run_spark_sql(test_db, monkeypatch, tmp_path):
+    """chantier O : le step ne devine plus les phases lui-même — il relaie tel quel
+    l'on_progress reçu à run_spark_sql(), qui seul connaît les vraies phases bloquantes."""
+    edge, krb = _base_profiles()
+    from database import db_manager as db
+    q = db.create_sql_query(name="Q1", sql_text="SELECT 1")
+
+    captured = {}
+
+    def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
+                            local_output_path=None, timeout=3600, on_progress=None):
+        captured["on_progress"] = on_progress
+        if on_progress:
+            on_progress("Exécution de la requête sur le cluster…", 40)
+        return _FakeSparkSqlResult(success=True, local_output_path=None)
+
+    monkeypatch.setattr(spark_module, "run_spark_sql", fake_run_spark_sql)
+
+    ticks = []
+    step = SparkSqlStep({
+        "edge_profile_id": edge.id, "kerberos_profile_id": krb.id, "sql_query_id": q.id,
+        "fetch_result": False,
+    })
+    result = step.run(StepContext(), on_progress=lambda msg, pct: ticks.append((msg, pct)))
+
+    assert result.success, result.error
+    assert captured["on_progress"] is not None
+    assert ("Exécution de la requête sur le cluster…", 40) in ticks
+
+
 def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkeypatch):
     edge, krb = _base_profiles()
     from database import db_manager as db
@@ -73,7 +103,7 @@ def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkey
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600):
+                            local_output_path=None, timeout=3600, on_progress=None):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=True, local_output_path=None)
 
@@ -100,7 +130,7 @@ def test_resolves_tokens_in_spark_conf_and_query(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600):
+                            local_output_path=None, timeout=3600, on_progress=None):
         captured["spark_conf"] = spark_conf
         captured["query"] = query
         return _FakeSparkSqlResult(success=True)
@@ -167,7 +197,7 @@ def test_failure_cleans_up_local_temp_file(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600):
+                            local_output_path=None, timeout=3600, on_progress=None):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=False, error="spark-sql a échoué")
 

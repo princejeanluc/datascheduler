@@ -263,7 +263,8 @@ def _read_until(channel, markers: list[str], timeout: float) -> tuple[str, str |
 
 def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: int,
                                 elevation_cfg: ElevationConfig,
-                                krb_cfg: KerberosConfig | None = None) -> tuple[bool, str]:
+                                krb_cfg: KerberosConfig | None = None,
+                                on_progress=None) -> tuple[bool, str]:
     """
     Ouvre UN canal shell interactif (invoke_shell) et y enchaîne, dans l'ordre : `sudo su
     <target_user>` (mot de passe automatisé, même principe que _kinit), une vérification
@@ -274,17 +275,29 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
     pour capturer sa sortie et son code de sortie sans ambiguïté. Ne lève jamais. Le mot de passe
     n'est jamais journalisé — seulement envoyé sur le canal.
 
+    `on_progress(msg, pct)`, si fourni, est appelé à chaque changement de phase (connexion,
+    élévation, kinit, commande) — pas de progression continue PENDANT une phase (le sentinelle
+    reste un seul appel bloquant), mais le libellé affiché reflète correctement laquelle des
+    quatre est en cours, notamment la dernière ("Exécution de la commande…") qui est souvent la
+    plus longue et qu'un appelant pourrait sinon confondre avec une authentification bloquée
+    (chantier O — cas réel où un run est resté affiché "Authentification Kerberos…" alors que la
+    commande réelle tournait déjà depuis longtemps).
+
     Limite assumée (même famille que le compromis déjà accepté pour _kinit) : la détection de
     succès/échec de chaque étape intermédiaire repose sur des heuristiques de flux shell (motifs
     dans la sortie brute), pas sur un code de sortie structuré — un prompt shell inhabituel ou un
     message sudo non standard peut faire échouer la détection même si l'élévation a réellement
     réussi (ou l'inverse). Un compromis pragmatique, pas une garantie à 100 %.
     """
+    if on_progress:
+        on_progress("Connexion au nœud edge…", 10)
     client = _connect(ssh_cfg)
     try:
         channel = client.invoke_shell()
         _read_until(channel, markers=["$", "#"], timeout=_SHELL_BANNER_TIMEOUT_S)
 
+        if on_progress:
+            on_progress(f"Élévation vers « {elevation_cfg.target_user} »…", 25)
         channel.send(f"sudo su {elevation_cfg.target_user}\n")
         _buf, marker = _read_until(channel, markers=["assword"], timeout=_SHELL_READ_TIMEOUT_S)
         if marker is None:
@@ -297,12 +310,16 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
             return False, f"sudo su {elevation_cfg.target_user} : échec (identité non confirmée)."
 
         if krb_cfg:
+            if on_progress:
+                on_progress("Authentification Kerberos…", 45)
             channel.send(f"kinit {krb_cfg.principal}\n")
             _buf, marker = _read_until(channel, markers=["assword"], timeout=_KINIT_PROMPT_TIMEOUT_S)
             if marker is None:
                 return False, "kinit : délai dépassé en attendant l'invite de mot de passe."
             channel.send(krb_cfg.password + "\n")
 
+        if on_progress:
+            on_progress("Exécution de la commande…", 60)
         sentinel = f"__DS_DONE_{_uuid_module.uuid4().hex}__"
         channel.send(f"{command} ; echo {sentinel}:$?\n")
         buf, marker = _read_until(channel, markers=[sentinel], timeout=timeout)
