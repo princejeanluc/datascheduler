@@ -61,6 +61,17 @@ def main():
     init_db()
     logger.info("Base de données initialisée")
 
+    # Nettoyage des runs restés bloqués sur "en cours" suite à un arrêt brutal de l'application
+    # précédente (crash, kill) — doit s'exécuter ici, avant que le scheduler ne recommence à
+    # accepter de nouveaux runs (chantier N).
+    from database.db_manager import reconcile_stale_runs
+    n_reconciled = reconcile_stale_runs()
+    if n_reconciled:
+        logger.warning(
+            "%d run(s) marqué(s) en échec (interrompus par un précédent arrêt de l'application).",
+            n_reconciled,
+        )
+
     # Démarrage du scheduler en arrière-plan
     from core.scheduler import init_scheduler
     scheduler = init_scheduler()

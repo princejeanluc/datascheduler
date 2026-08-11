@@ -136,6 +136,120 @@ def test_run(test_db):
 
 
 # ──────────────────────────────────────────────
+#  VISIBILITÉ DES RUNS EN COURS (chantier N)
+# ──────────────────────────────────────────────
+
+def test_update_run_progress_updates_step_and_log_without_touching_status(test_db):
+    pipeline_id = db.create_pipeline(name="P1").id
+    run = db.create_run(pipeline_id)
+
+    db.update_run_progress(run.id, "Étape 1/3 : Export", "[10:00:00] Pipeline démarré")
+
+    reloaded = db.get_run(run.id)
+    assert reloaded.current_step_label == "Étape 1/3 : Export"
+    assert reloaded.log_text == "[10:00:00] Pipeline démarré"
+    assert reloaded.status == "RUNNING"   # inchangé — update_run_progress n'écrit pas status
+    assert reloaded.finished_at is None
+
+
+def test_finish_run_clears_current_step_label(test_db):
+    pipeline_id = db.create_pipeline(name="P1").id
+    run = db.create_run(pipeline_id)
+    db.update_run_progress(run.id, "Étape 2/2 : Envoi", "log partiel")
+
+    db.finish_run(run.id, status="SUCCESS", log_text="log complet")
+
+    reloaded = db.get_run(run.id)
+    assert reloaded.current_step_label is None
+    assert reloaded.log_text == "log complet"
+
+
+def test_get_running_step_labels_returns_most_recent_run_per_pipeline(test_db):
+    p1 = db.create_pipeline(name="P1").id
+    p2 = db.create_pipeline(name="P2").id
+
+    older = db.create_run(p1)
+    db.update_run_progress(older.id, "Étape 1/2 (ancien run)", "…")
+    db.finish_run(older.id, status="FAILED")   # terminé — ne doit plus apparaître
+
+    newer = db.create_run(p1)
+    db.update_run_progress(newer.id, "Étape 1/2 (run courant)", "…")
+
+    run2 = db.create_run(p2)
+    # Jamais de update_run_progress pour p2 — current_step_label reste NULL.
+
+    labels = db.get_running_step_labels()
+    assert labels[p1] == "Étape 1/2 (run courant)"
+    assert labels[p2] == "Étape en cours…"   # valeur par défaut quand le label est encore vide
+
+
+def test_reconcile_stale_runs_marks_stuck_running_runs_as_failed(test_db):
+    from database.models import Pipeline
+
+    p = db.create_pipeline(name="P1")
+    run = db.create_run(p.id)   # jamais finish_run() — simule un crash de l'app en plein run
+    db.update_run_progress(run.id, "Étape 2/5 : Export", "log partiel")
+    with db.get_session() as s:
+        s.get(Pipeline, p.id).last_status = "RUNNING"
+
+    n = db.reconcile_stale_runs()
+    assert n == 1
+
+    reloaded_run = db.get_run(run.id)
+    assert reloaded_run.status == "FAILED"
+    assert reloaded_run.finished_at is not None
+    assert "redémarrage" in reloaded_run.error_message
+    assert reloaded_run.current_step_label is None
+
+    with db.get_session() as s:
+        assert s.get(Pipeline, p.id).last_status == "FAILED"
+
+
+def test_reconcile_stale_runs_leaves_finished_runs_and_other_pipelines_untouched(test_db):
+    from database.models import Pipeline
+
+    p_ok = db.create_pipeline(name="P_OK")
+    run_ok = db.create_run(p_ok.id)
+    db.finish_run(run_ok.id, status="SUCCESS")
+    with db.get_session() as s:
+        s.get(Pipeline, p_ok.id).last_status = "SUCCESS"
+
+    assert db.reconcile_stale_runs() == 0
+    assert db.get_run(run_ok.id).status == "SUCCESS"
+    with db.get_session() as s:
+        assert s.get(Pipeline, p_ok.id).last_status == "SUCCESS"
+
+
+def test_migrate_adds_current_step_label_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Table pipeline_runs "legacy" (antérieure au chantier N) — exerce réellement le bloc
+    ALTER TABLE ajouté à _migrate(), pas seulement Base.metadata.create_all() sur une base
+    neuve qui créerait la colonne d'office."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        # pipelines n'est volontairement PAS pré-créée : Base.metadata.create_all() (appelé par
+        # init_db() avant _migrate()) la créera dans sa forme moderne complète, seule
+        # pipeline_runs doit être "legacy" pour exercer réellement le bloc ALTER TABLE.
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "current_step_label" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
+# ──────────────────────────────────────────────
 #  GRAPHE DE PIPELINE (chantier 6a)
 # ──────────────────────────────────────────────
 
