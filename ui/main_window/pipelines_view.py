@@ -96,6 +96,7 @@ class PipelinesView(QWidget):
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested
         pipelines = db.get_pipelines()
+        step_labels = db.get_running_step_labels()
         self._pipeline_ids = [p.id for p in pipelines]
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
@@ -122,6 +123,8 @@ class PipelinesView(QWidget):
                     badge_name = "badge_idle" if not p.is_active else _STATUS_BADGE.get(st, "badge_idle")
                     badge = QLabel(badge_st); badge.setObjectName(badge_name)
                     badge.setAlignment(Qt.AlignCenter)
+                    if p.is_active and st == "RUNNING":
+                        badge.setToolTip(step_labels.get(p.id, ""))
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)

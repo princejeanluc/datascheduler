@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -150,6 +150,13 @@ def _migrate(engine) -> None:
         if "resumed_from_run_id" not in run_cols:
             conn.execute(text(
                 "ALTER TABLE pipeline_runs ADD COLUMN resumed_from_run_id INTEGER"
+            ))
+            conn.commit()
+        # Visibilité d'un run en cours (chantier N) — étape courante, mise à jour en continu
+        # pendant l'exécution plutôt qu'une seule fois à la fin.
+        if "current_step_label" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN current_step_label VARCHAR(255)"
             ))
             conn.commit()
         # Position sur le canevas (chantier 6a/6b) — DEFAULT 0 constant pour toutes les lignes,
@@ -961,9 +968,63 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.remote_path   = remote_path
         run.error_message = error_message
         run.log_text      = log_text
+        run.current_step_label   = None   # run terminé — plus d'étape "en cours" à afficher
         run.resumable_state_json = resumable_state_json
         run.resumed_from_run_id  = resumed_from_run_id
         return True
+
+
+def update_run_progress(run_id: int, current_step_label: str, log_text: str) -> None:
+    """Écriture incrémentale pendant l'exécution (chantier N) — contrairement à finish_run(),
+    ne touche ni status ni finished_at : appelée en continu à chaque changement d'étape, pas
+    seulement une fois à la fin. Voir core/pipeline.py::run_pipeline()'s closure progress()."""
+    with get_session() as s:
+        run = s.get(PipelineRun, run_id)
+        if run:
+            run.current_step_label = current_step_label
+            run.log_text = log_text
+
+
+def get_running_step_labels() -> dict[int, str]:
+    """pipeline_id -> current_step_label du run RUNNING le plus récent pour ce pipeline —
+    utilisé par PipelinesView pour afficher l'étape en cours en infobulle sur le badge
+    "RUNNING", en une seule requête plutôt qu'une par ligne affichée."""
+    with get_session() as s:
+        rows = (
+            s.query(PipelineRun)
+            .filter(PipelineRun.status == PipelineStatus.RUNNING)
+            .order_by(PipelineRun.started_at.desc())
+            .all()
+        )
+    result: dict[int, str] = {}
+    for r in rows:
+        result.setdefault(r.pipeline_id, r.current_step_label or "Étape en cours…")
+    return result
+
+
+def reconcile_stale_runs() -> int:
+    """Marque FAILED tout PipelineRun resté RUNNING d'un précédent process (crash/kill de
+    l'application en plein run) — à appeler une fois au démarrage, avant que le scheduler ne
+    commence à accepter de nouveaux runs. Le registre en mémoire des runs actifs
+    (core.pipeline._active_runs) est nécessairement vide à ce moment (process tout juste
+    démarré), donc tout RUNNING trouvé ici est par construction périmé — jamais un vrai run en
+    cours qu'on interromprait à tort. Synchronise aussi Pipeline.last_status pour ce cas précis
+    (le lien PipelineRun.status <-> Pipeline.last_status n'est déjà pas écrit atomiquement
+    ailleurs dans ce module — pas corrigé plus largement ici, hors scope)."""
+    from datetime import datetime
+    with get_session() as s:
+        stale = s.query(PipelineRun).filter(PipelineRun.status == PipelineStatus.RUNNING).all()
+        for run in stale:
+            run.status             = PipelineStatus.FAILED
+            run.finished_at        = datetime.utcnow()
+            run.error_message      = "Exécution interrompue (redémarrage de l'application)."
+            run.current_step_label = None
+        pipeline_ids = {r.pipeline_id for r in stale}
+        if pipeline_ids:
+            s.query(Pipeline).filter(
+                Pipeline.id.in_(pipeline_ids), Pipeline.last_status == PipelineStatus.RUNNING
+            ).update({"last_status": PipelineStatus.FAILED}, synchronize_session=False)
+        return len(stale)
 
 
 def get_run(run_id: int) -> PipelineRun | None:

@@ -844,6 +844,13 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
     def progress(msg: str, pct: int):
         if on_progress:
             on_progress(msg, pct)
+        # Écriture incrémentale (chantier N) — visible dès qu'un run existe (run_id devient
+        # non-None après create_run() plus bas ; capturé par référence, pas par valeur, donc
+        # cette fermeture voit toujours l'état courant). Seul point d'accroche nécessaire :
+        # appelée par _execute_linear/_execute_graph à chaque étape ET par chaque exécuteur
+        # d'étape via step_progress() — aucun autre fichier n'a besoin d'être modifié.
+        if run_id is not None:
+            db.update_run_progress(run_id, msg, result.log_text)
 
     try:
         # ── Chargement ───────────────────────────

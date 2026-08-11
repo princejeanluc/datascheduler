@@ -87,3 +87,38 @@ def test_pipelines_view_shows_running_badge_without_cancel_pending(qapp, test_db
     view = PipelinesView()
     badge = view.table.cellWidget(0, 1)
     assert badge.text() == "RUNNING"
+
+
+def test_pipelines_view_running_badge_shows_current_step_as_tooltip(qapp, test_db):
+    """chantier N — l'infobulle du badge RUNNING reflète PipelineRun.current_step_label,
+    persisté en continu par run_pipeline(), pas seulement à la fin."""
+    from database import db_manager as db
+    from ui.main_window.pipelines_view import PipelinesView
+
+    pipeline = db.create_pipeline(name="running-tooltip-test")
+    db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {}}])
+    with db.get_session() as s:
+        from database.models import Pipeline
+        p = s.get(Pipeline, pipeline.id)
+        p.last_status = "RUNNING"
+
+    run = db.create_run(pipeline.id)
+    db.update_run_progress(run.id, "Étape 1/3 : Extraction", "…")
+
+    pipeline_module._active_runs[pipeline.id] = threading.Event()
+
+    view = PipelinesView()
+    badge = view.table.cellWidget(0, 1)
+    assert badge.toolTip() == "Étape 1/3 : Extraction"
+
+
+def test_pipelines_view_non_running_badge_has_no_step_tooltip(qapp, test_db):
+    from database import db_manager as db
+    from ui.main_window.pipelines_view import PipelinesView
+
+    pipeline = db.create_pipeline(name="idle-tooltip-test")
+    db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {}}])
+
+    view = PipelinesView()
+    badge = view.table.cellWidget(0, 1)
+    assert badge.toolTip() == ""

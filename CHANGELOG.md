@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.15.0] - 2026-08-11
+
+### Ajouté
+- Visibilité d'un pipeline **pendant** son exécution, plus seulement une fois terminée :
+  l'étape en cours et le log s'écrivent désormais en continu dans l'historique, pas en un seul
+  bloc à la toute fin. Concrètement : l'étape courante apparaît en infobulle sur le badge
+  « RUNNING » de la liste des pipelines, et le dialogue « Voir le log complet » se rafraîchit
+  automatiquement (log + étape) tant que le run qu'il affiche est toujours en cours.
+- Nettoyage automatique, au démarrage de l'application, de tout run resté affiché « en cours »
+  suite à un arrêt brutal de la session précédente (crash, fermeture forcée) — marqué en échec
+  avec un message explicite plutôt que de rester indéfiniment bloqué sur « RUNNING ».
+
 ## [0.14.0] - 2026-08-10
 
 ### Ajouté

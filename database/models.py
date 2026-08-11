@@ -427,6 +427,9 @@ class PipelineRun(Base):
     remote_path   = Column(String(500), nullable=True)  # chemin FTP réel du fichier déposé
     error_message = Column(Text,     nullable=True)
     log_text      = Column(Text,     nullable=True)   # log complet de l'exécution
+    # Étape en cours + log partiel, mis à jour en continu pendant l'exécution (pas seulement à
+    # la fin) — visibilité d'un run en cours (chantier N). NULL une fois le run terminé.
+    current_step_label = Column(String(255), nullable=True)
 
     # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
     # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté
