@@ -849,8 +849,14 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # cette fermeture voit toujours l'état courant). Seul point d'accroche nécessaire :
         # appelée par _execute_linear/_execute_graph à chaque étape ET par chaque exécuteur
         # d'étape via step_progress() — aucun autre fichier n'a besoin d'être modifié.
+        # Le chantier O (granularité fine dans SPARK_SQL/SQOOP_EXPORT) multiplie la fréquence
+        # d'appel — un incident SQLite transitoire (verrou, antivirus) ne doit jamais faire
+        # échouer une vraie opération réseau en cours pour un simple souci d'affichage.
         if run_id is not None:
-            db.update_run_progress(run_id, msg, result.log_text)
+            try:
+                db.update_run_progress(run_id, msg, result.log_text)
+            except Exception:
+                logger.warning("Échec de la mise à jour de progression du run %s (ignoré).", run_id)
 
     try:
         # ── Chargement ───────────────────────────

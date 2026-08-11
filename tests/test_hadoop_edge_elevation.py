@@ -145,6 +145,62 @@ def test_run_command_with_elevation_never_leaks_password_on_failure(monkeypatch)
     assert "sharedpw" not in output
 
 
+def test_run_command_with_elevation_reports_phase_ticks_without_kinit(monkeypatch):
+    """chantier O : on_progress reflète chaque phase franchie (pas de progression continue
+    pendant l'attente elle-même) — notamment le dernier tick, "Exécution de la commande…",
+    émis juste avant l'attente potentiellement la plus longue."""
+    client = FakeSSHClient(shell_script_fn=_success_script())
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    ok, _ = hadoop_edge.run_command_with_elevation(
+        ssh_cfg(), "sqoop export ...", timeout=10, elevation_cfg=elevation_cfg(),
+        on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    assert ok
+    messages = [m for m, _ in ticks]
+    assert messages == [
+        "Connexion au nœud edge…",
+        "Élévation vers « nifi »…",
+        "Exécution de la commande…",
+    ]
+    pcts = [p for _, p in ticks]
+    assert pcts == sorted(pcts)   # strictement croissant
+
+
+def test_run_command_with_elevation_reports_kerberos_tick_when_configured(monkeypatch):
+    krb = krb_cfg()
+    client = FakeSSHClient(shell_script_fn=_success_script(with_kinit=True, krb_principal=krb.principal))
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    hadoop_edge.run_command_with_elevation(
+        ssh_cfg(), "sqoop export ...", timeout=10, elevation_cfg=elevation_cfg(), krb_cfg=krb,
+        on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    messages = [m for m, _ in ticks]
+    assert messages == [
+        "Connexion au nœud edge…",
+        "Élévation vers « nifi »…",
+        "Authentification Kerberos…",
+        "Exécution de la commande…",
+    ]
+
+
+def test_run_command_with_elevation_without_on_progress_still_works(monkeypatch):
+    """on_progress=None (défaut) ne doit jamais lever — comportement inchangé pour tout
+    appelant qui ne fournit pas ce paramètre."""
+    client = FakeSSHClient(shell_script_fn=_success_script())
+    install_fake_client(monkeypatch, client)
+
+    ok, output = hadoop_edge.run_command_with_elevation(
+        ssh_cfg(), "sqoop export ...", timeout=10, elevation_cfg=elevation_cfg(),
+    )
+    assert ok, output
+
+
 def test_test_elevation_auth_reports_success(monkeypatch):
     client = FakeSSHClient(shell_script_fn=_success_script())
     install_fake_client(monkeypatch, client)

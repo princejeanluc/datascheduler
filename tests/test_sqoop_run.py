@@ -129,6 +129,43 @@ def test_run_sqoop_export_skips_kinit_entirely_when_krb_cfg_is_none(monkeypatch)
     assert result.success, result.error
 
 
+def test_run_sqoop_export_reports_phase_ticks_on_historical_path(monkeypatch):
+    """chantier O : le tick avant exec_command() ("Export Sqoop en cours…") est le point
+    critique — jusqu'ici rien ne distinguait "kinit en cours" de "sqoop tourne déjà"."""
+    client = _make_client(sqoop_exit_status=0)
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+        on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    assert result.success, result.error
+    messages = [m for m, _ in ticks]
+    assert messages == [
+        "Connexion au nœud edge…",
+        "Authentification Kerberos…",
+        "Export Sqoop en cours…",
+    ]
+    pcts = [p for _, p in ticks]
+    assert pcts == sorted(pcts)
+
+
+def test_run_sqoop_export_skips_kerberos_tick_when_krb_cfg_is_none(monkeypatch):
+    client = _make_client(sqoop_exit_status=0)
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    run_sqoop_export(
+        ssh_cfg(), None, _oracle_cfg(), "DD", "T", "xxx.t", "",
+        on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    messages = [m for m, _ in ticks]
+    assert "Authentification Kerberos…" not in messages
+
+
 def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatch):
     """elevation_cfg fourni → le chemin exec_command/kinit classique n'est jamais emprunté,
     tout passe par core.hadoop_edge.run_command_with_elevation (déjà testé en détail dans
@@ -137,28 +174,33 @@ def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatc
     captured = {}
 
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None):
+                                         krb_cfg=None, on_progress=None):
         captured["command"] = command
         captured["elevation_cfg"] = elevation_cfg
         captured["krb_cfg"] = krb_cfg
+        captured["on_progress"] = on_progress
         return True, "ok"
 
     monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
 
+    marker = lambda msg, pct: None
     result = run_sqoop_export(
         ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
-        elevation_cfg=elevation_cfg(),
+        elevation_cfg=elevation_cfg(), on_progress=marker,
     )
 
     assert result.success, result.error
     assert captured["elevation_cfg"].target_user == "nifi"
     assert captured["krb_cfg"] is not None
+    # chantier O : on_progress doit être transmis tel quel au chemin élévation, qui a déjà ses
+    # propres ticks (testés dans tests/test_hadoop_edge_elevation.py).
+    assert captured["on_progress"] is marker
     assert "sqoop export" in captured["command"]
 
 
 def test_run_sqoop_export_elevation_path_reports_failure(monkeypatch):
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None):
+                                         krb_cfg=None, on_progress=None):
         return False, "sudo su : délai dépassé en attendant l'invite de mot de passe."
 
     monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)

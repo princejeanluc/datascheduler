@@ -71,7 +71,7 @@ def build_sqoop_export_command(connect_url: str, username: str, password: str,
 def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, oracle_cfg: SqlDbConfig,
                       hcatalog_database: str, hcatalog_table: str, oracle_table: str,
                       sqoop_conf: str, timeout: int = 3600,
-                      elevation_cfg: ElevationConfig | None = None) -> SqoopExportResult:
+                      elevation_cfg: ElevationConfig | None = None, on_progress=None) -> SqoopExportResult:
     """
     Deux chemins distincts, choisis selon `elevation_cfg` :
 
@@ -86,6 +86,10 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
       nécessaire car un `sudo su` réussi ne survit jamais à un `exec_command()` séparé (voir
       docstring de ce module dans core/hadoop_edge.py). `krb_cfg`, s'il est fourni, s'applique
       alors APRÈS l'élévation (l'utilisateur cible peut avoir sa propre identité Kerberos).
+
+    `on_progress(msg, pct)`, si fourni, reflète la phase bloquante en cours (connexion, kinit,
+    export) — chemin élévation transmis tel quel à run_command_with_elevation(), qui a déjà ses
+    propres phases (chantier O).
     """
     start = time.monotonic()
     connect_url = build_oracle_jdbc_url(oracle_cfg)
@@ -98,6 +102,7 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         try:
             ok, output = run_command_with_elevation(
                 ssh_cfg, real_cmd, timeout, elevation_cfg=elevation_cfg, krb_cfg=krb_cfg,
+                on_progress=on_progress,
             )
             if not ok:
                 return SqoopExportResult(
@@ -114,9 +119,13 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
     remote_err = f"/tmp/ds_sqoop_{token}.err"
 
     try:
+        if on_progress:
+            on_progress("Connexion au nœud edge…", 10)
         client = _connect(ssh_cfg)
 
         if krb_cfg:
+            if on_progress:
+                on_progress("Authentification Kerberos…", 25)
             ok, message = _kinit(client, krb_cfg)
             if not ok:
                 return SqoopExportResult(
@@ -126,6 +135,8 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
 
         full_cmd = f"timeout {int(timeout)}s {real_cmd} > {remote_out} 2>{remote_err}"
 
+        if on_progress:
+            on_progress("Export Sqoop en cours…", 40)
         _stdin, stdout, _stderr = client.exec_command(full_cmd, timeout=timeout + 30)
         exit_status = stdout.channel.recv_exit_status()
 

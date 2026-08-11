@@ -63,6 +63,48 @@ def _make_client(spark_exit_status: int = 0, spark_stderr: bytes = b"",
     return client
 
 
+def test_run_spark_sql_reports_phase_ticks_with_fetch_result(monkeypatch, tmp_path):
+    """chantier O : le tick avant exec_command() ("Exécution de la requête sur le cluster…")
+    est le point critique — c'est celui qui manquait pour distinguer un kinit bloqué d'une
+    requête réellement en cours pendant plusieurs minutes."""
+    client = _make_client(spark_exit_status=0, remote_output_content=b"a,b\n1,2\n")
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    result = spark.run_spark_sql(
+        ssh_cfg(), krb_cfg(), spark_conf="", query="SELECT * FROM t", fetch_result=True,
+        local_output_path=tmp_path / "out.csv",
+        on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    assert result.success, result.error
+    messages = [m for m, _ in ticks]
+    assert messages == [
+        "Connexion au nœud edge…",
+        "Authentification Kerberos…",
+        "Envoi de la requête…",
+        "Exécution de la requête sur le cluster…",
+        "Récupération du résultat…",
+    ]
+    pcts = [p for _, p in ticks]
+    assert pcts == sorted(pcts)
+
+
+def test_run_spark_sql_skips_fetch_tick_without_fetch_result(monkeypatch):
+    client = _make_client(spark_exit_status=0)
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    spark.run_spark_sql(
+        ssh_cfg(), krb_cfg(), spark_conf="", query="INSERT INTO t VALUES (1)",
+        fetch_result=False, on_progress=lambda msg, pct: ticks.append((msg, pct)),
+    )
+
+    messages = [m for m, _ in ticks]
+    assert "Récupération du résultat…" not in messages
+    assert messages[-1] == "Exécution de la requête sur le cluster…"
+
+
 def test_run_spark_sql_success_with_fetch_result(monkeypatch, tmp_path):
     client = _make_client(spark_exit_status=0, remote_output_content=b"col_a,col_b\n1,2\n")
     install_fake_client(monkeypatch, client)
