@@ -23,6 +23,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -35,6 +36,44 @@ from version import __version__
 CURRENT_SCHEMA_VERSION = 2   # v2 (chantier 6a/6b) : ajoute "edges" + pos_x/pos_y par étape — un
                              # bundle v1 s'importe toujours normalement (edges/positions par défaut)
 _KDF_ITERATIONS = 600_000
+
+# ──────────────────────────────────────────────
+#  CHAÎNE DE TRANSCRIPTION ENTRE VERSIONS DE SCHÉMA
+# ──────────────────────────────────────────────
+# Un passage de version qui n'est PAS purement additif (champ renommé, structure réorganisée —
+# pas juste un nouveau champ à défaut sûr) a besoin d'une vraie transformation avant que le reste
+# du code d'import ne lise le bundle. _TRANSCRIBERS est le point d'accroche pour ça : clé =
+# version de départ, valeur = fonction bundle_vN -> bundle_v(N+1), appliquées en chaîne par
+# _transcribe_bundle() jusqu'à CURRENT_SCHEMA_VERSION.
+_TRANSCRIBERS: dict[int, Callable[[dict], dict]] = {
+    # Vide aujourd'hui — aucun passage de version n'a jamais nécessité de vraie transformation
+    # (voir _ADDITIVE_VERSION_BUMPS ci-dessous). Premier point d'accroche réel le jour d'un
+    # changement non-additif.
+}
+
+# Passages de version explicitement reconnus comme purement additifs (nouveaux champs à défaut
+# sûr, lus via .get(clé, défaut) par le reste du code d'import — aucune transformation
+# nécessaire). Distinct de _TRANSCRIBERS : un passage additif n'a pas besoin d'y figurer, mais
+# doit être déclaré ici pour que test_all_schema_version_gaps_are_accounted_for() (tests/
+# test_export_import_schema_transcription.py) ne puisse pas laisser passer un futur bump de
+# CURRENT_SCHEMA_VERSION sans qu'un humain ait consciemment classé le changement.
+_ADDITIVE_VERSION_BUMPS: set[int] = {
+    1,   # v1 -> v2 : ajout de "edges" + pos_x/pos_y par étape — voir
+         # test_v1_style_bundle_without_edges_key_still_imports (tests/test_import.py).
+}
+
+
+def _transcribe_bundle(bundle: dict, from_version: int) -> dict:
+    """Amène un bundle de from_version à CURRENT_SCHEMA_VERSION en appliquant les transcripteurs
+    enregistrés (s'il y en a) — no-op pour un passage purement additif, le bundle traverse alors
+    tel quel."""
+    version = from_version
+    while version < CURRENT_SCHEMA_VERSION:
+        transcriber = _TRANSCRIBERS.get(version)
+        if transcriber:
+            bundle = transcriber(bundle)
+        version += 1
+    return bundle
 
 # Références de profil/requête connues par type d'étape : (clé_config, type_référence).
 # Seuls les steps qui consomment un profil/une requête réutilisable y figurent.
@@ -526,8 +565,8 @@ def plan_import(bundle: dict, password: str | None = None) -> ImportPlan:
                 f"(v{schema_version}, seule la v{CURRENT_SCHEMA_VERSION} est supportée par cette "
                 "version de l'application) — mettez à jour DataScheduler avant de l'importer."
             ))
-        # schema_version < CURRENT_SCHEMA_VERSION : c'est ici que la chaîne de transcripteurs
-        # s'appliquerait — aujourd'hui no-op, une seule version du format existe.
+        if schema_version < CURRENT_SCHEMA_VERSION:
+            bundle = _transcribe_bundle(bundle, schema_version)
 
         # schema_version ne suit que la STRUCTURE du bundle (voir sa docstring plus haut), pas
         # l'ensemble des types d'étape/profil qu'il peut référencer à l'intérieur — deux bundles
