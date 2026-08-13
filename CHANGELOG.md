@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.18.0] - 2026-08-13
+
+### Ajouté
+- Éditeur graphique : nouveau bouton « Planification & déclenchement… » qui ouvre directement
+  l'éditeur classique du même pipeline pour son nom, sa planification et son déclenchement
+  conditionnel — ces réglages restent gérés uniquement par l'éditeur classique (séparation des
+  responsabilités inchangée), mais l'aller-retour "fermer, retrouver la ligne dans la liste,
+  cliquer Modifier" n'est plus nécessaire.
+
 ## [0.17.0] - 2026-08-13
 
 ### Ajouté

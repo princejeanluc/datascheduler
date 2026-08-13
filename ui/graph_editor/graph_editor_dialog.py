@@ -82,6 +82,17 @@ class PipelineGraphEditorDialog(QDialog):
         btn_delete.clicked.connect(self._on_delete_selected)
         toolbar.addWidget(btn_delete)
 
+        btn_schedule = QPushButton("  Planification & déclenchement…")
+        btn_schedule.setObjectName("secondary")
+        btn_schedule.setFixedHeight(32)
+        btn_schedule.setToolTip(
+            "Ouvre l'éditeur classique pour le nom, la planification et le déclenchement "
+            "conditionnel — enregistrez d'abord vos modifications du graphe si besoin, les deux "
+            "éditeurs ne partagent pas leurs changements non enregistrés."
+        )
+        btn_schedule.clicked.connect(self._on_open_schedule_dialog)
+        toolbar.addWidget(btn_schedule)
+
         hint = QLabel(
             "Glisser depuis un point de sortie (droite) vers un point d'entrée (gauche) pour "
             "connecter deux étapes.  Suppr/Retour arrière pour supprimer la sélection."
@@ -195,6 +206,19 @@ class PipelineGraphEditorDialog(QDialog):
                 self._scene.remove_node(item)
             elif isinstance(item, EdgeItem):
                 self._scene.remove_edge(item)
+
+    def _on_open_schedule_dialog(self):
+        """Raccourci vers l'éditeur classique pour le nom/planification/déclenchement
+        conditionnel (chantier P) — ce dialogue ne les gère pas lui-même (voir docstring du
+        module) ; évite l'aller-retour "fermer, retrouver la ligne, cliquer Modifier"."""
+        from database import db_manager as db
+        from ui.step_editor import PipelineEditorDialog
+
+        if PipelineEditorDialog(self, pipeline=self._pipeline).exec():
+            refreshed = db.get_pipeline(self._pipeline.id)
+            if refreshed:
+                self._pipeline = refreshed
+                self.setWindowTitle(f"Éditeur graphique — {refreshed.name}")
 
     # ── Sauvegarde ───────────────────────────
 
