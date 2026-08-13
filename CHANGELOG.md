@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.17.0] - 2026-08-13
+
+### Ajouté
+- **Déclenchement conditionnel entre pipelines** : un pipeline peut désormais se lancer
+  automatiquement à la fin d'un autre pipeline, selon une condition (Succès / Échec / Toujours),
+  configurable dans une nouvelle section de l'éditeur de pipeline (« ④ Déclenchement
+  conditionnel »). S'ajoute à la planification cron existante sans jamais la remplacer — un
+  pipeline peut avoir les deux à la fois. L'infobulle de la colonne planification et le détail
+  d'un pipeline indiquent la configuration active ; la suppression d'un pipeline avertit si
+  d'autres en dépendent. Cette configuration reste volontairement locale à l'installation, elle
+  n'est jamais incluse dans l'export/import d'un pipeline.
+
 ## [0.16.1] - 2026-08-12
 
 ### Corrigé

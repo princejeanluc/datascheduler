@@ -122,3 +122,55 @@ def test_pipelines_view_non_running_badge_has_no_step_tooltip(qapp, test_db):
     view = PipelinesView()
     badge = view.table.cellWidget(0, 1)
     assert badge.toolTip() == ""
+
+
+# ──────────────────────────────────────────────
+#  Déclenchement conditionnel (chantier P)
+# ──────────────────────────────────────────────
+
+def test_pipelines_view_plan_column_shows_trigger_tooltip(qapp, test_db):
+    from database import db_manager as db
+    from ui.main_window.pipelines_view import PipelinesView
+
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+    db.save_steps(b.id, [{"step_type": "DB_EXTRACT", "config": {}}])
+    db.set_pipeline_trigger(b.id, a.id, "FAILURE")
+
+    view = PipelinesView()
+    row = next(r for r in range(view.table.rowCount())
+               if view.table.item(r, 0).text() == "B")
+    item = view.table.item(row, 3)
+    assert "A" in item.toolTip() and "Échec" in item.toolTip()
+
+
+def test_pipelines_view_plan_column_has_no_trigger_tooltip_without_configuration(qapp, test_db):
+    from database import db_manager as db
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="A")
+
+    view = PipelinesView()
+    item = view.table.item(0, 3)
+    assert item.toolTip() == ""
+
+
+def test_pipelines_view_delete_warns_about_dependent_pipelines(qapp, test_db, monkeypatch):
+    from database import db_manager as db
+    from ui.main_window import pipelines_view as pv_module
+
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")
+
+    captured = {}
+    def fake_question(parent, title, text, *args, **kwargs):
+        captured["text"] = text
+        return pv_module.QMessageBox.No
+    monkeypatch.setattr(pv_module.QMessageBox, "question", staticmethod(fake_question))
+
+    view = pv_module.PipelinesView()
+    view._on_delete_pipeline(a.id)
+
+    assert "B" in captured["text"]
+    assert db.get_pipeline(a.id) is not None   # refusé -> pas supprimé

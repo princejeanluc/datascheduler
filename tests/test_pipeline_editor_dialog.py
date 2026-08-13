@@ -67,3 +67,60 @@ def test_delete_step_confirmation_message_names_the_step(qapp, test_db, monkeypa
     dlg._delete_step(0)
 
     assert "Ma source" in captured["text"]
+
+
+# ──────────────────────────────────────────────
+#  Déclenchement conditionnel (chantier P)
+# ──────────────────────────────────────────────
+
+def test_trigger_parent_combo_excludes_self_when_editing(qapp, test_db):
+    from database import db_manager as db
+
+    a = db.create_pipeline(name="A")
+    db.create_pipeline(name="B")
+
+    dlg = PipelineEditorDialog(None, pipeline=a)
+    labels = [dlg.cb_trigger_parent.itemText(i) for i in range(dlg.cb_trigger_parent.count())]
+    assert "B" in labels
+    assert "A" not in labels
+
+
+def test_save_sets_trigger_configuration(qapp, test_db):
+    from database import db_manager as db
+
+    a = db.create_pipeline(name="A")
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("B")
+    idx = dlg.cb_trigger_parent.findData(a.id)
+    dlg.cb_trigger_parent.setCurrentIndex(idx)
+    idx_cond = dlg.cb_trigger_condition.findData("FAILURE")
+    dlg.cb_trigger_condition.setCurrentIndex(idx_cond)
+
+    dlg._on_save()
+
+    b = next(p for p in db.get_pipelines() if p.name == "B")
+    assert b.trigger_after_pipeline_id == a.id
+    assert str(b.trigger_condition).replace("TriggerCondition.", "") == "FAILURE"
+
+
+def test_save_rejects_cycle_and_warns_without_crashing(qapp, test_db, monkeypatch):
+    from database import db_manager as db
+
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")   # B se lance déjà après A
+
+    warned = {}
+    monkeypatch.setattr(QMessageBox, "warning",
+                         staticmethod(lambda *a_, **k: warned.setdefault("called", True)))
+
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("A")
+    dlg._pipeline = a   # édition de A
+    idx = dlg.cb_trigger_parent.findData(b.id)
+    dlg.cb_trigger_parent.setCurrentIndex(idx)   # A après B -> boucle A->B->A
+
+    dlg._on_save()
+
+    assert warned.get("called")
+    assert db.get_pipeline(a.id).trigger_after_pipeline_id is None
