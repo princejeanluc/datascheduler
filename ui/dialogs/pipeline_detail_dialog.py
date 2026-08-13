@@ -67,6 +67,16 @@ class PipelineDetailDialog(QDialog):
         self.lbl_summary.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
         root.addWidget(self.lbl_summary)
 
+        if self._pipeline.trigger_after_pipeline_id:
+            parent_name = (self._pipeline.trigger_after_pipeline.name
+                            if self._pipeline.trigger_after_pipeline else "?")
+            cond_label = {"SUCCESS": "Succès", "FAILURE": "Échec", "ALWAYS": "Toujours"}.get(
+                _status_str(self._pipeline.trigger_condition), "—"
+            )
+            lbl_trigger = QLabel(f"Déclenché après : « {parent_name} » ({cond_label})")
+            lbl_trigger.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+            root.addWidget(lbl_trigger)
+
         lbl_activity = QLabel("Activité (30 derniers jours)")
         lbl_activity.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {COLORS['text_main']};")
         root.addWidget(lbl_activity)

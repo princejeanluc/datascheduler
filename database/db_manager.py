@@ -123,6 +123,19 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Déclenchement conditionnel entre pipelines (chantier P) — colonnes nullables, pas de
+        # backfill nécessaire.
+        if "trigger_after_pipeline_id" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN trigger_after_pipeline_id INTEGER"
+            ))
+            conn.commit()
+        if "trigger_condition" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN trigger_condition VARCHAR(20)"
+            ))
+            conn.commit()
+
         step_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_steps)")).fetchall()}
         if "retry_count" not in step_cols:
             conn.execute(text(
@@ -884,6 +897,7 @@ def get_pipelines(active_only=False) -> list[Pipeline]:
                    joinedload(Pipeline.ftp_profile),
                    joinedload(Pipeline.sql_query),
                    joinedload(Pipeline.steps),
+                   joinedload(Pipeline.trigger_after_pipeline),
                )
                .order_by(Pipeline.name))
         if active_only:
@@ -893,7 +907,15 @@ def get_pipelines(active_only=False) -> list[Pipeline]:
 
 def get_pipeline(pipeline_id: int) -> Pipeline | None:
     with get_session() as s:
-        return s.get(Pipeline, pipeline_id)
+        # joinedload sur trigger_after_pipeline (chantier P) : sans ça, un appelant qui accède à
+        # .trigger_after_pipeline après la fermeture de la session (l'objet est alors détaché,
+        # cas normal — voir PipelineDetailDialog) lèverait DetachedInstanceError.
+        return (
+            s.query(Pipeline)
+            .options(joinedload(Pipeline.trigger_after_pipeline))
+            .filter(Pipeline.id == pipeline_id)
+            .first()
+        )
 
 
 def get_pipeline_by_uuid(uuid: str) -> Pipeline | None:
@@ -931,6 +953,48 @@ def set_pipeline_active(pipeline_id: int, active: bool) -> bool:
     return False
 
 
+def _pipeline_trigger_chain_has_cycle(pipeline_id: int | None, trigger_after_pipeline_id: int | None) -> bool:
+    """Même patron que _ssh_jump_chain_has_cycle (chantier M) — suit trigger_after_pipeline_id en
+    remontant la chaîne ; True si ça reboucle jusqu'à pipeline_id."""
+    seen: set[int] = set()
+    current = trigger_after_pipeline_id
+    with get_session() as s:
+        while current is not None:
+            if current == pipeline_id or current in seen:
+                return True
+            seen.add(current)
+            p = s.get(Pipeline, current)
+            current = p.trigger_after_pipeline_id if p else None
+    return False
+
+
+def set_pipeline_trigger(pipeline_id: int, trigger_after_pipeline_id: int | None,
+                          trigger_condition: str | None) -> None:
+    """Fonction dédiée plutôt que des paramètres ajoutés à create_pipeline()/update_pipeline() —
+    pour que l'import (apply_import(), qui appelle ces deux fonctions) ne touche jamais à la
+    configuration de déclenchement locale d'un pipeline (chantier P, volontairement hors
+    export/import — voir database/export_import.py, inchangé)."""
+    if trigger_after_pipeline_id is not None and _pipeline_trigger_chain_has_cycle(
+        pipeline_id, trigger_after_pipeline_id
+    ):
+        raise ValueError("Chaîne de déclenchement invalide : créerait une boucle.")
+    with get_session() as s:
+        p = s.get(Pipeline, pipeline_id)
+        if p:
+            p.trigger_after_pipeline_id = trigger_after_pipeline_id
+            p.trigger_condition = trigger_condition
+
+
+def get_pipelines_triggered_by(parent_pipeline_id: int) -> list[Pipeline]:
+    """Pipelines configurés pour se lancer après ce pipeline (chantier P)."""
+    with get_session() as s:
+        return (
+            s.query(Pipeline)
+            .filter(Pipeline.trigger_after_pipeline_id == parent_pipeline_id)
+            .all()
+        )
+
+
 def delete_pipeline(pipeline_id: int) -> bool:
     name = None
     with get_session() as s:
@@ -938,6 +1002,12 @@ def delete_pipeline(pipeline_id: int) -> bool:
         if not obj:
             return False
         name = obj.name
+        # Pas d'enforcement de clé étrangère actif dans cette base — sans ce nettoyage, un
+        # pipeline qui se déclenchait après celui-ci garderait un trigger_after_pipeline_id
+        # pendant vers une ligne supprimée (chantier P, même principe que delete_ssh_profile).
+        s.query(Pipeline).filter(Pipeline.trigger_after_pipeline_id == pipeline_id).update(
+            {"trigger_after_pipeline_id": None, "trigger_condition": None}
+        )
         s.delete(obj)
     log_audit_event("pipeline_deleted", pipeline_id=pipeline_id, pipeline_name=name)
     return True

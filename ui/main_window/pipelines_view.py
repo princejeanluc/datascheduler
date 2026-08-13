@@ -113,6 +113,14 @@ class PipelinesView(QWidget):
                 STEP_META.get(t, {}).get("label", t) for t in step_types
             ) or "—"
 
+            trigger_tooltip = ""
+            if p.trigger_after_pipeline_id:
+                parent_name = p.trigger_after_pipeline.name if p.trigger_after_pipeline else "?"
+                cond_label = {"SUCCESS": "Succès", "FAILURE": "Échec", "ALWAYS": "Toujours"}.get(
+                    _status_str(p.trigger_condition), "—"
+                )
+                trigger_tooltip = f"Se lance aussi après « {parent_name} » ({cond_label})"
+
             text_color = COLORS["text_dim"] if not p.is_active else COLORS["text_main"]
             cells = [p.name, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
@@ -131,6 +139,8 @@ class PipelinesView(QWidget):
                     item.setForeground(QColor(text_color))
                     if c_idx == 2:
                         item.setToolTip(steps_str)
+                    if c_idx == 3 and trigger_tooltip:
+                        item.setToolTip(trigger_tooltip)
                     self.table.setItem(r_idx, c_idx, item)
 
             pid       = p.id
@@ -337,8 +347,16 @@ class PipelinesView(QWidget):
 
     def _on_delete_pipeline(self, pipeline_id: int):
         from database import db_manager as db
-        reply = QMessageBox.question(self, "Supprimer", "Supprimer ce pipeline ?",
-                                     QMessageBox.Yes | QMessageBox.No)
+        dependents = db.get_pipelines_triggered_by(pipeline_id)
+        if dependents:
+            names = ", ".join(p.name for p in dependents)
+            msg = (
+                f"{len(dependents)} pipeline(s) se lance(nt) après celui-ci : {names}.\n\n"
+                f"Le supprimer quand même ? Ces pipelines repasseront en planification seule."
+            )
+        else:
+            msg = "Supprimer ce pipeline ?"
+        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
             db.delete_pipeline(pipeline_id)
             self.refresh()

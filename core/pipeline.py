@@ -1019,6 +1019,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         if pipeline_failed:
             _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
+            _trigger_downstream_pipelines(pipeline_id, "FAILED")
             with _active_runs_lock:
                 _active_runs.pop(pipeline_id, None)
             return result
@@ -1033,6 +1034,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         )
         _update_run(run_id, "SUCCESS", result, None, resume_from_run_id)
         _update_pipeline_status(pipeline_id, "SUCCESS")
+        _trigger_downstream_pipelines(pipeline_id, "SUCCESS")
         with _active_runs_lock:
             _active_runs.pop(pipeline_id, None)
         return result
@@ -1045,6 +1047,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         if run_id:
             _update_run(run_id, "FAILED", result)
         _update_pipeline_status(pipeline_id, "FAILED")
+        _trigger_downstream_pipelines(pipeline_id, "FAILED")
         logger.exception("Erreur pipeline %s", pipeline_id)
         return result
 
@@ -1074,3 +1077,35 @@ def _update_pipeline_status(pipeline_id: int, status: str):
         if p:
             p.last_status = status
             p.last_run_at = datetime.utcnow()
+
+
+def _trigger_downstream_pipelines(parent_pipeline_id: int, parent_status: str) -> None:
+    """Déclenchement conditionnel entre pipelines (chantier P) — jamais appelée pour un run
+    CANCELLED (voir les 3 points d'appel dans run_pipeline() : un arrêt demandé par l'utilisateur
+    ne doit jamais déclencher de cascade automatique). Ne lève jamais : un incident ici ne doit
+    jamais remettre en cause le résultat déjà acté du pipeline parent. Réutilise
+    PipelineScheduler.trigger_now() (core/scheduler.py — déjà thread + notifications câblées)
+    plutôt que d'appeler run_pipeline() directement : évite l'imbrication d'appels sur une chaîne
+    longue, déclenchement non bloquant. Le garde-fou prevent_overlap/is_pipeline_running() déjà
+    intégré à run_pipeline() s'applique automatiquement au run déclenché."""
+    try:
+        children = db.get_pipelines_triggered_by(parent_pipeline_id)
+        for child in children:
+            if not child.is_active:
+                continue
+            cond = str(child.trigger_condition).replace("TriggerCondition.", "")
+            fires = (
+                (cond == "SUCCESS" and parent_status == "SUCCESS") or
+                (cond == "FAILURE" and parent_status == "FAILED") or
+                (cond == "ALWAYS"  and parent_status in ("SUCCESS", "FAILED"))
+            )
+            if fires:
+                from core.scheduler import get_scheduler
+                try:
+                    get_scheduler().trigger_now(child.id)
+                except RuntimeError:
+                    pass   # scheduler non initialisé (tests, contexte hors app) — jamais fatal,
+                           # même patron que ui/main_window/pipelines_view.py::_on_toggle_pipeline()
+    except Exception:
+        logger.warning("Échec du déclenchement des pipelines en aval de %s (ignoré).",
+                        parent_pipeline_id)

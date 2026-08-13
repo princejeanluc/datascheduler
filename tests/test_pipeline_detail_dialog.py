@@ -74,3 +74,18 @@ def test_dialog_shows_inactive_badge_when_pipeline_disabled(qapp, test_db):
 
     dlg = PipelineDetailDialog(None, pipeline=p)
     assert dlg is not None  # construction sans exception avec un pipeline inactif
+
+
+def test_dialog_shows_trigger_line_when_configured(qapp, test_db):
+    """chantier P — accède à .trigger_after_pipeline via un objet issu de get_pipeline() (fetch
+    unitaire, pas get_pipelines()) : sans joinedload sur cette relation, ceci lèverait
+    DetachedInstanceError (le cas réel emprunté par PipelinesView._on_row_dbl_click())."""
+    from ui.dialogs import PipelineDetailDialog
+
+    a = db.create_pipeline(name="detail-trigger-parent")
+    b = db.create_pipeline(name="detail-trigger-child")
+    db.set_pipeline_trigger(b.id, a.id, "ALWAYS")
+    b = db.get_pipeline(b.id)
+
+    dlg = PipelineDetailDialog(None, pipeline=b)
+    assert dlg is not None

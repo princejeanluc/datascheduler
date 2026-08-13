@@ -114,6 +114,105 @@ def test_update_pipeline(test_db):
     assert db.update_pipeline(999_999, name="X") is None
 
 
+# ──────────────────────────────────────────────
+#  DÉCLENCHEMENT CONDITIONNEL ENTRE PIPELINES (chantier P)
+# ──────────────────────────────────────────────
+
+def test_set_pipeline_trigger_assigns_updates_and_clears(test_db):
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+
+    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")
+    reloaded = db.get_pipeline(b.id)
+    assert reloaded.trigger_after_pipeline_id == a.id
+    assert reloaded.trigger_condition == "SUCCESS"
+
+    db.set_pipeline_trigger(b.id, a.id, "FAILURE")
+    assert db.get_pipeline(b.id).trigger_condition == "FAILURE"
+
+    db.set_pipeline_trigger(b.id, None, None)
+    reloaded = db.get_pipeline(b.id)
+    assert reloaded.trigger_after_pipeline_id is None
+    assert reloaded.trigger_condition is None
+
+
+def test_set_pipeline_trigger_rejects_direct_and_indirect_cycles(test_db):
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+
+    try:
+        db.set_pipeline_trigger(a.id, a.id, "SUCCESS")
+        assert False, "devait lever ValueError (boucle A->A)"
+    except ValueError as e:
+        assert "boucle" in str(e)
+
+    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")   # B après A — valide
+    try:
+        db.set_pipeline_trigger(a.id, b.id, "SUCCESS")
+        assert False, "devait lever ValueError (boucle A->B->A)"
+    except ValueError as e:
+        assert "boucle" in str(e)
+    # La tentative rejetée ne doit pas avoir modifié A en base.
+    assert db.get_pipeline(a.id).trigger_after_pipeline_id is None
+
+
+def test_get_pipelines_triggered_by(test_db):
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+    c = db.create_pipeline(name="C")
+    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")
+    db.set_pipeline_trigger(c.id, a.id, "FAILURE")
+
+    children = {p.name for p in db.get_pipelines_triggered_by(a.id)}
+    assert children == {"B", "C"}
+    assert db.get_pipelines_triggered_by(b.id) == []
+
+
+def test_delete_pipeline_clears_dependents_trigger(test_db):
+    a = db.create_pipeline(name="A")
+    b = db.create_pipeline(name="B")
+    db.set_pipeline_trigger(b.id, a.id, "ALWAYS")
+
+    db.delete_pipeline(a.id)
+    reloaded = db.get_pipeline(b.id)
+    assert reloaded.trigger_after_pipeline_id is None
+    assert reloaded.trigger_condition is None
+
+
+def test_migrate_adds_trigger_condition_to_a_pre_existing_pipelines_table(tmp_path):
+    """Table pipelines "legacy" (antérieure au chantier P) — exerce réellement le bloc
+    ALTER TABLE ajouté à _migrate(). pipelines a trop de colonnes pour être reconstruite à la
+    main sans risquer un mismatch avec _migrate_legacy_pipelines() (qui fait s.query(Pipeline)
+    .all(), donc échoue si une seule colonne du modèle manque) : on part d'un schéma moderne
+    complet (via un premier init_db()), puis on retire trigger_condition (SQLite >= 3.35 supporte
+    DROP COLUMN) pour simuler une base pré-chantier-P fidèle. trigger_after_pipeline_id n'est pas
+    retirée de la même façon : c'est une auto-référence (FOREIGN KEY) que SQLite refuse de DROP
+    ("column is part of a foreign key definition", même avec legacy_alter_table) — son propre
+    bloc ALTER TABLE ADD COLUMN, textuellement adjacent et structurellement identique dans
+    _migrate(), est donc couvert par le même mécanisme prouvé ici plutôt que testé isolément."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_pipelines.db"
+    db.init_db(db_path)
+    db._engine = None
+    db._SessionFactory = None
+
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE pipelines DROP COLUMN trigger_condition"))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipelines)")).fetchall()}
+    assert "trigger_condition" in cols
+    assert "trigger_after_pipeline_id" in cols   # jamais perdue au passage
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 def test_run(test_db):
     pipeline_id = db.create_pipeline(name="EXPORT_VENTES_QUOTIDIEN").id
 

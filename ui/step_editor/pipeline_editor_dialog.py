@@ -44,6 +44,10 @@ class PipelineEditorDialog(QDialog):
         self._sql_queries     = db.get_sql_queries()
         self._smtp_profiles   = db.get_smtp_profiles()
         self._db_profiles     = db.list_all_db_profiles()
+        self._other_pipelines = [
+            p for p in db.get_pipelines()
+            if self._pipeline is None or p.id != self._pipeline.id
+        ]
 
     # ── Construction UI ──────────────────────
 
@@ -111,6 +115,11 @@ class PipelineEditorDialog(QDialog):
         # ③ Planification
         fr.addWidget(self._section_label("③ Planification"))
         fr.addLayout(self._build_schedule_ui())
+        fr.addWidget(self._sep())
+
+        # ④ Déclenchement conditionnel
+        fr.addWidget(self._section_label("④ Déclenchement conditionnel"))
+        fr.addLayout(self._build_trigger_ui())
         fr.addStretch()
 
         # Boutons bas (fixes)
@@ -208,6 +217,44 @@ class PipelineEditorDialog(QDialog):
 
         self._on_freq_changed()
         return vl
+
+    def _build_trigger_ui(self) -> QVBoxLayout:
+        """Additif à la planification cron ci-dessus, ne la remplace jamais : un pipeline peut
+        avoir les deux (un planning ET un déclenchement après un autre pipeline). Hors
+        export/import — voir database/db_manager.py::set_pipeline_trigger()."""
+        vl = QVBoxLayout(); vl.setSpacing(10)
+
+        hint = QLabel(
+            "En plus de sa planification, ce pipeline peut se lancer automatiquement quand un "
+            "autre pipeline se termine."
+        )
+        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
+        hint.setWordWrap(True)
+        vl.addWidget(hint)
+
+        row = QHBoxLayout(); row.setSpacing(10)
+        self.cb_trigger_parent = QComboBox()
+        self.cb_trigger_parent.setStyleSheet(self._combo_style())
+        self.cb_trigger_parent.addItem("— Aucun (planification seule) —", None)
+        for p in self._other_pipelines:
+            self.cb_trigger_parent.addItem(p.name, p.id)
+        self.cb_trigger_parent.currentIndexChanged.connect(self._on_trigger_parent_changed)
+
+        self.cb_trigger_condition = QComboBox()
+        self.cb_trigger_condition.setStyleSheet(self._combo_style())
+        self.cb_trigger_condition.addItem("Succès", "SUCCESS")
+        self.cb_trigger_condition.addItem("Échec", "FAILURE")
+        self.cb_trigger_condition.addItem("Toujours", "ALWAYS")
+
+        row.addWidget(QLabel("Après :")); row.addWidget(self.cb_trigger_parent, stretch=1)
+        row.addWidget(QLabel("Si :")); row.addWidget(self.cb_trigger_condition)
+        vl.addLayout(row)
+
+        self._on_trigger_parent_changed()
+        return vl
+
+    def _on_trigger_parent_changed(self):
+        self.cb_trigger_condition.setEnabled(self.cb_trigger_parent.currentData() is not None)
 
     # ── Gestion des étapes ────────────────────
 
@@ -545,6 +592,18 @@ class PipelineEditorDialog(QDialog):
             pipeline_id = p.id
 
         db.save_steps(pipeline_id, self._steps_data)
+
+        trigger_parent_id = self.cb_trigger_parent.currentData()
+        trigger_condition = self.cb_trigger_condition.currentData() if trigger_parent_id else None
+        try:
+            db.set_pipeline_trigger(pipeline_id, trigger_parent_id, trigger_condition)
+        except ValueError as e:
+            QMessageBox.warning(
+                self, "Déclenchement non enregistré",
+                f"Le pipeline a bien été enregistré, mais le déclenchement conditionnel n'a pas "
+                f"pu être appliqué : {e}",
+            )
+
         self.accept()
 
     def _validate(self) -> bool:
@@ -619,6 +678,16 @@ class PipelineEditorDialog(QDialog):
                 self.inp_month_day.setValue(int(p.scheduled_day))
         if p.cron_expression:
             self.inp_cron.setText(p.cron_expression)
+
+        if p.trigger_after_pipeline_id:
+            idx = self.cb_trigger_parent.findData(p.trigger_after_pipeline_id)
+            if idx >= 0:
+                self.cb_trigger_parent.setCurrentIndex(idx)
+            cond = str(p.trigger_condition).replace("TriggerCondition.", "") if p.trigger_condition else None
+            idx_cond = self.cb_trigger_condition.findData(cond)
+            if idx_cond >= 0:
+                self.cb_trigger_condition.setCurrentIndex(idx_cond)
+        self._on_trigger_parent_changed()
 
     # ── Helpers visuels ──────────────────────
 

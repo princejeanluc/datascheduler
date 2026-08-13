@@ -37,6 +37,15 @@ class PipelineStatus(str, enum.Enum):
     CANCELLED = "CANCELLED"
 
 
+class TriggerCondition(str, enum.Enum):
+    """Déclenchement conditionnel d'un pipeline après un autre (chantier P) — SUCCESS/FAILURE ne
+    couvrent délibérément pas CANCELLED : un arrêt demandé par l'utilisateur ne doit jamais
+    déclencher de cascade automatique, voir core/pipeline.py::_trigger_downstream_pipelines()."""
+    SUCCESS = "SUCCESS"
+    FAILURE = "FAILURE"
+    ALWAYS  = "ALWAYS"
+
+
 class CronFrequency(str, enum.Enum):
     DAILY   = "DAILY"
     WEEKLY  = "WEEKLY"
@@ -336,6 +345,13 @@ class Pipeline(Base):
     last_run_at       = Column(DateTime, nullable=True)
     next_run_at       = Column(DateTime, nullable=True)
 
+    # Déclenchement conditionnel après un autre pipeline (chantier P) — additif, coexiste avec
+    # la planification cron ci-dessus, ne la remplace jamais. Volontairement pas transporté par
+    # l'export/import (database/export_import.py) : référence un autre pipeline de premier
+    # niveau, pas un profil partagé portable — voir set_pipeline_trigger() dans db_manager.py.
+    trigger_after_pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=True)
+    trigger_condition         = Column(Enum(TriggerCondition), nullable=True)
+
     created_at        = Column(DateTime, default=datetime.utcnow)
     updated_at        = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -343,6 +359,7 @@ class Pipeline(Base):
     oracle_profile = relationship("OracleProfile", back_populates="pipelines")
     ftp_profile    = relationship("FtpProfile",    back_populates="pipelines")
     sql_query      = relationship("SqlQuery",      back_populates="pipelines")
+    trigger_after_pipeline = relationship("Pipeline", remote_side=[id])
     runs           = relationship("PipelineRun",   back_populates="pipeline",
                                   cascade="all, delete-orphan",
                                   order_by="PipelineRun.started_at.desc()")
