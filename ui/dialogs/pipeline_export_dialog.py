@@ -55,8 +55,9 @@ class PipelineExportDialog(QDialog):
 
         note = QLabel(
             "Ce mot de passe chiffre les identifiants des profils référencés "
-            "(Oracle/FTP/SMTP/base de données) dans le fichier exporté. Laissé vide, le fichier ne "
-            "contiendra aucun mot de passe — à ressaisir manuellement après import."
+            "(Oracle/FTP/SMTP/base de données/SSH/Kerberos/Élévation) dans le fichier exporté. "
+            "Laissé vide, le fichier ne contiendra aucun mot de passe — à ressaisir manuellement "
+            "après import."
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")

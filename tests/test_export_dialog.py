@@ -62,3 +62,50 @@ def test_import_review_dialog_opens_and_confirm_mutates_plan(qapp, test_db):
     dlg._on_confirm()
 
     assert plan.pipeline_action == "overwrite"
+
+
+def test_import_review_dialog_handles_ssh_kerberos_elevation_categories(qapp, test_db):
+    """Ces 3 catégories (chantiers D.1/K/L) doivent être traitées comme les autres : libellé
+    lisible, nom affiché pour une décision "reuse", et proposées dans le menu de remappage —
+    jamais couvert avant ce test, l'écran de revue avait été laissé de côté à leur introduction."""
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    edge = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
+    krb = db.create_kerberos_profile(name="KRB1", principal="u@REALM", password="p")
+    elevation = db.create_elevation_profile(name="NIFI", target_user="nifi", password="p")
+    pipeline = db.create_pipeline(name="review-ssh-test")
+    db.save_steps(pipeline.id, [{
+        "step_type": "SQOOP_EXPORT",
+        "config": {
+            "edge_profile_id": edge.id, "kerberos_profile_id": krb.id,
+            "elevation_profile_id": elevation.id,
+        },
+    }])
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success, export_result.error
+
+    # Base fraîche : les 3 profils n'existent pas encore localement -> décisions "create",
+    # exactement le cas où le menu de remappage doit apparaître.
+    db.delete_ssh_profile(edge.id)
+    db.delete_kerberos_profile(krb.id)
+    db.delete_elevation_profile(elevation.id)
+    # Un profil du même type déjà présent en local, pour vérifier qu'il apparaît bien comme
+    # option de remappage dans le menu (pas juste "Créer un nouveau profil").
+    db.create_ssh_profile(name="EDGE_LOCAL", host="edgelocal", port=22, username="u", password="p")
+
+    plan = plan_import(export_result.bundle)
+    ssh_decisions = [d for d in plan.profile_decisions if d.category == "ssh"]
+    assert ssh_decisions and ssh_decisions[0].action == "create"
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+    categories_shown = {dlg._CATEGORY_LABELS.get(d.category, d.category)
+                         for d in plan.profile_decisions}
+    assert "SSH (nœud edge)" in categories_shown
+    assert "Kerberos" in categories_shown
+    assert "Élévation (sudo su)" in categories_shown
+
+    ssh_combo = next(combo for decision, combo in dlg._combo_by_decision
+                      if decision.category == "ssh")
+    combo_labels = [ssh_combo.itemText(i) for i in range(ssh_combo.count())]
+    assert any("EDGE_LOCAL" in label for label in combo_labels)

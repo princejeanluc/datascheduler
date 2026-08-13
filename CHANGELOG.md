@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.16.1] - 2026-08-12
+
+### Corrigé
+- Écran de revue de l'import de pipeline : les profils SSH, Kerberos et Élévation (ajoutés
+  après cet écran) n'étaient pas reconnus — catégorie affichée en clé brute au lieu d'un libellé
+  lisible, nom d'un profil réutilisé affiché "?", et surtout le menu « Remapper vers un profil
+  existant » restait vide pour ces 3 catégories (impossible de réutiliser un profil déjà présent
+  en local, un nouveau profil était systématiquement recréé à chaque import). Le texte d'aide du
+  dialogue d'export, qui ne mentionnait pas ces 3 types de profil parmi les identifiants
+  chiffrés, est aussi mis à jour.
+
 ## [0.16.0] - 2026-08-12
 
 ### Ajouté

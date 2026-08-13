@@ -99,6 +99,7 @@ class PipelineImportReviewDialog(QDialog):
     _CATEGORY_LABELS = {
         "oracle": "Oracle", "ftp": "FTP", "smtp": "SMTP",
         "database": "Base de données", "sql_query": "Requête SQL",
+        "ssh": "SSH (nœud edge)", "kerberos": "Kerberos", "elevation": "Élévation (sudo su)",
     }
 
     def __init__(self, parent=None, plan=None):
@@ -224,6 +225,8 @@ class PipelineImportReviewDialog(QDialog):
             "oracle": db.get_oracle_profile, "ftp": db.get_ftp_profile,
             "smtp": db.get_smtp_profile, "database": db.get_database_profile,
             "sql_query": db.get_sql_query,
+            "ssh": db.get_ssh_profile, "kerberos": db.get_kerberos_profile,
+            "elevation": db.get_elevation_profile,
         }
         getter = getters.get(category)
         return getter(existing_id) if getter else None
@@ -235,6 +238,8 @@ class PipelineImportReviewDialog(QDialog):
             "oracle": db.get_oracle_profiles, "ftp": db.get_ftp_profiles,
             "smtp": db.get_smtp_profiles, "database": db.get_database_profiles,
             "sql_query": db.get_sql_queries,
+            "ssh": db.get_ssh_profiles, "kerberos": db.get_kerberos_profiles,
+            "elevation": db.get_elevation_profiles,
         }
         getter = getters.get(category)
         return getter() if getter else []
