@@ -124,3 +124,33 @@ def test_remove_node_removes_connected_edges_before_save(qapp, test_db):
     dlg._on_save()
     assert len(db.get_steps(pipeline.id)) == 1
     assert len(db.get_edges(pipeline.id)) == 0
+
+
+def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, monkeypatch):
+    """Raccourci ajouté après le chantier de déclenchement conditionnel — évite l'aller-retour
+    "fermer, retrouver la ligne, cliquer Modifier" juste pour la planification/le déclenchement,
+    que ce dialogue ne gère pas lui-même."""
+    from PySide6.QtWidgets import QDialog
+    import ui.step_editor as step_editor_module
+
+    pipeline = db.create_pipeline(name="schedule-shortcut-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    captured = {}
+    class _FakeLinearEditor:
+        def __init__(self, parent, pipeline):
+            captured["pipeline_id"] = pipeline.id
+
+        def exec(self):
+            # Simule un renommage effectué dans l'éditeur classique, comme le ferait un vrai
+            # PipelineEditorDialog._on_save().
+            db.update_pipeline(pipeline.id, name="renamed-via-linear-editor")
+            return QDialog.Accepted
+
+    monkeypatch.setattr(step_editor_module, "PipelineEditorDialog", _FakeLinearEditor)
+
+    dlg._on_open_schedule_dialog()
+
+    assert captured["pipeline_id"] == pipeline.id
+    assert dlg._pipeline.name == "renamed-via-linear-editor"
+    assert "renamed-via-linear-editor" in dlg.windowTitle()
