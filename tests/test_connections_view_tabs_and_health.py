@@ -89,6 +89,33 @@ def test_database_health_badge_reflects_last_test_success(qapp, test_db):
     assert badge.text() == "OK"
 
 
+def test_health_badge_dims_a_profile_not_retested_recently(qapp, test_db):
+    """Fraîcheur visuelle (chantier identité, vague 1, idée 11) — un profil testé il y a plus de
+    30 jours s'estompe (effet d'opacité) pour signaler qu'il mérite d'être revérifié ; un profil
+    testé récemment reste net."""
+    from datetime import datetime, timedelta
+
+    from ui.main_window.connections_view import ConnectionsView
+
+    fresh = db.create_ssh_profile(name="EDGE-FRESH", host="h1", port=22, username="u", password="pw")
+    stale = db.create_ssh_profile(name="EDGE-STALE", host="h2", port=22, username="u", password="pw")
+    db.record_profile_test_result("ssh", fresh.id, True)
+    db.record_profile_test_result("ssh", stale.id, True)
+    with db.get_session() as s:
+        from database.models import SshProfile
+        obj = s.get(SshProfile, stale.id)
+        obj.last_tested_at = datetime.utcnow() - timedelta(days=40)
+
+    view = ConnectionsView()
+    rows = {view.ssh_table.item(r, 0).text(): r for r in range(view.ssh_table.rowCount())}
+    fresh_badge = view.ssh_table.cellWidget(rows["EDGE-FRESH"], 5)
+    stale_badge = view.ssh_table.cellWidget(rows["EDGE-STALE"], 5)
+
+    assert fresh_badge.graphicsEffect() is None
+    assert stale_badge.graphicsEffect() is not None
+    assert "revérifier" in stale_badge.toolTip()
+
+
 def test_search_filters_across_active_tab_tables(qapp, test_db):
     from ui.main_window.connections_view import ConnectionsView
 

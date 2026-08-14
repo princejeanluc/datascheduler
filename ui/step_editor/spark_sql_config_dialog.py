@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QSpinBox, QMessageBox,
 )
 from PySide6.QtGui import QFont
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO
 from .base_config_dialog import _BaseStepConfigDialog
 from .common import CSV_SEPARATORS, CSV_ENCODINGS, CSV_QUOTINGS
 
@@ -102,7 +102,7 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         conf_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(conf_lbl)
         self.txt_spark_conf = QPlainTextEdit()
-        self.txt_spark_conf.setFont(QFont("Consolas", 11))
+        self.txt_spark_conf.setFont(QFont(FONT_MONO, 11))
         self.txt_spark_conf.setPlaceholderText(
             '--conf spark.yarn.queue=default --executor-cores 1 --num-executors 10 '
             '--driver-memory 10G --executor-memory 7G'

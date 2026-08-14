@@ -6,7 +6,7 @@ Vue Connexions : profils Oracle/FTP/SMTP/BDD génériques.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QTabWidget,
+    QMessageBox, QTabWidget, QGraphicsOpacityEffect,
 )
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
@@ -14,10 +14,15 @@ from ui.styles import COLORS
 from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
 
 
-def _health_badge(success) -> QLabel:
+_STALE_AFTER_DAYS = 30
+
+
+def _health_badge(success, last_tested_at=None) -> QLabel:
     """Statut du dernier test de connexion, déjà stocké sur chaque profil (bilan de santé,
     chantier C.4/D.1) — ici simplement affiché en ligne au lieu d'être réservé à la fenêtre
-    modale "Bilan de santé"."""
+    modale "Bilan de santé". `last_tested_at` (optionnel, rétrocompatible) ajoute une fraîcheur
+    visuelle : un profil non retesté depuis plus de 30 jours s'estompe légèrement, pour repérer
+    d'un regard ce qui mérite d'être revérifié (chantier identité, vague 1, idée 11)."""
     if success is True:
         text, obj_name = "OK", "badge_success"
     elif success is False:
@@ -26,6 +31,20 @@ def _health_badge(success) -> QLabel:
         text, obj_name = "Jamais testé", "badge_idle"
     lbl = QLabel(text); lbl.setObjectName(obj_name)
     lbl.setAlignment(Qt.AlignCenter)
+
+    if last_tested_at is not None:
+        from datetime import datetime, timezone
+        age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - last_tested_at).days
+        tooltip = "Testé aujourd'hui" if age_days <= 0 else f"Testé il y a {age_days} jour{'s' if age_days > 1 else ''}"
+        if age_days > _STALE_AFTER_DAYS:
+            tooltip += " — à revérifier"
+            effect = QGraphicsOpacityEffect(lbl)
+            effect.setOpacity(0.55)
+            lbl.setGraphicsEffect(effect)
+        lbl.setToolTip(tooltip)
+    elif success is None:
+        lbl.setToolTip("Jamais testé")
+
     return lbl
 
 
@@ -270,7 +289,9 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.database_table.setItem(r_idx, c_idx, item)
-            self.database_table.setCellWidget(r_idx, 5, _health_badge(p.get("last_test_success")))
+            self.database_table.setCellWidget(
+                r_idx, 5, _health_badge(p.get("last_test_success"), p.get("last_tested_at"))
+            )
             pid, dtype = p["id"], p["db_type"]
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -294,7 +315,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ftp_table.setItem(r_idx, c_idx, item)
-            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -318,7 +339,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.smtp_table.setItem(r_idx, c_idx, item)
-            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -343,7 +364,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ssh_table.setItem(r_idx, c_idx, item)
-            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -366,7 +387,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.kerberos_table.setItem(r_idx, c_idx, item)
-            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
+            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -389,7 +410,7 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.elevation_table.setItem(r_idx, c_idx, item)
-            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
+            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")

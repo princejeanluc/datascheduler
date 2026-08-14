@@ -7,7 +7,7 @@ l'arête entrante dessinée dans l'éditeur graphique (chantier 6b).
 """
 
 from PySide6.QtWidgets import QVBoxLayout, QLabel, QMessageBox
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO_STACK
 from .base_config_dialog import _BaseStepConfigDialog
 
 
@@ -41,7 +41,7 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
             "Opérateurs : == != > >= < <=.  Deux sorties (Vrai/Faux) à connecter dans le canevas."
         )
         hint.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: Consolas; "
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONT_MONO_STACK}; "
             f"font-style: italic;"
         )
         hint.setWordWrap(True)

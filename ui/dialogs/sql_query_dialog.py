@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QRegularExpression
 from PySide6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
 
 
 # ──────────────────────────────────────────────
@@ -111,7 +111,7 @@ class SqlQueryDialog(QDialog):
         root.addWidget(lbl_sql)
 
         self.editor = QPlainTextEdit()
-        self.editor.setFont(QFont("Consolas", 12))
+        self.editor.setFont(QFont(FONT_MONO, 12))
         self.editor.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
             f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 8px;"

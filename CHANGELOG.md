@@ -29,6 +29,32 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.21.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 1 (suite du chantier identité — la palette seule ne suffisait
+  pas, la structure restait celle d'un dashboard générique) :
+  - Chaque type d'étape a désormais sa propre icône (extraction, FTP, Spark SQL, script Python…),
+    visible dans le sélecteur de type, l'éditeur linéaire et l'éditeur graphique — plus seulement
+    une couleur.
+  - Dashboard : rail « Prochaines & en cours » en tête de page (remplace la carte isolée
+    « Prochaine exéc. ») — le pipeline en cours d'exécution y pulse, les prochains passages
+    planifiés y sont listés.
+  - Éditeur graphique : les arêtes portent désormais une flèche indiquant le sens du flux.
+  - Badge « RUNNING » animé (légère pulsation) sur les 3 écrans qui l'affichent (Dashboard,
+    Pipelines, Historique), via une fabrique commune.
+  - Pipelines : un pipeline déclenché après un autre (chaînage) apparaît désormais indenté sous
+    son parent plutôt que noyé alphabétiquement dans la liste.
+  - Connexions : un profil non retesté depuis plus de 30 jours s'estompe légèrement dans le
+    tableau, pour repérer d'un regard ce qui mérite d'être revérifié.
+
+### Corrigé
+- Les ~12 derniers endroits qui codaient encore `"Consolas"` en dur (éditeur de requête SQL,
+  journal d'exécution, indices de tokens/cron, éditeurs de scripts Python/Spark/Sqoop) utilisent
+  désormais `FONT_MONO`/`FONT_MONO_STACK` — scope explicitement laissé de côté lors de la phase 1
+  de l'identité visuelle (v0.19.0), complété ici : JetBrains Mono s'applique maintenant partout
+  dans l'application, sans exception.
+
 ## [0.20.0] - 2026-08-14
 
 ### Ajouté

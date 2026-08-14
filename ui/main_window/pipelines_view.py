@@ -11,7 +11,34 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str
+from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, _make_status_badge
+
+
+def _ordered_with_chains(pipelines) -> list:
+    """Réordonne une liste de pipelines pour que chaque enfant (déclenché après un parent via
+    trigger_after_pipeline_id, chantier P) apparaisse juste après son parent plutôt que noyé
+    alphabétiquement — retourne une liste de tuples (pipeline, profondeur). Fonction pure, sans
+    Qt, pour rester facilement testable (chantier identité, vague 1, idée 9)."""
+    by_id = {p.id: p for p in pipelines}
+    children = {}
+    for p in pipelines:
+        if p.trigger_after_pipeline_id in by_id:
+            children.setdefault(p.trigger_after_pipeline_id, []).append(p)
+    roots = [p for p in pipelines if p.trigger_after_pipeline_id not in by_id]
+
+    ordered, seen = [], set()
+
+    def visit(p, depth):
+        if p.id in seen:   # garde-fou — la création empêche déjà les cycles, filet de sécurité
+            return
+        seen.add(p.id)
+        ordered.append((p, depth))
+        for c in children.get(p.id, []):
+            visit(c, depth + 1)
+
+    for r in roots:
+        visit(r, 0)
+    return ordered
 
 
 class PipelinesView(QWidget):
@@ -96,12 +123,13 @@ class PipelinesView(QWidget):
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested
         pipelines = db.get_pipelines()
+        ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
-        self._pipeline_ids = [p.id for p in pipelines]
+        self._pipeline_ids = [p.id for p, _depth in ordered]
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
-        self.table.setRowCount(len(pipelines))
-        for r_idx, p in enumerate(pipelines):
+        self.table.setRowCount(len(ordered))
+        for r_idx, (p, depth) in enumerate(ordered):
             st       = _status_str(p.last_status)
             freq     = _status_str(p.frequency)
             plan     = f"{freq} {p.scheduled_time or ''}".strip()
@@ -122,21 +150,23 @@ class PipelinesView(QWidget):
                 trigger_tooltip = f"Se lance aussi après « {parent_name} » ({cond_label})"
 
             text_color = COLORS["text_dim"] if not p.is_active else COLORS["text_main"]
-            cells = [p.name, st, steps_str, plan, next_run]
+            name_indent = "    " * (depth - 1) if depth else ""
+            name_display = f"{name_indent}{'↳ ' if depth else ''}{p.name}"
+            name_color = COLORS["text_dim"] if (depth or not p.is_active) else COLORS["text_main"]
+            cells = [name_display, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
                     badge_st   = "INACTIF" if not p.is_active else st
                     if p.is_active and st == "RUNNING" and is_cancel_requested(p.id):
                         badge_st = "ARRÊT EN COURS"
                     badge_name = "badge_idle" if not p.is_active else _STATUS_BADGE.get(st, "badge_idle")
-                    badge = QLabel(badge_st); badge.setObjectName(badge_name)
-                    badge.setAlignment(Qt.AlignCenter)
+                    badge = _make_status_badge(badge_st, badge_name)
                     if p.is_active and st == "RUNNING":
                         badge.setToolTip(step_labels.get(p.id, ""))
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(text_color))
+                    item.setForeground(QColor(name_color if c_idx == 0 else text_color))
                     if c_idx == 2:
                         item.setToolTip(steps_str)
                     if c_idx == 3 and trigger_tooltip:

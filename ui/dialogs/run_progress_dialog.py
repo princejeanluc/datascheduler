@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QFont
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
 
 
 # ──────────────────────────────────────────────
@@ -97,7 +97,7 @@ class RunProgressDialog(QDialog):
 
         self.log_area = QPlainTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setFont(QFont("Consolas", 10))
+        self.log_area.setFont(QFont(FONT_MONO, 10))
         self.log_area.setFixedHeight(140)
         self.log_area.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_dim']}; "

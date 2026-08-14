@@ -138,8 +138,10 @@ def test_pipelines_view_plan_column_shows_trigger_tooltip(qapp, test_db):
     db.set_pipeline_trigger(b.id, a.id, "FAILURE")
 
     view = PipelinesView()
+    # "B" est déclenché après "A" (chantier P) : la vue l'indente désormais sous son parent
+    # (chantier identité, vague 1, idée 9) — d'où "in" plutôt qu'une égalité stricte.
     row = next(r for r in range(view.table.rowCount())
-               if view.table.item(r, 0).text() == "B")
+               if "B" in view.table.item(r, 0).text())
     item = view.table.item(row, 3)
     assert "A" in item.toolTip() and "Échec" in item.toolTip()
 

@@ -6,9 +6,9 @@ Helpers, constantes et petits composants partagés par toutes les vues.
 import qtawesome as qta
 from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
-    QTableWidget, QHeaderView,
+    QTableWidget, QHeaderView, QGraphicsOpacityEffect,
 )
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QIcon
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
@@ -392,6 +392,35 @@ _STATUS_BADGE = {
     "RUNNING": "badge_running",
     "IDLE":    "badge_idle",
 }
+
+
+def _apply_pulse(widget) -> None:
+    """Anime l'opacité de `widget` en boucle infinie — signale un état "actif en ce moment"
+    (badge RUNNING, pastille du rail "à venir / en cours" du Dashboard). Facteur commun pour que
+    tout indicateur "ça tourne maintenant" pulse de la même façon dans toute l'application."""
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(1600)
+    anim.setKeyValueAt(0.0, 1.0)
+    anim.setKeyValueAt(0.5, 0.45)
+    anim.setKeyValueAt(1.0, 1.0)
+    anim.setEasingCurve(QEasingCurve.InOutSine)
+    anim.setLoopCount(-1)
+    anim.start()
+    widget._pulse_anim = anim  # référence Python conservée par prudence (GC PySide6)
+
+
+def _make_status_badge(text: str, object_name: str) -> QLabel:
+    """Fabrique commune pour les badges de statut (Dashboard/Pipelines/Historique) — évite la
+    triple duplication de `QLabel(...); setObjectName(...)` et centralise la pulsation du badge
+    RUNNING (chantier identité, vague 1) pour qu'elle bénéficie aux 3 écrans d'un coup."""
+    badge = QLabel(text)
+    badge.setObjectName(object_name)
+    badge.setAlignment(Qt.AlignCenter)
+    if object_name == "badge_running":
+        _apply_pulse(badge)
+    return badge
 
 
 def _status_str(val) -> str:

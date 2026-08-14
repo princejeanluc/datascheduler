@@ -5,10 +5,18 @@ Bézier, suit les nœuds quand ils sont déplacés (voir PipelineGraphScene.noti
 """
 
 from PySide6.QtCore import QPointF, Qt
-from PySide6.QtGui import QColor, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPathItem
 
 from ui.styles import COLORS
+
+# Géométrie de la pointe de flèche — la tangente en fin de tracé (update_path()) est toujours
+# strictement horizontale par construction (le point de contrôle d'arrivée a la même ordonnée
+# que le point d'arrivée), donc une flèche droite pointant vers +x reste correcte quels que
+# soient les positions réelles des nœuds, sans calcul de dérivée bézier.
+_ARROW_LENGTH = 9
+_ARROW_HALF_WIDTH = 4.5
+_ARROW_OFFSET = 7   # recule la pointe pour ne pas chevaucher le port d'entrée
 
 
 class EdgeItem(QGraphicsPathItem):
@@ -32,10 +40,23 @@ class EdgeItem(QGraphicsPathItem):
         path.cubicTo(p1.x() + dx, p1.y(), p2.x() - dx, p2.y(), p2.x(), p2.y())
         self.setPath(path)
 
+    def _arrow_points(self) -> tuple[QPointF, QPointF, QPointF]:
+        """Pointe + 2 points de base du triangle de flèche, juste avant le port d'entrée."""
+        p2 = self.to_node.input_port_pos()
+        tip = QPointF(p2.x() - _ARROW_OFFSET, p2.y())
+        base1 = QPointF(tip.x() - _ARROW_LENGTH, tip.y() - _ARROW_HALF_WIDTH)
+        base2 = QPointF(tip.x() - _ARROW_LENGTH, tip.y() + _ARROW_HALF_WIDTH)
+        return tip, base1, base2
+
     def paint(self, painter, option, widget=None):
         color = QColor(COLORS["accent"] if self.isSelected() else COLORS["text_dim"])
         painter.setPen(QPen(color, 2.5 if self.isSelected() else 1.8))
         painter.drawPath(self.path())
+
+        tip, base1, base2 = self._arrow_points()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(color))
+        painter.drawPolygon(QPolygonF([tip, base1, base2]))
 
 
 class TempEdgeItem(QGraphicsPathItem):

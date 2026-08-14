@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO
+from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO, FONT_MONO_STACK, _make_status_badge, _apply_pulse
 from .activity_chart import ActivityChartWidget
 
 
@@ -66,18 +66,26 @@ class DashboardView(QWidget):
         self._onboarding_banner.setVisible(False)
         layout.addWidget(self._onboarding_banner)
 
+        # Rail "Prochaines & en cours" — remplace la carte isolée "Prochaine exéc." : les
+        # pipelines sont planifiés, ce qui tourne/va tourner mérite d'être vu en premier plutôt
+        # que noyé dans une case au même rang que les autres (chantier identité, vague 1).
+        self._rail = QWidget()
+        self._rail_layout = QHBoxLayout(self._rail)
+        self._rail_layout.setContentsMargins(0, 0, 0, 0)
+        self._rail_layout.setSpacing(10)
+        layout.addWidget(self._rail)
+
         stats_row = QHBoxLayout(); stats_row.setSpacing(16)
         self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
         self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"],
                                        clickable=True, border_accent=COLORS["success"])
         self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"],
                                        clickable=True, border_accent=COLORS["danger"])
-        self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline", border_accent=COLORS["accent"])
         self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
         self._card_failed.setToolTip("Voir les échecs dans l'Historique")
         self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
         self._card_failed.clicked.connect(lambda: self.navigate_to_history.emit("FAILED"))
-        for c in (self._card_active, self._card_success, self._card_failed, self._card_next):
+        for c in (self._card_active, self._card_success, self._card_failed):
             stats_row.addWidget(c)
         layout.addLayout(stats_row)
 
@@ -150,14 +158,7 @@ class DashboardView(QWidget):
             f"{total_runs} exécution{'s' if total_runs != 1 else ''} sur la période" if total_runs else ""
         )
 
-        upcoming = [p for p in pipelines if p.next_run_at]
-        if upcoming:
-            nxt = min(upcoming, key=lambda p: p.next_run_at)
-            self._card_next.set_value(nxt.next_run_at.strftime("%H:%M"))
-            self._card_next.set_subtitle(nxt.name)
-        else:
-            self._card_next.set_value("—")
-            self._card_next.set_subtitle("aucun planifié")
+        self._refresh_rail(pipelines, all_runs)
 
         latest = db.get_recent_runs(limit=20)
         self.table.setVisible(bool(latest))
@@ -175,8 +176,7 @@ class DashboardView(QWidget):
             cells  = [pname, st, rows_s, dur, date_s, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
-                    badge = QLabel(st); badge.setObjectName(_STATUS_BADGE.get(st, "badge_idle"))
-                    badge.setAlignment(Qt.AlignCenter)
+                    badge = _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle"))
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
@@ -196,6 +196,95 @@ class DashboardView(QWidget):
                     self.table.setItem(r_idx, c_idx, item)
             self.table.setRowHeight(r_idx, 44)
 
+    def _refresh_rail(self, pipelines, all_runs):
+        """Rail "Prochaines & en cours" — voir _build_ui(). Reconstruit à chaque refresh() (comme
+        le tableau des dernières exécutions), le nombre/type de chips changeant dynamiquement."""
+        from datetime import datetime, timezone
+
+        from core.pipeline import is_pipeline_running
+
+        while self._rail_layout.count():
+            item = self._rail_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        running_ids = {p.id for p in pipelines if p.is_active and is_pipeline_running(p.id)}
+        chips = []
+        for p in pipelines:
+            if p.id not in running_ids:
+                continue
+            started_at = next(
+                (r.started_at for r in all_runs if r.pipeline_id == p.id and r.started_at), None
+            )
+            elapsed = ""
+            if started_at:
+                secs = int((datetime.now(timezone.utc).replace(tzinfo=None) - started_at).total_seconds())
+                m, s = divmod(max(secs, 0), 60)
+                elapsed = f" · {m}m {s:02d}s"
+            chips.append(self._make_rail_chip(
+                running=True, dot_color=COLORS["signal"],
+                main_text=p.name, main_mono=False, sub_text=f"en cours{elapsed}",
+            ))
+
+        upcoming = sorted(
+            (p for p in pipelines if p.is_active and p.next_run_at and p.id not in running_ids),
+            key=lambda p: p.next_run_at,
+        )[:3]
+        for p in upcoming:
+            chips.append(self._make_rail_chip(
+                running=False, dot_color=COLORS["text_muted"],
+                main_text=p.next_run_at.strftime("%d/%m %H:%M"), main_mono=True, sub_text=p.name,
+            ))
+
+        if not chips:
+            placeholder = QLabel("Aucune exécution en cours ni planifiée pour l'instant.")
+            placeholder.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: 11.5px; font-style: italic;"
+            )
+            self._rail_layout.addWidget(placeholder)
+        else:
+            for chip in chips:
+                self._rail_layout.addWidget(chip)
+            self._rail_layout.addStretch()
+
+    def _make_rail_chip(self, *, running: bool, dot_color: str, main_text: str,
+                         main_mono: bool, sub_text: str) -> QFrame:
+        chip = QFrame()
+        chip.setFixedHeight(30)   # hauteur fixe indispensable : border-radius ne forme une
+                                  # vraie pilule que si le rayon (15px) vaut la moitié exacte
+                                  # d'une hauteur connue à l'avance — sinon Qt rend des coins à
+                                  # peine arrondis plutôt qu'un contour pleinement incurvé.
+        border = COLORS["signal_dim"] if running else COLORS["border"]
+        bg = "rgba(62,143,176,0.08)" if running else COLORS["bg_card"]
+        chip.setStyleSheet(
+            f"QFrame {{ background: {bg}; border: 1px solid {border}; border-radius: 15px; }}"
+        )
+        hl = QHBoxLayout(chip)
+        hl.setContentsMargins(12, 0, 14, 0)
+        hl.setSpacing(8)
+
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {dot_color}; font-size: 9px; background: transparent; border: none;")
+        hl.addWidget(dot)
+        if running:
+            _apply_pulse(dot)
+
+        font_css = f"font-family: {FONT_MONO_STACK};" if main_mono else ""
+        color = COLORS["signal_pale"] if running else COLORS["text_dim"]
+        weight = 700 if running else 600
+        main_lbl = QLabel(main_text)
+        main_lbl.setStyleSheet(
+            f"color: {color}; font-size: 12px; font-weight: {weight}; {font_css} "
+            f"background: transparent; border: none;"
+        )
+        hl.addWidget(main_lbl)
+
+        sub_lbl = QLabel(sub_text)
+        sub_lbl.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10.5px; background: transparent; border: none;"
+        )
+        hl.addWidget(sub_lbl)
+        return chip
 
     def _on_notifications(self):
         from ui.dialogs import NotificationSettingsDialog

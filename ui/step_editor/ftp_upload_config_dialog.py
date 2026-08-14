@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QPushButton, QWidget,
     QFileDialog, QMessageBox,
 )
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO_STACK
 from .base_config_dialog import _BaseStepConfigDialog
 
 
@@ -68,7 +68,7 @@ class _FtpUploadConfigDialog(_BaseStepConfigDialog):
         # Aperçu
         self.lbl_preview = QLabel()
         self.lbl_preview.setStyleSheet(
-            f"color: {COLORS['accent']}; font-size: 12px; font-family: Consolas; "
+            f"color: {COLORS['accent']}; font-size: 12px; font-family: {FONT_MONO_STACK}; "
             f"background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
             f"border-radius: 5px; padding: 6px 10px;"
         )

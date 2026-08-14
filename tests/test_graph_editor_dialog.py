@@ -27,6 +27,23 @@ def qapp():
     yield app
 
 
+def test_edge_item_arrow_points_toward_the_target_node(qapp):
+    """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
+    le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de
+    tracé est toujours horizontale par construction de update_path())."""
+    from_node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    to_node = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}})
+    to_node.setPos(400, 0)
+    edge = EdgeItem(from_node, "output_file", to_node)
+
+    tip, base1, base2 = edge._arrow_points()
+    input_x = to_node.input_port_pos().x()
+
+    assert tip.x() < input_x
+    assert base1.x() < tip.x() and base2.x() < tip.x()
+    assert base1.y() < tip.y() < base2.y() or base2.y() < tip.y() < base1.y()
+
+
 def test_dialog_opens_on_empty_pipeline(qapp, test_db):
     pipeline = db.create_pipeline(name="empty")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)

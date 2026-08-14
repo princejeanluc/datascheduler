@@ -4,12 +4,13 @@ Nœud du canevas : représente une étape (dict complet step_type/label/config/r
 run_always) — le même objet que celui retourné par _open_config_dialog(...).result_step().
 """
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QSize
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject
 
 from ui.styles import COLORS
 from ui.step_editor import STEP_META
+from ui.step_editor.common import _icon
 from core.steps import get_step_output_ports
 
 PORT_RADIUS = 6
@@ -84,8 +85,12 @@ class StepNodeItem(QGraphicsObject):
         painter.setPen(QColor(meta["color"]))
         font = QFont(); font.setBold(True); font.setPointSize(9)
         painter.setFont(font)
-        painter.drawText(QRectF(10, 6, self.WIDTH - 20, 18), Qt.AlignLeft | Qt.AlignVCenter,
+        painter.drawText(QRectF(10, 6, self.WIDTH - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
                           meta["label"])
+
+        type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+        if type_icon:
+            painter.drawPixmap(self.WIDTH - 24, 6, type_icon.pixmap(QSize(16, 16)))
 
         user_label = self.step.get("label") or ""
         if user_label:

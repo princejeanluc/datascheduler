@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 from PySide6.QtTest import QTest
 
 from database import db_manager as db
@@ -123,6 +123,39 @@ def test_dashboard_emits_navigate_to_history_on_card_click(qapp, test_db):
     assert received == ["FAILED", "SUCCESS"]
 
 
+def test_dashboard_rail_shows_placeholder_when_nothing_scheduled(qapp, test_db):
+    """Rail "Prochaines & en cours" (chantier identité, vague 1, idée 1) — repli discret plutôt
+    qu'un rail vide/cassé quand aucun pipeline actif n'est planifié."""
+    from ui.main_window.dashboard_view import DashboardView
+
+    view = DashboardView()
+    assert view._rail_layout.count() == 1
+    placeholder = view._rail_layout.itemAt(0).widget()
+    assert isinstance(placeholder, QLabel)
+    assert "planifiée" in placeholder.text()
+
+
+def test_dashboard_rail_shows_an_upcoming_chip_for_a_scheduled_pipeline(qapp, test_db):
+    from datetime import datetime, timedelta
+
+    from database.models import Pipeline
+    from ui.main_window.dashboard_view import DashboardView
+
+    p = db.create_pipeline(name="rail-upcoming")
+    with db.get_session() as s:
+        obj = s.get(Pipeline, p.id)
+        obj.next_run_at = datetime.utcnow() + timedelta(hours=2)
+
+    view = DashboardView()
+    chip_texts = []
+    for i in range(view._rail_layout.count()):
+        widget = view._rail_layout.itemAt(i).widget()
+        if widget is not None:
+            chip_texts.append(widget.findChildren(QLabel))
+    all_texts = [lbl.text() for chips in chip_texts for lbl in chips]
+    assert any("rail-upcoming" in t for t in all_texts)
+
+
 def test_main_window_navigates_to_filtered_history_on_dashboard_signal(qapp, test_db):
     from core.scheduler import init_scheduler
     from ui.main_window.window import MainWindow
@@ -147,3 +180,45 @@ def test_main_window_navigates_to_filtered_history_on_dashboard_signal(qapp, tes
         sched.stop()
         import core.scheduler as scheduler_module
         scheduler_module._scheduler_instance = None
+
+
+def test_make_status_badge_pulses_only_for_running(qapp):
+    """Pulsation du badge RUNNING (chantier identité, vague 1, idée 3) — centralisée dans
+    _make_status_badge() pour bénéficier au Dashboard, Pipelines et Historique d'un coup."""
+    from ui.main_window.widgets import _make_status_badge
+
+    running_badge = _make_status_badge("RUNNING", "badge_running")
+    assert running_badge.graphicsEffect() is not None
+    assert hasattr(running_badge, "_pulse_anim")
+
+    success_badge = _make_status_badge("SUCCESS", "badge_success")
+    assert success_badge.graphicsEffect() is None
+    assert not hasattr(success_badge, "_pulse_anim")
+
+
+def test_ordered_with_chains_indents_children_after_their_parent():
+    """Chaînes de déclenchement visibles (chantier identité, vague 1, idée 9)."""
+    from types import SimpleNamespace
+    from ui.main_window.pipelines_view import _ordered_with_chains
+
+    root_a = SimpleNamespace(id=1, trigger_after_pipeline_id=None)
+    root_b = SimpleNamespace(id=2, trigger_after_pipeline_id=None)
+    child_of_a = SimpleNamespace(id=3, trigger_after_pipeline_id=1)
+    grandchild_of_a = SimpleNamespace(id=4, trigger_after_pipeline_id=3)
+
+    ordered = _ordered_with_chains([root_b, grandchild_of_a, root_a, child_of_a])
+
+    assert [(p.id, depth) for p, depth in ordered] == [
+        (2, 0), (1, 0), (3, 1), (4, 2),
+    ]
+
+
+def test_ordered_with_chains_ignores_a_self_referential_entry():
+    """Filet de sécurité — la création empêche déjà les cycles réels (chantier P), ce test couvre
+    seulement la garde défensive de la fonction elle-même."""
+    from types import SimpleNamespace
+    from ui.main_window.pipelines_view import _ordered_with_chains
+
+    corrupted = SimpleNamespace(id=1, trigger_after_pipeline_id=1)
+    ordered = _ordered_with_chains([corrupted])
+    assert ordered == []

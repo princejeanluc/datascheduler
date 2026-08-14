@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 from PySide6.QtGui import QFont
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO
 from .base_config_dialog import _BaseStepConfigDialog
 
 
@@ -59,7 +59,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         headers_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(headers_lbl)
         self.txt_headers = QPlainTextEdit()
-        self.txt_headers.setFont(QFont("Consolas", 11))
+        self.txt_headers.setFont(QFont(FONT_MONO, 11))
         self.txt_headers.setPlaceholderText("Content-Type: application/json\nAuthorization: Bearer {output_file}")
         self.txt_headers.setToolTip("Un en-tête par ligne, au format « Clé: Valeur ».")
         self.txt_headers.setFixedHeight(70)
@@ -73,7 +73,7 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         body_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(body_lbl)
         self.txt_body = QPlainTextEdit()
-        self.txt_body.setFont(QFont("Consolas", 11))
+        self.txt_body.setFont(QFont(FONT_MONO, 11))
         self.txt_body.setPlaceholderText('{"date": "{yyyyMMdd}", "rows": {rows_count}}')
         self.txt_body.setToolTip("Corps envoyé avec la requête (JSON, XML…) — laissez vide pour un GET.")
         self.txt_body.setFixedHeight(90)

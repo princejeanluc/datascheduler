@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO
+from .widgets import _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge
 
 _STATUS_FILTER_OPTIONS = [
     ("Tous les statuts", None),
@@ -132,8 +132,7 @@ class HistoryView(QWidget):
             cells  = [pname, date_s, dur, rows_s, st, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 4:
-                    badge = QLabel(st); badge.setObjectName(_STATUS_BADGE.get(st, "badge_idle"))
-                    badge.setAlignment(Qt.AlignCenter)
+                    badge = _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle"))
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
