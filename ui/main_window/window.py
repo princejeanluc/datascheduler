@@ -190,6 +190,10 @@ class MainWindow(QMainWindow):
 
 def run():
     app = QApplication(sys.argv)
+
+    from ui.fonts import register_app_fonts
+    register_app_fonts()
+
     app.setStyleSheet(GLOBAL_STYLE)
 
     # DataScheduler.spec (icon=...) couvre l'icône de l'exécutable (Explorateur, tuile avant

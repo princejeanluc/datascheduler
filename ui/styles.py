@@ -4,20 +4,28 @@ Palette de couleurs et styles CSS partagés entre tous les widgets.
 """
 
 COLORS = {
-    # Fonds
-    "bg_main":    "#141414",   # fond principal — noir chaud Orange
-    "bg_panel":   "#1e1e1e",   # panneaux latéraux / nav
-    "bg_card":    "#252525",   # cartes et zones de formulaire
-    "bg_hover":   "#2e2e2e",   # survol nav
+    # Fonds — noir chaud réel (léger biais orange dans chaque canal), plutôt que le gris neutre
+    # (R=G=B) précédent qui contredisait le commentaire d'origine (audit d'identité, 2026-08).
+    "bg_main":    "#141210",   # fond principal
+    "bg_panel":   "#1c1a17",   # panneaux latéraux / nav
+    "bg_card":    "#242220",   # cartes et zones de formulaire
+    "bg_hover":   "#2c2925",   # survol nav
     "bg_active":  "#3d1f00",   # item actif nav — teinte orange sombre
 
     # Bordures
-    "border":     "#333333",   # séparateurs neutres
+    "border":     "#35322d",   # séparateurs neutres, même biais chaud
 
     # Accent Orange (charte Orange SA — #FF7900)
-    "accent":     "#FF7900",   # orange primaire
+    "accent":     "#FF7900",   # orange primaire — marque + action primaire uniquement
     "accent_dim": "#cc6200",   # orange foncé (pressed / focus)
     "accent_pale":"#ff9933",   # orange clair (hover)
+
+    # Second accent "signal" — bleu-cyan sourd, usage structurel/informationnel (jamais la marque
+    # ni l'action primaire). Introduit pour désengorger l'orange, qui portait jusqu'ici trois sens
+    # simultanés (marque, action, statut "en cours") — audit d'identité, 2026-08.
+    "signal":      "#3E8FB0",
+    "signal_dim":  "#285d70",
+    "signal_pale": "#6BB4CF",
 
     # Sémantique
     "success":    "#3fb950",   # vert succès
@@ -28,11 +36,23 @@ COLORS = {
     "warning":    "#E8B339",
     "danger":     "#f85149",   # rouge erreur
 
-    # Textes
-    "text_main":  "#f0f0f0",   # texte principal — blanc doux
-    "text_dim":   "#999999",   # texte secondaire
-    "text_muted": "#6e6e6e",   # texte discret / version (contraste AA sur bg_main)
+    # Textes — même correction de biais chaud que les fonds
+    "text_main":  "#f2efeb",   # texte principal — blanc doux
+    "text_dim":   "#9c968d",   # texte secondaire
+    "text_muted": "#756f66",   # texte discret / version (contraste AA sur bg_main)
 }
+
+# ──────────────────────────────────────────────
+#  TYPOGRAPHIE — IBM Plex Sans (interface) / JetBrains Mono (données tabulaires, logs, code).
+#  Polices embarquées via ui/fonts.py (voir register_app_fonts(), appelée au démarrage). Chaque
+#  usage QSS garde une chaîne de repli complète : si l'enregistrement échoue pour une raison
+#  quelconque, Qt retombe silencieusement sur Segoe UI / Consolas, jamais de rendu cassé.
+# ──────────────────────────────────────────────
+
+FONT_UI = "IBM Plex Sans"
+FONT_MONO = "JetBrains Mono"
+FONT_UI_STACK = f'"{FONT_UI}", "Segoe UI", "Helvetica Neue", sans-serif'
+FONT_MONO_STACK = f'"{FONT_MONO}", "Consolas", monospace'
 
 # ──────────────────────────────────────────────
 #  ÉCHELLE TYPOGRAPHIQUE — les 6 paliers déjà utilisés de fait dans toute l'application (audit de
@@ -55,7 +75,7 @@ DIALOG_STYLE = f"""
 QDialog {{
     background-color: {COLORS['bg_panel']};
     color: {COLORS['text_main']};
-    font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    font-family: {FONT_UI_STACK};
     font-size: 13px;
 }}
 QLabel {{
