@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QIcon
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
 
 # ──────────────────────────────────────────────
@@ -100,8 +100,8 @@ def _make_empty_label(text: str) -> QLabel:
 
 NAV_WIDTH   = 220
 HEADER_H    = 52
-FONT_MONO   = "Consolas"
-FONT_UI     = "Segoe UI"
+# FONT_MONO / FONT_UI définies dans ui/styles.py (ré-exportées ici pour compat avec les imports
+# existants `from .widgets import ..., FONT_MONO`) — voir ui/fonts.py pour l'enregistrement.
 
 
 # ──────────────────────────────────────────────
@@ -112,7 +112,7 @@ GLOBAL_STYLE = f"""
 QWidget {{
     background-color: {COLORS['bg_main']};
     color: {COLORS['text_main']};
-    font-family: "{FONT_UI}", "Helvetica Neue", sans-serif;
+    font-family: {FONT_UI_STACK};
     font-size: 13px;
 }}
 
@@ -143,11 +143,16 @@ QTableWidget {{
 QTableWidget::item {{
     padding: 8px 12px;
     border: none;
+    outline: none;
 }}
 QTableWidget::item:selected {{
     background-color: {COLORS['bg_active']};
     color: {COLORS['text_main']};
     border-left: 2px solid {COLORS['accent']};
+}}
+QTableWidget::item:focus {{
+    border: none;
+    outline: none;
 }}
 QHeaderView::section {{
     background-color: {COLORS['bg_card']};
@@ -253,8 +258,8 @@ QLabel#badge_failed {{
     letter-spacing: 0.5px;
 }}
 QLabel#badge_running {{
-    background-color: rgba(255,121,0,0.15);
-    color: {COLORS['accent']};
+    background-color: rgba(62,143,176,0.15);
+    color: {COLORS['signal']};
     border-radius: 3px;
     padding: 2px 10px;
     font-size: 11px;

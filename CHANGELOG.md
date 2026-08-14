@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.19.0] - 2026-08-14
+
+### Modifié
+- Identité visuelle : intégration de la maquette validée avec l'utilisateur (chantier design,
+  2026-08). Polices IBM Plex Sans (interface) / JetBrains Mono (données tabulaires, logs)
+  embarquées (`ui/fonts.py`, même convention que l'icône de `ui/branding.py` — pas de résolution
+  de chemin dans l'exe gelé), avec repli silencieux vers Segoe UI/Consolas en cas d'échec
+  d'enregistrement. Palette corrigée pour un vrai noir chaud (les fonds/textes étaient des gris
+  neutres malgré le commentaire d'origine). Nouveau second accent « signal » (bleu-cyan sourd)
+  qui reprend le statut « en cours » (badge RUNNING) — l'orange de la charte Orange SA ne porte
+  plus que la marque et l'action primaire. Le bouton « Tout exécuter » du Dashboard passe en
+  style secondaire (contour), son poids visuel correspondant désormais au niveau de risque réel
+  de l'action.
+
+### Corrigé
+- Tableaux (`QTableWidget`) : suppression du rectangle de focus par défaut visible sur la cellule
+  courante (ex : nom de pipeline dans « Dernières exécutions » du Dashboard) — relevé lors de
+  l'audit de design, sans lien avec l'édition (déjà désactivée sur ces tableaux).
+
 ## [0.18.0] - 2026-08-13
 
 ### Ajouté
