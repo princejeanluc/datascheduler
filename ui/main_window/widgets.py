@@ -332,7 +332,8 @@ class NavButton(QPushButton):
         """)
         self.setText(f"  {self._label}")
         if self._icon_name:
-            self.setIcon(_icon(self._icon_name, color))
+            from ui.icons import nav_icon
+            self.setIcon(nav_icon(self._icon_name, color))
 
 
 # ──────────────────────────────────────────────
@@ -343,13 +344,18 @@ class StatCard(QFrame):
     clicked = Signal()
 
     def __init__(self, title: str, value: str = "—", subtitle: str = "",
-                 color: str = None, clickable: bool = False):
+                 color: str = None, clickable: bool = False, border_accent: str = None):
         super().__init__()
         self.setObjectName("card")
         self.setFixedHeight(100)
         self._clickable = clickable
         if clickable:
             self.setCursor(Qt.PointingHandCursor)
+        # Liseré de couleur (chantier identité visuelle, phase 2) — n'ajoute que border-left,
+        # le reste de l'apparence de la carte reste géré par QFrame#card dans GLOBAL_STYLE.
+        self.setStyleSheet(
+            f"QFrame#card {{ border-left: 3px solid {border_accent or COLORS['signal']}; }}"
+        )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 14, 20, 14)

@@ -98,6 +98,17 @@ def test_stat_card_emits_clicked_only_when_clickable():
     assert silent_received == []
 
 
+def test_stat_card_accepts_border_accent_and_defaults_to_signal():
+    from ui.main_window.widgets import StatCard
+    from ui.styles import COLORS
+
+    default_card = StatCard("Titre")
+    assert COLORS["signal"] in default_card.styleSheet()
+
+    custom_card = StatCard("Titre", border_accent=COLORS["danger"])
+    assert COLORS["danger"] in custom_card.styleSheet()
+
+
 def test_dashboard_emits_navigate_to_history_on_card_click(qapp, test_db):
     from ui.main_window.dashboard_view import DashboardView
 

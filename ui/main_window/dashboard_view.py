@@ -68,9 +68,11 @@ class DashboardView(QWidget):
 
         stats_row = QHBoxLayout(); stats_row.setSpacing(16)
         self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
-        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"], clickable=True)
-        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"], clickable=True)
-        self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline")
+        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"],
+                                       clickable=True, border_accent=COLORS["success"])
+        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"],
+                                       clickable=True, border_accent=COLORS["danger"])
+        self._card_next    = StatCard("Prochaine exéc.",  "—", "pipeline", border_accent=COLORS["accent"])
         self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
         self._card_failed.setToolTip("Voir les échecs dans l'Historique")
         self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
@@ -82,9 +84,17 @@ class DashboardView(QWidget):
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
 
+        activity_hd = QWidget()
+        activity_hd_layout = QHBoxLayout(activity_hd)
+        activity_hd_layout.setContentsMargins(0, 0, 0, 0)
         lbl_activity = QLabel("Activité (30 derniers jours)")
         lbl_activity.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
-        layout.addWidget(lbl_activity)
+        activity_hd_layout.addWidget(lbl_activity)
+        activity_hd_layout.addStretch()
+        self._lbl_activity_hint = QLabel("")
+        self._lbl_activity_hint.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
+        activity_hd_layout.addWidget(self._lbl_activity_hint)
+        layout.addWidget(activity_hd)
 
         self.chart = ActivityChartWidget()
         self.chart.setFixedHeight(150)
@@ -133,7 +143,12 @@ class DashboardView(QWidget):
         self._card_success.set_value(str(sum(1 for r in recent if _status_str(r.status) == "SUCCESS")))
         self._card_failed.set_value(str(sum(1 for r in recent if _status_str(r.status) == "FAILED")))
 
-        self.chart.set_data(db.get_run_counts_by_day(days=30))
+        activity_data = db.get_run_counts_by_day(days=30)
+        self.chart.set_data(activity_data)
+        total_runs = sum(d["success"] + d["failed"] + d["cancelled"] for d in activity_data)
+        self._lbl_activity_hint.setText(
+            f"{total_runs} exécution{'s' if total_runs != 1 else ''} sur la période" if total_runs else ""
+        )
 
         upcoming = [p for p in pipelines if p.next_run_at]
         if upcoming:

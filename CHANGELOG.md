@@ -29,6 +29,26 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.20.0] - 2026-08-14
+
+### Ajouté
+- Identité visuelle, phase 2 : logo « flux de pipelines » (3 nœuds reliés) et les 6 icônes de la
+  barre de navigation redessinés en traits personnalisés (`ui/icons.py`, tracés SVG embarqués,
+  rendus via `QSvgRenderer` — remplacent les icônes Font Awesome utilisées jusqu'ici pour ces 7
+  éléments ; le reste de l'application continue d'utiliser Font Awesome, inchangé). Cartes
+  statistiques du Dashboard dotées d'un liseré de couleur (bleu-signal/vert/rouge/orange selon la
+  carte). Petit indice contextuel (« N exécution(s) sur la période ») ajouté à côté du titre de la
+  section Activité.
+
+### Modifié
+- Espacement du bloc logo de la barre de navigation aligné sur la maquette (18px au lieu de 16px).
+
+### Corrigé
+- Le logo utilisait un chemin de rendu différent des icônes de navigation (extraction manuelle
+  `.pixmap()` depuis un pixmap source surdimensionné, plutôt que le pipeline normal
+  `setIcon()`/`setIconSize()`), causant un espacement visuellement incorrect entre l'icône et le
+  texte « DataScheduler ». Corrigé en rendant le logo directement à sa taille cible.
+
 ## [0.19.0] - 2026-08-14
 
 ### Modifié

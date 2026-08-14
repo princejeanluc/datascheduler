@@ -35,6 +35,10 @@ a = Analysis(
         'ui.step_editor',
         'ui.graph_editor',
         'ui.styles',
+        'ui.icons',
+
+        # ── Qt : rendu SVG des icônes/logo personnalisés (ui/icons.py) ──
+        'PySide6.QtSvg',
 
         # ── oracledb (thin mode — pas de client Oracle requis) ──
         *oracledb_hidden,
