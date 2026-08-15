@@ -18,6 +18,20 @@ from .widgets import (
 )
 
 
+def _cap_topology_preview(ordered: list, max_chains: int = 6) -> list:
+    """Plafonne l'aperçu du Dashboard à `max_chains` chaînes racines — chaque chaîne (racine +
+    descendants) reste groupée, jamais coupée en plein milieu. Fonction pure, testable sans Qt."""
+    capped = []
+    chains_seen = 0
+    for p, depth in ordered:
+        if depth == 0:
+            chains_seen += 1
+            if chains_seen > max_chains:
+                break
+        capped.append((p, depth))
+    return capped
+
+
 class DashboardView(QWidget):
     navigate_to_history = Signal(str)
 
@@ -162,6 +176,14 @@ class DashboardView(QWidget):
         lbl_topo.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
         topo_hd_layout.addWidget(lbl_topo)
         topo_hd_layout.addStretch()
+        # Lien "voir plus" — l'aperçu du Dashboard est plafonné (voir refresh()), ce lien ouvre
+        # le dialogue dédié qui montre tous les pipelines, sans plafond, dans le même style.
+        self._btn_see_all_topology = QPushButton("Voir tous les pipelines →")
+        self._btn_see_all_topology.setObjectName("secondary")
+        self._btn_see_all_topology.setFixedHeight(28)
+        self._btn_see_all_topology.setVisible(False)
+        self._btn_see_all_topology.clicked.connect(self._on_open_topology_dialog)
+        topo_hd_layout.addWidget(self._btn_see_all_topology)
         layout.addWidget(topo_hd)
 
         # Carte englobante (fond + bordure fine) — la zone de la mini-topologie doit être
@@ -269,7 +291,18 @@ class DashboardView(QWidget):
         )
         self._set_legend_text(self._lbl_health_idle, idle_text)
 
-        self._topology.set_data(_ordered_with_chains(pipelines))
+        # Aperçu plafonné (voir _cap_topology_preview) — sans plafond, le widget grandirait sans
+        # limite avec beaucoup de pipelines. Le lien "voir plus" ouvre le dialogue dédié, non
+        # plafonné, pour la liste complète.
+        topo_ordered = _ordered_with_chains(pipelines)
+        topo_capped = _cap_topology_preview(topo_ordered, max_chains=6)
+        self._topology.set_data(topo_capped)
+        hidden_count = len(topo_ordered) - len(topo_capped)
+        if hidden_count > 0:
+            self._btn_see_all_topology.setText(f"Voir tous les pipelines ({len(topo_ordered)}) →")
+            self._btn_see_all_topology.setVisible(True)
+        else:
+            self._btn_see_all_topology.setVisible(False)
 
         self._refresh_rail(pipelines, all_runs)
 
@@ -411,6 +444,11 @@ class DashboardView(QWidget):
     def _on_notifications(self):
         from ui.dialogs import NotificationSettingsDialog
         NotificationSettingsDialog(self).exec()
+
+    def _on_open_topology_dialog(self):
+        from database import db_manager as db
+        from ui.dialogs import PipelineTopologyDialog
+        PipelineTopologyDialog(self, db.get_pipelines()).exec()
 
     def _on_run_all(self):
         try:

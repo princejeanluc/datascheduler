@@ -202,6 +202,43 @@ def test_dashboard_rail_shows_an_upcoming_chip_for_a_scheduled_pipeline(qapp, te
     assert any("rail-upcoming" in t for t in all_texts)
 
 
+def test_cap_topology_preview_keeps_whole_chains():
+    """Plafond de l'aperçu du Dashboard (chantier "vue globale des pipelines") — une chaîne
+    (racine + descendants) n'est jamais coupée en plein milieu."""
+    from types import SimpleNamespace
+
+    from ui.main_window.dashboard_view import _cap_topology_preview
+
+    root_a = SimpleNamespace(id=1)
+    child_a = SimpleNamespace(id=2)
+    root_b = SimpleNamespace(id=3)
+    ordered = [(root_a, 0), (child_a, 1), (root_b, 0)]
+
+    capped = _cap_topology_preview(ordered, max_chains=1)
+
+    assert capped == [(root_a, 0), (child_a, 1)]   # la chaîne A entière, pas la racine B
+
+
+def test_dashboard_shows_see_all_link_only_when_pipelines_exceed_the_cap(qapp, test_db):
+    from ui.main_window.dashboard_view import DashboardView
+
+    for i in range(8):
+        db.create_pipeline(name=f"cap-test-{i}")
+
+    view = DashboardView()
+    assert not view._btn_see_all_topology.isHidden()
+    assert "8" in view._btn_see_all_topology.text()
+
+
+def test_dashboard_hides_see_all_link_when_under_the_cap(qapp, test_db):
+    from ui.main_window.dashboard_view import DashboardView
+
+    db.create_pipeline(name="under-cap-only")
+
+    view = DashboardView()
+    assert view._btn_see_all_topology.isHidden()
+
+
 def test_dashboard_health_block_reflects_last_status_per_active_pipeline(qapp, test_db):
     """Bloc santé asymétrique (chantier identité, vague 2, idée 4) — l'anneau ne compte que le
     dernier statut connu par pipeline actif, pas un agrégat de tous les runs des 30 derniers

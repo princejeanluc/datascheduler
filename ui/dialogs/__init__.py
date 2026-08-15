@@ -21,6 +21,7 @@ from .pipeline_import_dialogs import PipelineImportPasswordDialog, PipelineImpor
 from .notification_settings_dialog import NotificationSettingsDialog
 from .pipeline_dry_run_dialog import PipelineDryRunDialog
 from .pipeline_detail_dialog import PipelineDetailDialog
+from .pipeline_topology_dialog import PipelineTopologyDialog
 from .connection_health_dialog import ConnectionHealthDialog
 from .ssh_profile_dialog import SshTestThread, SshProfileDialog
 from .kerberos_profile_dialog import KerberosTestThread, KerberosProfileDialog
@@ -38,6 +39,7 @@ __all__ = [
     "NotificationSettingsDialog",
     "PipelineDryRunDialog",
     "PipelineDetailDialog",
+    "PipelineTopologyDialog",
     "ConnectionHealthDialog",
     "SshTestThread", "SshProfileDialog",
     "KerberosTestThread", "KerberosProfileDialog",

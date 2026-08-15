@@ -29,6 +29,28 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.24.0] - 2026-08-16
+
+### Ajouté
+- **Vue globale des pipelines** (`ui/dialogs/pipeline_topology_dialog.py`) : nouvelle fenêtre
+  dédiée montrant tous les pipelines en nœuds reliés par leurs chaînes de déclenchement, dans le
+  même langage visuel que l'aperçu du Dashboard, mais sans plafond — zoom à la molette, recherche
+  par nom, filtre par statut (En cours/Succès/Échec/Inactifs), clic sur un nœud pour ouvrir son
+  détail. Ouverte via un nouveau lien "Voir tous les pipelines (N) →" sur le Dashboard, qui
+  n'apparaît que lorsque l'aperçu (désormais plafonné à 6 chaînes racines pour rester lisible)
+  laisse des pipelines de côté.
+
+### Corrigé
+- La disposition en nœuds de la Vue globale ne repassait jamais à la ligne (largeur de calcul
+  fixée en dur bien au-delà de la fenêtre réelle) — tout s'étalait sur une seule rangée toujours
+  plus large, fastidieuse à parcourir avec beaucoup de pipelines. Utilise désormais la largeur
+  réelle de la fenêtre, et se réajuste au redimensionnement/plein écran.
+- Échec de la duplication de pipeline dans l'exécutable gelé (« No module named
+  'numpy._core._exceptions' ») — `numpy`/`pandas` (dépendance de `pandas`, utilisé pour
+  l'export CSV) n'étaient déclarés qu'en `hiddenimports` simple, insuffisant pour leurs
+  extensions C ; même traitement `collect_all()` que `oracledb` désormais appliqué aux deux.
+  Préexistant, sans lien avec ce chantier — juste repéré en le testant.
+
 ## [0.23.0] - 2026-08-16
 
 ### Ajouté
