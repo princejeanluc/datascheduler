@@ -9,8 +9,33 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO
 from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle
+
+
+_SQL_KEYWORDS = [
+    "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "ON",
+    "GROUP BY", "ORDER BY", "HAVING", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
+    "DELETE", "AND", "OR", "NOT", "NULL", "AS", "DISTINCT", "LIMIT", "UNION", "ALL",
+]
+
+
+def _highlight_sql_html(sql: str) -> str:
+    """Aperçu SQL coloré syntaxiquement dans l'infobulle (chantier identité, vague 2, idée 12) —
+    colore les mots-clés courants en accent via une passe regex, pas un vrai lexer (inutile pour
+    un simple aperçu). QToolTip détecte et rend automatiquement le HTML (Qt::mightBeRichText),
+    aucun nouveau widget nécessaire."""
+    import html
+    import re
+
+    escaped = html.escape(sql)
+    pattern = r"\b(" + "|".join(re.escape(k) for k in sorted(_SQL_KEYWORDS, key=len, reverse=True)) + r")\b"
+
+    def _wrap(m):
+        return f'<span style="color:{COLORS["accent"]}; font-weight:600;">{m.group(0)}</span>'
+
+    highlighted = re.sub(pattern, _wrap, escaped, flags=re.IGNORECASE)
+    return f'<span style="font-family:\'{FONT_MONO}\'; white-space:pre;">{highlighted}</span>'
 
 
 class QueriesView(QWidget):
@@ -79,7 +104,7 @@ class QueriesView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 if c_idx == 0:
-                    item.setToolTip(q.sql_text)
+                    item.setToolTip(_highlight_sql_html(q.sql_text))
                 elif c_idx == 2 and used_by:
                     item.setToolTip(", ".join(used_by))
                 self.table.setItem(r_idx, c_idx, item)

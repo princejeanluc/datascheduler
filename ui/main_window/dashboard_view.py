@@ -4,14 +4,18 @@ Vue Dashboard : état des pipelines + dernières exécutions.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
+    QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox,
+    QMessageBox, QSizePolicy, QScrollArea,
 )
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str, FONT_MONO, FONT_MONO_STACK, _make_status_badge, _apply_pulse
+from .widgets import (
+    _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str,
+    FONT_MONO, FONT_MONO_STACK, _make_status_badge, _apply_pulse, HealthRingWidget,
+    _make_motif_separator,
+)
 from .activity_chart import ActivityChartWidget
 
 
@@ -27,7 +31,23 @@ class DashboardView(QWidget):
         self._timer.start()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        # Le contenu du Dashboard a grandi (rail + bloc santé plus haut que les 4 cartes qu'il
+        # remplace, chantier identité vague 2) au point de ne plus tenir dans la fenêtre sur tous
+        # les écrans — sans zone de défilement, Qt compresse tout en dessous du minimum plutôt
+        # que de laisser dépasser, provoquant un chevauchement visuel (repéré sur une capture
+        # réelle). Le contenu passe donc dans une QScrollArea ; `layout` reste le layout du
+        # contenu interne, tout le reste de cette méthode est inchangé.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
@@ -75,22 +95,63 @@ class DashboardView(QWidget):
         self._rail_layout.setSpacing(10)
         layout.addWidget(self._rail)
 
-        stats_row = QHBoxLayout(); stats_row.setSpacing(16)
-        self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
-        self._card_success = StatCard("Succès (30j)",     "—", "exécutions", COLORS["success"],
+        # Bloc santé asymétrique — casse la grille de cartes identiques (chantier identité,
+        # vague 2, idée 4) : un anneau de santé (hero) + une grille compacte de stats
+        # secondaires, au lieu de N rectangles de même poids visuel.
+        health_row = QHBoxLayout(); health_row.setSpacing(16)
+
+        hero = QFrame(); hero.setObjectName("card")
+        hero.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(20, 16, 26, 16)
+        hero_layout.setSpacing(18)
+        self._health_ring = HealthRingWidget()
+        hero_layout.addWidget(self._health_ring)
+
+        hero_text_col = QVBoxLayout(); hero_text_col.setSpacing(6)
+        hero_title = QLabel("Santé des pipelines")
+        hero_title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 13px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        hero_text_col.addWidget(hero_title)
+        self._lbl_health_success = self._make_legend_line(COLORS["success"])
+        self._lbl_health_danger = self._make_legend_line(COLORS["danger"])
+        self._lbl_health_idle = self._make_legend_line(COLORS["text_muted"])
+        hero_text_col.addWidget(self._lbl_health_success)
+        hero_text_col.addWidget(self._lbl_health_danger)
+        hero_text_col.addWidget(self._lbl_health_idle)
+        hero_layout.addLayout(hero_text_col)
+        # Centre le bloc de texte verticalement à côté de l'anneau (taille fixe, donc déjà
+        # centré par défaut par le QHBoxLayout) — sans ça, `hero_text_col` s'accroche en haut et
+        # laisse un vide en bas, désalignant visuellement les deux colonnes (repéré sur une
+        # capture réelle une fois la carte agrandie pour s'aligner sur la grille secondaire).
+        hero_layout.setAlignment(hero_text_col, Qt.AlignVCenter)
+        health_row.addWidget(hero)
+
+        secondary_grid = QGridLayout()
+        secondary_grid.setContentsMargins(0, 0, 0, 0)
+        secondary_grid.setSpacing(10)
+        self._card_success = StatCard("Succès (30j)", "—", "exécutions", COLORS["success"],
                                        clickable=True, border_accent=COLORS["success"])
-        self._card_failed  = StatCard("Échecs (30j)",     "—", "exécutions", COLORS["danger"],
+        self._card_failed  = StatCard("Échecs (30j)", "—", "exécutions", COLORS["danger"],
                                        clickable=True, border_accent=COLORS["danger"])
+        self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
+        self._card_avg_duration = StatCard("Durée moy.", "—", "30 derniers jours")
         self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
         self._card_failed.setToolTip("Voir les échecs dans l'Historique")
         self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
         self._card_failed.clicked.connect(lambda: self.navigate_to_history.emit("FAILED"))
-        for c in (self._card_active, self._card_success, self._card_failed):
-            stats_row.addWidget(c)
-        layout.addLayout(stats_row)
+        secondary_grid.addWidget(self._card_success, 0, 0)
+        secondary_grid.addWidget(self._card_failed, 0, 1)
+        secondary_grid.addWidget(self._card_active, 1, 0)
+        secondary_grid.addWidget(self._card_avg_duration, 1, 1)
+        secondary_wrap = QWidget(); secondary_wrap.setLayout(secondary_grid)
+        health_row.addWidget(secondary_wrap, stretch=1)
 
-        sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep)
+        layout.addLayout(health_row)
+
+        layout.addWidget(_make_motif_separator())
 
         activity_hd = QWidget()
         activity_hd_layout = QHBoxLayout(activity_hd)
@@ -108,8 +169,7 @@ class DashboardView(QWidget):
         self.chart.setFixedHeight(150)
         layout.addWidget(self.chart)
 
-        sep2 = QFrame(); sep2.setObjectName("separator"); sep2.setFrameShape(QFrame.HLine)
-        layout.addWidget(sep2)
+        layout.addWidget(_make_motif_separator())
 
         lbl_recent = QLabel("Dernières exécutions")
         lbl_recent.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
@@ -137,6 +197,18 @@ class DashboardView(QWidget):
 
         self.refresh()
 
+    def _make_legend_line(self, color: str) -> QLabel:
+        lbl = QLabel()
+        lbl.setStyleSheet(
+            f"font-size: 11.5px; color: {COLORS['text_dim']}; background: transparent; border: none;"
+        )
+        lbl.setProperty("_dot_color", color)
+        return lbl
+
+    def _set_legend_text(self, lbl: QLabel, text: str):
+        color = lbl.property("_dot_color")
+        lbl.setText(f'<span style="color:{color};">●</span>&nbsp;{text}')
+
     def refresh(self):
         from database import db_manager as db
         from datetime import datetime, timedelta, timezone
@@ -150,6 +222,40 @@ class DashboardView(QWidget):
         recent = [r for r in all_runs if r.started_at and r.started_at >= cutoff]
         self._card_success.set_value(str(sum(1 for r in recent if _status_str(r.status) == "SUCCESS")))
         self._card_failed.set_value(str(sum(1 for r in recent if _status_str(r.status) == "FAILED")))
+
+        durations = [r.duration_seconds for r in recent if r.duration_seconds is not None]
+        if durations:
+            avg_s = sum(durations) / len(durations)
+            m, s = divmod(int(avg_s), 60)
+            self._card_avg_duration.set_value(f"{m}m {s:02d}s")
+        else:
+            self._card_avg_duration.set_value("—")
+
+        # Anneau de santé — dernier statut connu par pipeline actif, pas un agrégat de runs
+        # (voir HealthRingWidget : un pipeline jamais exécuté n'est ni sain ni en échec).
+        active_pipelines = [p for p in pipelines if p.is_active]
+        healthy = [p for p in active_pipelines if _status_str(p.last_status) == "SUCCESS"]
+        unhealthy = [p for p in active_pipelines if _status_str(p.last_status) == "FAILED"]
+        self._health_ring.set_data(len(healthy), len(unhealthy))
+        self._set_legend_text(
+            self._lbl_health_success,
+            f"{len(healthy)} en succès sur leur dernière exécution",
+        )
+        if len(unhealthy) == 1:
+            danger_text = f"1 en échec — {unhealthy[0].name}"
+        else:
+            danger_text = f"{len(unhealthy)} en échec" + ("s" if len(unhealthy) > 1 else "")
+        self._set_legend_text(self._lbl_health_danger, danger_text)
+
+        # Complète l'anneau (qui ne compte volontairement que succès/échec) plutôt que de laisser
+        # ces pipelines invisibles — remplit aussi l'espace du bloc santé avec une information
+        # réelle plutôt qu'un vide décoratif.
+        never_run = len(active_pipelines) - len(healthy) - len(unhealthy)
+        idle_text = (
+            f"{never_run} jamais exécuté{'s' if never_run > 1 else ''}"
+            if never_run else "Tous les pipelines actifs ont déjà été exécutés"
+        )
+        self._set_legend_text(self._lbl_health_idle, idle_text)
 
         activity_data = db.get_run_counts_by_day(days=30)
         self.chart.set_data(activity_data)

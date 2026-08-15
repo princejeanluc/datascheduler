@@ -57,10 +57,27 @@ _LOGO_SVG = (
     "</svg>"
 )
 
+# Motif "flux" simplifié pour les séparateurs de section (chantier identité, vague 2, idée 2) —
+# 3 points reliés par 2 traits courts, tous dans le même plan vertical (viewBox non carré, y=7
+# partout) : rendu SVG plutôt que QLabel+QFrame juxtaposés, dont les ancrages verticaux (baseline
+# de texte vs geometrie de cadre) ne s'alignaient pas proprement (repéré sur une capture réelle).
+_MOTIF_DOTS_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 26 14">'
+    '<circle cx="3" cy="7" r="2" fill="{color}"/>'
+    '<circle cx="13" cy="7" r="2" fill="{color}"/>'
+    '<circle cx="23" cy="7" r="2" fill="{color}"/>'
+    '<path d="M5 7h6M15 7h6" stroke="{color}" stroke-width="1.4"/>'
+    "</svg>"
+)
+
 
 def _render_svg(svg_source: str, size: int) -> QIcon:
+    return _render_svg_rect(svg_source, size, size)
+
+
+def _render_svg_rect(svg_source: str, width: int, height: int) -> QIcon:
     renderer = QSvgRenderer(QByteArray(svg_source.encode("utf-8")))
-    pixmap = QPixmap(size, size)
+    pixmap = QPixmap(width, height)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     renderer.render(painter)
@@ -78,3 +95,8 @@ def nav_icon(key: str, color: str, size: int = 64) -> QIcon:
 def logo_icon(color: str, size: int = 64) -> QIcon:
     """Logo DataScheduler ("flux de pipelines"), à afficher en haut de la barre de navigation."""
     return _render_svg(_LOGO_SVG.format(color=color), size)
+
+
+def motif_dots_icon(color: str, width: int = 52, height: int = 28) -> QIcon:
+    """Motif "3 points reliés" des séparateurs de section (voir _MOTIF_DOTS_SVG)."""
+    return _render_svg_rect(_MOTIF_DOTS_SVG.format(color=color), width, height)

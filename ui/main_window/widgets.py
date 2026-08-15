@@ -5,11 +5,11 @@ Helpers, constantes et petits composants partagés par toutes les vues.
 
 import qtawesome as qta
 from PySide6.QtWidgets import (
-    QVBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
-    QTableWidget, QHeaderView, QGraphicsOpacityEffect,
+    QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
+    QTableWidget, QHeaderView, QGraphicsOpacityEffect, QWidget,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF
+from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
 
@@ -344,10 +344,15 @@ class StatCard(QFrame):
     clicked = Signal()
 
     def __init__(self, title: str, value: str = "—", subtitle: str = "",
-                 color: str = None, clickable: bool = False, border_accent: str = None):
+                 color: str = None, clickable: bool = False, border_accent: str = None,
+                 height: int = 100):
         super().__init__()
         self.setObjectName("card")
-        self.setFixedHeight(100)
+        # setMinimumHeight, pas setFixedHeight : une hauteur figée plus petite que le contenu
+        # réel (marges + 3 lignes de texte) le rogne silencieusement — repéré sur une capture
+        # réelle des cartes compactes. Un minimum laisse Qt grandir si le contenu l'exige, sans
+        # jamais rogner, tout en gardant les cartes visuellement compactes en pratique.
+        self.setMinimumHeight(height)
         self._clickable = clickable
         if clickable:
             self.setCursor(Qt.PointingHandCursor)
@@ -357,6 +362,10 @@ class StatCard(QFrame):
             f"QFrame#card {{ border-left: 3px solid {border_accent or COLORS['signal']}; }}"
         )
 
+        # Marges/tailles fixes, indépendantes de `height` — une tentative précédente de les
+        # resserrer "en mode compact" en dessous de 100px avait fini par rogner le sous-titre
+        # (mauvaise estimation des métriques réelles de police). `height` ne fait plus que fixer
+        # un plancher (setMinimumHeight) ; le contenu garde toujours la même respiration.
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 14, 20, 14)
         layout.setSpacing(4)
@@ -385,6 +394,116 @@ class StatCard(QFrame):
         if self._clickable:
             self.clicked.emit()
         super().mousePressEvent(event)
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : ANNEAU DE SANTÉ (Dashboard, chantier identité, vague 2, idée 4)
+# ──────────────────────────────────────────────
+
+def _ring_arcs(success: int, danger: int) -> list:
+    """Géométrie pure de l'anneau segmenté — factorisée hors de paintEvent() pour rester
+    testable sans Qt, même philosophie que ActivityChartWidget._bar_rect(). Angles en degrés,
+    départ à midi (90°), sens horaire (valeurs négatives — convention QPainter.drawArc)."""
+    total = success + danger
+    if total == 0:
+        return []
+    success_span = 360.0 * success / total
+    danger_span = 360.0 * danger / total
+    arcs = []
+    if success:
+        arcs.append(("success", 90.0, -success_span))
+    if danger:
+        arcs.append(("danger", 90.0 - success_span, -danger_span))
+    return arcs
+
+
+class HealthRingWidget(QWidget):
+    """Anneau de santé segmenté (succès/échec) — casse la grille de cartes stat identiques, LE
+    tell le plus reconnaissable d'un dashboard générique. Ne compte que les pipelines actifs
+    ayant déjà un dernier statut connu (SUCCESS/FAILED) : un pipeline jamais exécuté n'est ni
+    sain ni en échec, l'inclure dans un dénominateur forcé aurait été trompeur — le nombre total
+    de pipelines actifs reste visible séparément (carte "Pipelines actifs")."""
+
+    SIZE = 108
+    PEN_WIDTH = 10
+
+    def __init__(self):
+        super().__init__()
+        self._success = 0
+        self._danger = 0
+        self.setFixedSize(self.SIZE, self.SIZE)
+
+    def set_data(self, success: int, danger: int):
+        self._success = success
+        self._danger = danger
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        rect = QRectF(
+            self.PEN_WIDTH / 2, self.PEN_WIDTH / 2,
+            self.SIZE - self.PEN_WIDTH, self.SIZE - self.PEN_WIDTH,
+        )
+
+        bg_pen = QPen(QColor(COLORS["border"]), self.PEN_WIDTH)
+        bg_pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(bg_pen)
+        painter.drawArc(rect, 0, 360 * 16)
+
+        for color_key, start, span in _ring_arcs(self._success, self._danger):
+            pen = QPen(QColor(COLORS[color_key]), self.PEN_WIDTH)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.drawArc(rect, int(start * 16), int(span * 16))
+
+        total = self._success + self._danger
+        center_text = f"{self._success}/{total}" if total else "—"
+
+        painter.setPen(QColor(COLORS["text_main"]))
+        value_font = QFont(FONT_MONO)
+        value_font.setPointSize(17)
+        value_font.setBold(True)
+        painter.setFont(value_font)
+        painter.drawText(self.rect().adjusted(0, -10, 0, -10), Qt.AlignCenter, center_text)
+
+        painter.setPen(QColor(COLORS["text_muted"]))
+        label_font = QFont(FONT_UI)
+        label_font.setPointSize(8)
+        label_font.setBold(True)
+        painter.setFont(label_font)
+        painter.drawText(self.rect().adjusted(0, 18, 0, 18), Qt.AlignCenter, "SAINS")
+
+
+def _make_motif_separator() -> QWidget:
+    """Séparateur de section reprenant le motif "flux" (3 points reliés) au lieu d'une simple
+    ligne plate — cohérence de composition au-delà de la seule couleur (chantier identité,
+    vague 2, idée 2). Le motif lui-même est un seul rendu SVG (ui.icons.motif_dots_icon) plutôt
+    que des QLabel/QFrame juxtaposés : leurs ancrages verticaux (baseline de texte vs geometrie
+    de cadre) ne s'alignaient pas — repéré sur une capture réelle où le trait paraissait décentré
+    par rapport aux points. Un seul repère de coordonnées en SVG règle ça par construction."""
+    from ui.icons import motif_dots_icon
+
+    row = QWidget()
+    hl = QHBoxLayout(row)
+    hl.setContentsMargins(0, 8, 0, 8)
+    hl.setSpacing(10)
+
+    def _line() -> QFrame:
+        f = QFrame()
+        f.setFrameShape(QFrame.HLine)
+        f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; border: none;")
+        return f
+
+    dots_lbl = QLabel()
+    dots_lbl.setPixmap(motif_dots_icon(COLORS["accent"]).pixmap(26, 14))
+    dots_lbl.setStyleSheet("background: transparent; border: none;")
+
+    hl.addWidget(_line(), stretch=1)
+    hl.addWidget(dots_lbl)
+    hl.addWidget(_line(), stretch=1)
+    return row
+
 
 _STATUS_BADGE = {
     "SUCCESS": "badge_success",

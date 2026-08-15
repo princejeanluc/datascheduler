@@ -109,6 +109,52 @@ def test_stat_card_accepts_border_accent_and_defaults_to_signal():
     assert COLORS["danger"] in custom_card.styleSheet()
 
 
+def test_stat_card_accepts_a_custom_height():
+    """setMinimumHeight, pas setFixedHeight (voir StatCard) — un plancher, pas un plafond qui
+    rognerait le contenu si les marges/polices compactes en avaient besoin d'un peu plus."""
+    from ui.main_window.widgets import StatCard
+
+    compact = StatCard("Titre", height=88)
+    assert compact.minimumHeight() == 88
+
+
+def test_ring_arcs_empty_when_no_data():
+    from ui.main_window.widgets import _ring_arcs
+
+    assert _ring_arcs(0, 0) == []
+
+
+def test_ring_arcs_full_circle_when_all_success():
+    from ui.main_window.widgets import _ring_arcs
+
+    arcs = _ring_arcs(4, 0)
+    assert len(arcs) == 1
+    color, start, span = arcs[0]
+    assert color == "success"
+    assert start == 90.0
+    assert span == -360.0
+
+
+def test_ring_arcs_splits_proportionally_between_success_and_danger(qapp):
+    from ui.main_window.widgets import _ring_arcs
+
+    arcs = _ring_arcs(3, 1)
+    assert [a[0] for a in arcs] == ["success", "danger"]
+    (_, s_start, s_span), (_, d_start, d_span) = arcs
+    assert s_start == 90.0
+    assert s_span == pytest.approx(-270.0)
+    assert d_start == pytest.approx(90.0 - 270.0)
+    assert d_span == pytest.approx(-90.0)
+
+
+def test_health_ring_widget_set_data_does_not_raise(qapp):
+    from ui.main_window.widgets import HealthRingWidget
+
+    ring = HealthRingWidget()
+    ring.set_data(3, 1)
+    ring.set_data(0, 0)
+
+
 def test_dashboard_emits_navigate_to_history_on_card_click(qapp, test_db):
     from ui.main_window.dashboard_view import DashboardView
 
@@ -154,6 +200,29 @@ def test_dashboard_rail_shows_an_upcoming_chip_for_a_scheduled_pipeline(qapp, te
             chip_texts.append(widget.findChildren(QLabel))
     all_texts = [lbl.text() for chips in chip_texts for lbl in chips]
     assert any("rail-upcoming" in t for t in all_texts)
+
+
+def test_dashboard_health_block_reflects_last_status_per_active_pipeline(qapp, test_db):
+    """Bloc santé asymétrique (chantier identité, vague 2, idée 4) — l'anneau ne compte que le
+    dernier statut connu par pipeline actif, pas un agrégat de tous les runs des 30 derniers
+    jours (voir HealthRingWidget)."""
+    from database.models import Pipeline
+    from ui.main_window.dashboard_view import DashboardView
+
+    p_ok = db.create_pipeline(name="health-ok")
+    p_bad = db.create_pipeline(name="health-bad")
+    db.create_pipeline(name="health-never-run")   # reste IDLE — jamais exécuté
+    with db.get_session() as s:
+        s.get(Pipeline, p_ok.id).last_status = "SUCCESS"
+        s.get(Pipeline, p_bad.id).last_status = "FAILED"
+
+    view = DashboardView()
+    assert view._health_ring._success == 1
+    assert view._health_ring._danger == 1
+    assert "health-bad" in view._lbl_health_danger.text()
+    assert "1" in view._lbl_health_success.text()
+    assert "1" in view._lbl_health_idle.text() and "jamais exécuté" in view._lbl_health_idle.text()
+    assert view._card_avg_duration._lbl_value.text() != ""
 
 
 def test_main_window_navigates_to_filtered_history_on_dashboard_signal(qapp, test_db):

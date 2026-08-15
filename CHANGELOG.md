@@ -29,6 +29,29 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.22.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 2 (suite de la vague 1) :
+  - Dashboard : bloc santé asymétrique (anneau segmenté succès/échec + 4 cartes secondaires
+    compactes — Succès, Échecs, Pipelines actifs, Durée moy.) remplace la grille de 3 cartes
+    identiques. L'anneau ne compte que les pipelines actifs ayant déjà un dernier statut connu ;
+    les pipelines jamais exécutés sont recensés à part dans la légende plutôt que d'être invisibles.
+  - Séparateurs de section du Dashboard reprenant le motif "flux" (3 points reliés, rendu SVG)
+    au lieu d'une ligne plate.
+  - Connexions : icône de prise ajoutée à côté du badge d'état existant (OK/Échec/Jamais testé,
+    inchangé) sur les 6 tableaux de profils.
+  - Requêtes SQL : les mots-clés SQL (SELECT, FROM, WHERE…) sont désormais colorés dans
+    l'infobulle d'aperçu de la requête.
+
+### Corrigé
+- Dashboard : le contenu (rail + bloc santé plus haut que ce qu'il remplace) pouvait dépasser la
+  hauteur de la fenêtre sans zone de défilement, provoquant un chevauchement visuel — la vue
+  défile désormais correctement.
+- Connexions : la colonne "État" (badge OK/Échec/Jamais testé) et la nouvelle colonne "prise"
+  pouvaient se faire compresser par Qt en dessous de leur besoin réel une fois le tableau plus
+  chargé, rognant silencieusement le texte du badge — largeurs fixes désormais garanties.
+
 ## [0.21.0] - 2026-08-15
 
 ### Ajouté

@@ -45,11 +45,27 @@ def test_usage_column_counts_pipelines(qapp, test_db):
 
 
 def test_name_cell_tooltip_shows_sql_text(qapp, test_db):
+    """Aperçu SQL coloré (chantier identité, vague 2, idée 12) — l'infobulle contient désormais du
+    HTML (mots-clés colorés), donc le texte brut apparaît DANS le rendu plutôt qu'en égalité
+    stricte avec le contenu de la cellule."""
     from ui.main_window.queries_view import QueriesView
 
     db.create_sql_query(name="preview-query", sql_text="SELECT * FROM my_table WHERE x = 1")
     view = QueriesView()
-    assert view.table.item(0, 0).toolTip() == "SELECT * FROM my_table WHERE x = 1"
+    tooltip = view.table.item(0, 0).toolTip()
+    assert "SELECT" in tooltip and "my_table" in tooltip and "WHERE" in tooltip
+    assert "<span" in tooltip
+
+
+def test_highlight_sql_html_wraps_keywords_and_escapes_html():
+    from ui.main_window.queries_view import _highlight_sql_html
+    from ui.styles import COLORS
+
+    result = _highlight_sql_html("SELECT * FROM t WHERE x < 1")
+    assert f'color:{COLORS["accent"]}' in result
+    assert "<span" in result
+    # "<" dans le SQL doit être échappé, jamais interprété comme une balise HTML.
+    assert "&lt;" in result
 
 
 def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
