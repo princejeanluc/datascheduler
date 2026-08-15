@@ -11,34 +11,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, _make_status_badge
-
-
-def _ordered_with_chains(pipelines) -> list:
-    """Réordonne une liste de pipelines pour que chaque enfant (déclenché après un parent via
-    trigger_after_pipeline_id, chantier P) apparaisse juste après son parent plutôt que noyé
-    alphabétiquement — retourne une liste de tuples (pipeline, profondeur). Fonction pure, sans
-    Qt, pour rester facilement testable (chantier identité, vague 1, idée 9)."""
-    by_id = {p.id: p for p in pipelines}
-    children = {}
-    for p in pipelines:
-        if p.trigger_after_pipeline_id in by_id:
-            children.setdefault(p.trigger_after_pipeline_id, []).append(p)
-    roots = [p for p in pipelines if p.trigger_after_pipeline_id not in by_id]
-
-    ordered, seen = [], set()
-
-    def visit(p, depth):
-        if p.id in seen:   # garde-fou — la création empêche déjà les cycles, filet de sécurité
-            return
-        seen.add(p.id)
-        ordered.append((p, depth))
-        for c in children.get(p.id, []):
-            visit(c, depth + 1)
-
-    for r in roots:
-        visit(r, 0)
-    return ordered
+from .widgets import (
+    _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
+    _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
+    _make_status_badge, _ordered_with_chains, PipelineFlowThumbnail,
+)
 
 
 class PipelinesView(QWidget):
@@ -140,6 +117,7 @@ class PipelinesView(QWidget):
             steps_str  = " → ".join(
                 STEP_META.get(t, {}).get("label", t) for t in step_types
             ) or "—"
+            step_colors = [STEP_META.get(t, {}).get("color", COLORS["border"]) for t in step_types]
 
             trigger_tooltip = ""
             if p.trigger_after_pipeline_id:
@@ -164,11 +142,31 @@ class PipelinesView(QWidget):
                     if p.is_active and st == "RUNNING":
                         badge.setToolTip(step_labels.get(p.id, ""))
                     self.table.setCellWidget(r_idx, c_idx, badge)
+                elif c_idx == 2:
+                    # Vignette de flux + résumé texte (chantier identité, vague 3, idée 8) — la
+                    # vignette donne une reconnaissance visuelle immédiate, le texte reste
+                    # inchangé (déjà utile en lecture).
+                    steps_w = QWidget()
+                    steps_hl = QHBoxLayout(steps_w)
+                    steps_hl.setContentsMargins(4, 0, 4, 0)
+                    steps_hl.setSpacing(8)
+                    steps_hl.addWidget(PipelineFlowThumbnail(step_colors))
+                    # QLabel ne s'élide pas tout seul selon la largeur disponible (contrairement
+                    # à un QTableWidgetItem) — troncature statique + "…" plutôt qu'une coupe en
+                    # plein mot sans indication visuelle (repéré sur une capture réelle) ; le
+                    # texte complet reste dans l'infobulle de toute la cellule, juste en dessous.
+                    display_steps = steps_str if len(steps_str) <= 45 else steps_str[:44] + "…"
+                    steps_lbl = QLabel(display_steps)
+                    steps_lbl.setStyleSheet(
+                        f"color: {text_color}; background: transparent; border: none;"
+                    )
+                    steps_hl.addWidget(steps_lbl)
+                    steps_hl.addStretch()
+                    steps_w.setToolTip(steps_str)
+                    self.table.setCellWidget(r_idx, c_idx, steps_w)
                 else:
                     item = QTableWidgetItem(cell)
                     item.setForeground(QColor(name_color if c_idx == 0 else text_color))
-                    if c_idx == 2:
-                        item.setToolTip(steps_str)
                     if c_idx == 3 and trigger_tooltip:
                         item.setToolTip(trigger_tooltip)
                     self.table.setItem(r_idx, c_idx, item)

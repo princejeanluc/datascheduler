@@ -29,6 +29,28 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.23.0] - 2026-08-16
+
+### Ajouté
+- Personnalité structurelle, vague 3 (suite des vagues 1/2) :
+  - Pipelines : vignette de flux (points colorés, un par étape) devant le résumé texte de chaque
+    ligne, pour reconnaître un pipeline d'un coup d'œil.
+  - Dashboard : la section "Activité (30 derniers jours)" (graphique en barres) est remplacée par
+    "Vue d'ensemble des pipelines" — un aperçu des pipelines en nœuds reliés par leurs chaînes de
+    déclenchement, colorés par leur dernier statut. Le graphique en barres reste utilisé tel quel
+    dans la vue détail d'un pipeline.
+  - Dashboard : le tableau "Dernières exécutions" passe d'un flux chronologique plat à une ligne
+    par pipeline, avec une bande de pastilles montrant les dernières exécutions plutôt qu'un seul
+    badge de statut.
+
+### Corrigé
+- Pipelines : le résumé d'étapes trop long se coupait en plein mot sans indication visuelle —
+  troncature avec "…", texte complet toujours disponible en infobulle.
+- Dashboard : les nœuds de la mini-topologie n'avaient pas de conteneur visuellement délimité,
+  le point de statut n'était pas aligné avec le nom du pipeline, et un pipeline inactif n'avait
+  qu'une bordure grise pleine (pas assez distincte d'un statut "en échec" au premier regard) —
+  conteneur dédié, point en ligne avec le nom, bordure interrompue pour un pipeline inactif.
+
 ## [0.22.0] - 2026-08-15
 
 ### Ajouté

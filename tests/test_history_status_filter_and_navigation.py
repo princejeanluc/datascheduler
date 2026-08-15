@@ -291,3 +291,91 @@ def test_ordered_with_chains_ignores_a_self_referential_entry():
     corrupted = SimpleNamespace(id=1, trigger_after_pipeline_id=1)
     ordered = _ordered_with_chains([corrupted])
     assert ordered == []
+
+
+def test_ordered_with_chains_still_importable_from_widgets(qapp):
+    """_ordered_with_chains a déménagé vers widgets.py (chantier identité, vague 3, idée 5 — la
+    mini-topologie du Dashboard en a besoin aussi) ; pipelines_view.py la ré-exporte pour ne rien
+    casser côté import existant."""
+    from ui.main_window.widgets import _ordered_with_chains as from_widgets
+    from ui.main_window.pipelines_view import _ordered_with_chains as from_pipelines_view
+
+    assert from_widgets is from_pipelines_view
+
+
+def test_pipeline_flow_thumbnail_handles_zero_one_and_many_colors(qapp):
+    from ui.main_window.widgets import PipelineFlowThumbnail
+
+    PipelineFlowThumbnail([])
+    PipelineFlowThumbnail(["#FF7900"])
+    PipelineFlowThumbnail(["#FF7900", "#3fb950", "#f85149"])
+
+
+def test_layout_topology_nodes_keeps_a_chain_on_one_row(qapp):
+    from types import SimpleNamespace
+    from ui.main_window.widgets import _layout_topology_nodes, PipelineTopologyWidget
+
+    root = SimpleNamespace(id=1, name="root")
+    child = SimpleNamespace(id=2, name="child")
+    ordered = [(root, 0), (child, 1)]
+
+    positions = _layout_topology_nodes(ordered, max_width=2000)
+
+    assert len(positions) == 2
+    (_p1, _d1, x1, y1, parent1), (_p2, _d2, x2, y2, parent2) = positions
+    assert y1 == y2                      # même chaîne = même ligne
+    assert x2 > x1                       # l'enfant est placé après le parent
+    assert parent1 is None
+    assert parent2 == root.id
+
+
+def test_layout_topology_nodes_wraps_to_a_new_row_when_too_narrow(qapp):
+    from types import SimpleNamespace
+    from ui.main_window.widgets import _layout_topology_nodes
+
+    a = SimpleNamespace(id=1, name="a")
+    b = SimpleNamespace(id=2, name="b")
+    ordered = [(a, 0), (b, 0)]   # deux racines indépendantes
+
+    positions = _layout_topology_nodes(ordered, max_width=180)   # trop étroit pour 2 nœuds côte à côte
+
+    (_pa, _da, xa, ya, _parenta), (_pb, _db, xb, yb, _parentb) = positions
+    assert ya != yb   # repasse à la ligne
+
+
+def test_pipeline_topology_widget_set_data_does_not_raise(qapp):
+    from types import SimpleNamespace
+
+    from ui.main_window.widgets import PipelineTopologyWidget
+
+    solo = SimpleNamespace(id=1, name="solo", is_active=True, last_status="SUCCESS")
+    widget = PipelineTopologyWidget()
+    widget.set_data([])
+    widget.set_data([(solo, 0)])
+
+
+def test_run_history_dots_handles_various_statuses(qapp):
+    from ui.main_window.widgets import RunHistoryDots
+
+    RunHistoryDots([])
+    dots = RunHistoryDots(["SUCCESS", "FAILED", "CANCELLED", "RUNNING"])
+    dots.set_statuses(["SUCCESS"])
+
+
+def test_dashboard_runs_table_groups_multiple_runs_of_the_same_pipeline_into_one_row(qapp, test_db):
+    """Dernières exécutions regroupées par pipeline (chantier identité, vague 3, idée 7) — un
+    pipeline avec plusieurs runs récents n'occupe qu'une ligne, avec une bande de pastilles pour
+    l'historique plutôt qu'un flux chronologique plat."""
+    from ui.main_window.dashboard_view import DashboardView
+
+    p = db.create_pipeline(name="dots-pipeline")
+    for status in ("SUCCESS", "FAILED", "SUCCESS"):
+        run = db.create_run(p.id)
+        db.finish_run(run.id, status=status)
+    _make_run("other-pipeline", "SUCCESS")
+
+    view = DashboardView()
+    assert view.table.rowCount() == 2   # 2 pipelines distincts, pas 4 runs
+
+    names = [view.table.item(r, 0).text() for r in range(view.table.rowCount())]
+    assert set(names) == {"dots-pipeline", "other-pipeline"}

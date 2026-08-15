@@ -8,8 +8,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
     QTableWidget, QHeaderView, QGraphicsOpacityEffect, QWidget,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF
-from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
+from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
 
@@ -545,8 +545,284 @@ def _make_status_badge(text: str, object_name: str) -> QLabel:
 def _status_str(val) -> str:
     return val.value if hasattr(val, "value") else str(val or "IDLE")
 
+
+def _ordered_with_chains(pipelines) -> list:
+    """Réordonne une liste de pipelines pour que chaque enfant (déclenché après un parent via
+    trigger_after_pipeline_id, chantier P) apparaisse juste après son parent plutôt que noyé
+    alphabétiquement — retourne une liste de tuples (pipeline, profondeur). Fonction pure, sans
+    Qt, pour rester facilement testable (chantier identité, vague 1, idée 9 ; partagée avec la
+    mini-topologie du Dashboard, vague 3, idée 5, qui a besoin du même ordre/profondeur)."""
+    by_id = {p.id: p for p in pipelines}
+    children = {}
+    for p in pipelines:
+        if p.trigger_after_pipeline_id in by_id:
+            children.setdefault(p.trigger_after_pipeline_id, []).append(p)
+    roots = [p for p in pipelines if p.trigger_after_pipeline_id not in by_id]
+
+    ordered, seen = [], set()
+
+    def visit(p, depth):
+        if p.id in seen:   # garde-fou — la création empêche déjà les cycles, filet de sécurité
+            return
+        seen.add(p.id)
+        ordered.append((p, depth))
+        for c in children.get(p.id, []):
+            visit(c, depth + 1)
+
+    for r in roots:
+        visit(r, 0)
+    return ordered
+
+
 def _make_title(text: str) -> QLabel:
     l = QLabel(text); l.setObjectName("section_title"); return l
 
 def _make_subtitle(text: str) -> QLabel:
     l = QLabel(text); l.setObjectName("subtitle"); return l
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : VIGNETTE DE FLUX (Pipelines, chantier identité, vague 3, idée 8)
+# ──────────────────────────────────────────────
+
+class PipelineFlowThumbnail(QWidget):
+    """Points colorés reliés, un par étape (STEP_META[type]['color']) — signature de
+    reconnaissance visuelle d'un pipeline dans la liste, pas une vraie disposition de graphe
+    (pas de branches/edges réels, juste la séquence ordonnée de p.steps, déjà chargée en
+    eager-load par get_pipelines() — aucune requête supplémentaire)."""
+
+    DOT_R = 3
+    GAP = 12
+
+    def __init__(self, colors: list = None):
+        super().__init__()
+        self._colors = colors or []
+        self.setFixedSize(self._width_for(len(self._colors)), 18)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_colors(self, colors: list):
+        self._colors = colors
+        self.setFixedWidth(self._width_for(len(colors)))
+        self.update()
+
+    def _width_for(self, n: int) -> int:
+        return ((n - 1) * self.GAP + 2 * self.DOT_R) if n else 1
+
+    def paintEvent(self, event):
+        if not self._colors:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        y = self.height() / 2
+        positions = [self.DOT_R + i * self.GAP for i in range(len(self._colors))]
+
+        painter.setPen(QPen(QColor(COLORS["border"]), 1.4))
+        for x1, x2 in zip(positions, positions[1:]):
+            painter.drawLine(int(x1), int(y), int(x2), int(y))
+
+        painter.setPen(Qt.NoPen)
+        for x, color in zip(positions, self._colors):
+            painter.setBrush(QBrush(QColor(color)))
+            painter.drawEllipse(QPointF(x, y), self.DOT_R, self.DOT_R)
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : MINI-TOPOLOGIE (Dashboard, chantier identité, vague 3, idée 5)
+# ──────────────────────────────────────────────
+
+_TOPOLOGY_STATUS_COLOR_KEY = {
+    "SUCCESS": "success",
+    "FAILED": "danger",
+    "RUNNING": "signal",
+}
+
+
+def _layout_topology_nodes(ordered: list, max_width: int) -> list:
+    """Géométrie pure (pas de Qt) — factorisée hors de paintEvent() pour rester testable, même
+    philosophie que _ring_arcs()/ActivityChartWidget._bar_rect(). `ordered` est la sortie de
+    _ordered_with_chains() : une chaîne (racine + descendants) est toujours consécutive et sur
+    la même ligne (ils partagent la même lignée) ; layout "étagères" — si la chaîne suivante ne
+    tient plus sur la ligne courante, passage à la ligne suivante. Retourne une liste de
+    (pipeline, depth, x, y, parent_id_ou_None)."""
+    node_w, node_h = PipelineTopologyWidget.NODE_W, PipelineTopologyWidget.NODE_H
+    gap_x, gap_y, margin = (
+        PipelineTopologyWidget.GAP_X, PipelineTopologyWidget.GAP_Y, PipelineTopologyWidget.MARGIN,
+    )
+
+    positions = []
+    cursor_x, cursor_y = margin, margin
+    chain: list = []
+
+    def flush_chain():
+        nonlocal cursor_x, cursor_y, chain
+        if not chain:
+            return
+        max_depth = max(d for _, d in chain)
+        chain_width = (max_depth + 1) * node_w + max_depth * gap_x
+        if cursor_x != margin and cursor_x + chain_width > max_width - margin:
+            cursor_x = margin
+            cursor_y += node_h + gap_y
+        last_at_depth = {}
+        for p, depth in chain:
+            x = cursor_x + depth * (node_w + gap_x)
+            y = cursor_y
+            parent_id = last_at_depth.get(depth - 1)
+            positions.append((p, depth, x, y, parent_id))
+            last_at_depth[depth] = p.id
+        cursor_x += chain_width + gap_x * 2
+        chain = []
+
+    for p, depth in ordered:
+        if depth == 0:
+            flush_chain()
+            chain = [(p, depth)]
+        else:
+            chain.append((p, depth))
+    flush_chain()
+    return positions
+
+
+class PipelineTopologyWidget(QWidget):
+    """Aperçu des pipelines en nœuds reliés par les chaînes de déclenchement (chantier P),
+    colorés par leur dernier statut — remplace le graphique d'activité sur le Dashboard. Layout
+    "étagères" (greedy row-wrap, voir _layout_topology_nodes) plutôt qu'un vrai moteur de
+    bin-packing : la volumétrie réelle de ce projet reste petite (quelques pipelines)."""
+
+    NODE_W, NODE_H = 150, 54
+    GAP_X, GAP_Y = 30, 16
+    MARGIN = 14
+
+    def __init__(self):
+        super().__init__()
+        self._ordered = []
+        self.setMinimumHeight(self.NODE_H + 2 * self.MARGIN)
+
+    def set_data(self, ordered: list):
+        self._ordered = ordered
+        self.update()
+
+    def paintEvent(self, event):
+        from ui.step_editor.common import STEP_META
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        if not self._ordered:
+            painter.setPen(QColor(COLORS["text_muted"]))
+            painter.drawText(self.rect(), Qt.AlignCenter, "Aucun pipeline à afficher")
+            return
+
+        positions = _layout_topology_nodes(self._ordered, max(self.width(), self.NODE_W + 2 * self.MARGIN))
+        by_id = {p.id: (x, y) for p, _depth, x, y, _parent in positions}
+
+        needed_height = max((y for _, _, _, y, _ in positions), default=0) + self.NODE_H + self.MARGIN
+        if needed_height != self.minimumHeight():
+            self.setMinimumHeight(needed_height)
+
+        # Arêtes d'abord (sous les nœuds).
+        for p, _depth, x, y, parent_id in positions:
+            if parent_id is None or parent_id not in by_id:
+                continue
+            px, py = by_id[parent_id]
+            painter.setPen(QPen(QColor(COLORS["signal"]), 1.8))
+            y1 = py + self.NODE_H / 2
+            y2 = y + self.NODE_H / 2
+            painter.drawLine(int(px + self.NODE_W), int(y1), int(x), int(y2))
+
+        for p, _depth, x, y, _parent in positions:
+            status = _status_str(p.last_status)
+            if not p.is_active:
+                border_color = COLORS["border"]
+            else:
+                border_color = COLORS[_TOPOLOGY_STATUS_COLOR_KEY.get(status, "border")]
+
+            rect = QRectF(x, y, self.NODE_W, self.NODE_H)
+            # bg_main (le plus sombre des 3 fonds) pour un contraste net avec le conteneur
+            # (bg_panel — voir _build_ui() dans dashboard_view.py) : bg_panel/bg_card étaient
+            # trop proches pour se distinguer clairement une fois rendus (repéré sur une capture
+            # réelle — l'écart lisible en maquette web ne l'était pas ici).
+            painter.setBrush(QBrush(QColor(COLORS["bg_main"])))
+            pen = QPen(QColor(border_color), 1.5)
+            if not p.is_active:
+                pen.setStyle(Qt.DashLine)   # inactif : bordure interrompue, pas seulement grise
+            painter.setPen(pen)
+            painter.drawRoundedRect(rect, 8, 8)
+
+            # Point en ligne avec le nom (même centre vertical), pas empilé au-dessus — repéré en
+            # comparant à la maquette validée.
+            name_rect = QRectF(x + 22, y + 12, self.NODE_W - 32, 18)
+            dot_rect = QRectF(x + 10, name_rect.center().y() - 3, 6, 6)
+            painter.setBrush(QBrush(QColor(border_color)))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(dot_rect)
+
+            painter.setPen(QColor(COLORS["text_main"]))
+            font = QFont(FONT_UI); font.setBold(True); font.setPointSize(9)
+            painter.setFont(font)
+            name = p.name if len(p.name) <= 18 else p.name[:17] + "…"
+            painter.drawText(name_rect, Qt.AlignLeft | Qt.AlignVCenter, name)
+
+            # Résumé d'étapes plutôt que le simple mot de statut (déjà porté par le point/la
+            # bordure colorée, redondant sinon) — repéré en comparant à la maquette validée.
+            step_types = [str(s.step_type).replace("StepType.", "") for s in (p.steps or [])]
+            step_summary = " → ".join(
+                STEP_META.get(t, {}).get("label", t) for t in step_types
+            ) or "—"
+            if len(step_summary) > 22:
+                step_summary = step_summary[:21] + "…"
+            sub = f"{step_summary} · inactif" if not p.is_active else step_summary
+            painter.setPen(QColor(COLORS["text_muted"]))
+            font2 = QFont(FONT_UI); font2.setPointSize(8)
+            painter.setFont(font2)
+            # Aligné sur le nom (x+22), pas sur le point (x+10) — désalignement repéré sur une
+            # capture réelle après le passage du point en ligne avec le nom.
+            painter.drawText(QRectF(x + 22, y + 34, self.NODE_W - 32, 14),
+                              Qt.AlignLeft | Qt.AlignVCenter, sub)
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : PASTILLES D'HISTORIQUE (Dashboard, chantier identité, vague 3, idée 7)
+# ──────────────────────────────────────────────
+
+_RUN_DOT_COLOR_KEY = {
+    "SUCCESS": "success",
+    "FAILED": "danger",
+    "CANCELLED": "text_muted",
+    "RUNNING": "signal",
+}
+
+
+class RunHistoryDots(QWidget):
+    """Bande de pastilles colorées représentant les N dernières exécutions d'un pipeline (façon
+    graphe de contributions) — remplace le badge de statut unique dans le tableau "Dernières
+    exécutions" du Dashboard, qui ne montrait que le tout dernier run."""
+
+    DOT_R = 4
+    GAP = 11
+
+    def __init__(self, statuses: list = None):
+        super().__init__()
+        self._statuses = statuses or []
+        self.setFixedSize(self._width_for(len(self._statuses)), 16)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_statuses(self, statuses: list):
+        self._statuses = statuses
+        self.setFixedWidth(self._width_for(len(statuses)))
+        self.update()
+
+    def _width_for(self, n: int) -> int:
+        return ((n - 1) * self.GAP + 2 * self.DOT_R) if n else 1
+
+    def paintEvent(self, event):
+        if not self._statuses:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        y = self.height() / 2
+        for i, status in enumerate(self._statuses):
+            x = self.DOT_R + i * self.GAP
+            color_key = _RUN_DOT_COLOR_KEY.get(status, "border")
+            painter.setBrush(QBrush(QColor(COLORS[color_key])))
+            painter.drawEllipse(QPointF(x, y), self.DOT_R, self.DOT_R)

@@ -12,11 +12,10 @@ from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import (
-    _icon, _configure_columns, _make_empty_label, StatCard, _STATUS_BADGE, _status_str,
-    FONT_MONO, FONT_MONO_STACK, _make_status_badge, _apply_pulse, HealthRingWidget,
-    _make_motif_separator,
+    _icon, _configure_columns, _make_empty_label, StatCard, _status_str,
+    FONT_MONO, FONT_MONO_STACK, _apply_pulse, HealthRingWidget,
+    _make_motif_separator, PipelineTopologyWidget, _ordered_with_chains, RunHistoryDots,
 )
-from .activity_chart import ActivityChartWidget
 
 
 class DashboardView(QWidget):
@@ -153,21 +152,34 @@ class DashboardView(QWidget):
 
         layout.addWidget(_make_motif_separator())
 
-        activity_hd = QWidget()
-        activity_hd_layout = QHBoxLayout(activity_hd)
-        activity_hd_layout.setContentsMargins(0, 0, 0, 0)
-        lbl_activity = QLabel("Activité (30 derniers jours)")
-        lbl_activity.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
-        activity_hd_layout.addWidget(lbl_activity)
-        activity_hd_layout.addStretch()
-        self._lbl_activity_hint = QLabel("")
-        self._lbl_activity_hint.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
-        activity_hd_layout.addWidget(self._lbl_activity_hint)
-        layout.addWidget(activity_hd)
+        # Mini-topologie — remplace le graphique d'activité en barres sur cette vue (décision
+        # confirmée avec l'utilisateur, suit la maquette validée ; le graphique lui-même reste
+        # utilisé tel quel dans PipelineDetailDialog, chantier identité, vague 3, idée 5).
+        topo_hd = QWidget()
+        topo_hd_layout = QHBoxLayout(topo_hd)
+        topo_hd_layout.setContentsMargins(0, 0, 0, 0)
+        lbl_topo = QLabel("Vue d'ensemble des pipelines")
+        lbl_topo.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
+        topo_hd_layout.addWidget(lbl_topo)
+        topo_hd_layout.addStretch()
+        layout.addWidget(topo_hd)
 
-        self.chart = ActivityChartWidget()
-        self.chart.setFixedHeight(150)
-        layout.addWidget(self.chart)
+        # Carte englobante (fond + bordure fine) — la zone de la mini-topologie doit être
+        # délimitée comme la maquette, les nœuds ressortant nettement plus sombres à l'intérieur
+        # (voir PipelineTopologyWidget.paintEvent, fond bg_main) plutôt que de flotter sur le
+        # fond de la page. Fond bg_panel en dur plutôt que la classe globale "card" (bg_card) :
+        # bg_card/bg_main étaient trop proches pour un contraste net une fois rendus (repéré en
+        # comparant à la maquette validée).
+        topo_card = QFrame()
+        topo_card.setStyleSheet(
+            f"QFrame {{ background-color: {COLORS['bg_panel']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 6px; }}"
+        )
+        topo_card_layout = QVBoxLayout(topo_card)
+        topo_card_layout.setContentsMargins(20, 18, 20, 18)
+        self._topology = PipelineTopologyWidget()
+        topo_card_layout.addWidget(self._topology)
+        layout.addWidget(topo_card)
 
         layout.addWidget(_make_motif_separator())
 
@@ -176,7 +188,7 @@ class DashboardView(QWidget):
         layout.addWidget(lbl_recent)
 
         self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Pipeline", "Statut", "Lignes", "Durée", "Date", "Fichier déposé"])
+        self.table.setHorizontalHeaderLabels(["Pipeline", "Historique", "Lignes", "Durée", "Date", "Fichier déposé"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -257,20 +269,23 @@ class DashboardView(QWidget):
         )
         self._set_legend_text(self._lbl_health_idle, idle_text)
 
-        activity_data = db.get_run_counts_by_day(days=30)
-        self.chart.set_data(activity_data)
-        total_runs = sum(d["success"] + d["failed"] + d["cancelled"] for d in activity_data)
-        self._lbl_activity_hint.setText(
-            f"{total_runs} exécution{'s' if total_runs != 1 else ''} sur la période" if total_runs else ""
-        )
+        self._topology.set_data(_ordered_with_chains(pipelines))
 
         self._refresh_rail(pipelines, all_runs)
 
-        latest = db.get_recent_runs(limit=20)
-        self.table.setVisible(bool(latest))
-        self._empty_label.setVisible(not latest)
-        self.table.setRowCount(len(latest))
-        for r_idx, run in enumerate(latest):
+        recent_runs = db.get_recent_runs(limit=100)
+        runs_by_pipeline = {}
+        for run in recent_runs:
+            runs_by_pipeline.setdefault(run.pipeline_id, []).append(run)
+        pipeline_order = list(runs_by_pipeline.keys())
+
+        self.table.setVisible(bool(pipeline_order))
+        self._empty_label.setVisible(not pipeline_order)
+        self.table.setRowCount(len(pipeline_order))
+        for r_idx, pid in enumerate(pipeline_order):
+            runs = runs_by_pipeline[pid]
+            run = runs[0]
+            history = [_status_str(r.status) for r in runs[:8]][::-1]
             pname = run.pipeline.name if run.pipeline else str(run.pipeline_id)
             st    = _status_str(run.status)
             dur   = "—"
@@ -279,17 +294,18 @@ class DashboardView(QWidget):
                 dur  = f"{m}m {s:02d}s"
             date_s = run.started_at.strftime("%d/%m/%Y %H:%M") if run.started_at else "—"
             rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
-            cells  = [pname, st, rows_s, dur, date_s, run.remote_path or "—"]
+            cells  = [pname, None, rows_s, dur, date_s, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
-                    badge = _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle"))
-                    self.table.setCellWidget(r_idx, c_idx, badge)
+                    dots = RunHistoryDots(history)
+                    dots.setToolTip(f"{len(runs)} dernière(s) exécution(s)")
+                    self.table.setCellWidget(r_idx, c_idx, dots)
                 else:
                     item = QTableWidgetItem(cell)
-                    # Le nom du pipeline ressort en rouge sur un échec — pas seulement le badge
-                    # de statut — pour repérer un échec en un coup d'œil en parcourant la liste,
-                    # avec le message d'erreur en infobulle pour un premier diagnostic sans
-                    # ouvrir l'historique complet.
+                    # Le nom du pipeline ressort en rouge sur un échec de la derniere execution
+                    # -- pas seulement la pastille -- pour reperer un echec en un coup d'oeil en
+                    # parcourant la liste, avec le message d'erreur en infobulle pour un premier
+                    # diagnostic sans ouvrir l'historique complet.
                     if c_idx == 0 and st == "FAILED":
                         item.setForeground(QColor(COLORS["danger"]))
                         font = item.font(); font.setBold(True); item.setFont(font)
