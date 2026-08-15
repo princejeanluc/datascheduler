@@ -4,12 +4,13 @@ Nœud du canevas : représente une étape (dict complet step_type/label/config/r
 run_always) — le même objet que celui retourné par _open_config_dialog(...).result_step().
 """
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QPointF, QRectF, Qt, QSize
 from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject
 
 from ui.styles import COLORS
 from ui.step_editor import STEP_META
+from ui.step_editor.common import _icon
 from core.steps import get_step_output_ports
 
 PORT_RADIUS = 6
@@ -28,12 +29,21 @@ class StepNodeItem(QGraphicsObject):
     def __init__(self, step: dict):
         super().__init__()
         self.step = step
+        self._is_executing = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
             | QGraphicsItem.ItemSendsGeometryChanges
         )
         self.setZValue(1)
+
+    def set_executing(self, executing: bool) -> None:
+        """Traçage lumineux (chantier identité visuelle) : surligne ce nœud comme étant
+        l'étape en cours d'une exécution réelle. Bordure signal statique — pas d'animation,
+        distincte de la sélection (même épaisseur, couleur différente)."""
+        if executing != self._is_executing:
+            self._is_executing = executing
+            self.update()
 
     # ── Identité ──────────────────────────────
 
@@ -76,16 +86,20 @@ class StepNodeItem(QGraphicsObject):
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
-        border_color = QColor(meta["color"])
-        pen = QPen(border_color, 3 if self.isSelected() else 1.5)
+        border_color = QColor(COLORS["signal"]) if self._is_executing else QColor(meta["color"])
+        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing) else 1.5)
         painter.setPen(pen)
         painter.drawPath(path)
 
         painter.setPen(QColor(meta["color"]))
         font = QFont(); font.setBold(True); font.setPointSize(9)
         painter.setFont(font)
-        painter.drawText(QRectF(10, 6, self.WIDTH - 20, 18), Qt.AlignLeft | Qt.AlignVCenter,
+        painter.drawText(QRectF(10, 6, self.WIDTH - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
                           meta["label"])
+
+        type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+        if type_icon:
+            painter.drawPixmap(self.WIDTH - 24, 6, type_icon.pixmap(QSize(16, 16)))
 
         user_label = self.step.get("label") or ""
         if user_label:

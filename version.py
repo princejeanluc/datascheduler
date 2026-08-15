@@ -4,4 +4,4 @@ Version de l'application. Séparée volontairement de schema_version (le futur f
 d'export versionné) — les deux évoluent à des rythmes différents.
 """
 
-__version__ = "0.19.0"
+__version__ = "0.26.0"

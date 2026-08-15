@@ -6,7 +6,7 @@ Vue Connexions : profils Oracle/FTP/SMTP/BDD génériques.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QTabWidget,
+    QMessageBox, QTabWidget, QGraphicsOpacityEffect,
 )
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
@@ -14,10 +14,15 @@ from ui.styles import COLORS
 from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
 
 
-def _health_badge(success) -> QLabel:
+_STALE_AFTER_DAYS = 30
+
+
+def _health_badge(success, last_tested_at=None) -> QLabel:
     """Statut du dernier test de connexion, déjà stocké sur chaque profil (bilan de santé,
     chantier C.4/D.1) — ici simplement affiché en ligne au lieu d'être réservé à la fenêtre
-    modale "Bilan de santé"."""
+    modale "Bilan de santé". `last_tested_at` (optionnel, rétrocompatible) ajoute une fraîcheur
+    visuelle : un profil non retesté depuis plus de 30 jours s'estompe légèrement, pour repérer
+    d'un regard ce qui mérite d'être revérifié (chantier identité, vague 1, idée 11)."""
     if success is True:
         text, obj_name = "OK", "badge_success"
     elif success is False:
@@ -26,6 +31,40 @@ def _health_badge(success) -> QLabel:
         text, obj_name = "Jamais testé", "badge_idle"
     lbl = QLabel(text); lbl.setObjectName(obj_name)
     lbl.setAlignment(Qt.AlignCenter)
+
+    if last_tested_at is not None:
+        from datetime import datetime, timezone
+        age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - last_tested_at).days
+        tooltip = "Testé aujourd'hui" if age_days <= 0 else f"Testé il y a {age_days} jour{'s' if age_days > 1 else ''}"
+        if age_days > _STALE_AFTER_DAYS:
+            tooltip += " — à revérifier"
+            effect = QGraphicsOpacityEffect(lbl)
+            effect.setOpacity(0.55)
+            lbl.setGraphicsEffect(effect)
+        lbl.setToolTip(tooltip)
+    elif success is None:
+        lbl.setToolTip("Jamais testé")
+
+    return lbl
+
+
+def _connection_indicator(success) -> QLabel:
+    """Petite icône de prise ajoutée à côté du badge texte existant (jamais à sa place — la
+    clarté du mot OK/Échec/Jamais testé reste utile, confirmé avec l'utilisateur) — renforce
+    visuellement l'idée de connexion réelle à une infra (chantier identité, vague 2, idée 10).
+    Colonne à part entière, _health_badge() reste inchangé."""
+    if success is True:
+        color = COLORS["success"]
+    elif success is False:
+        color = COLORS["danger"]
+    else:
+        color = COLORS["text_muted"]
+    lbl = QLabel()
+    icon = _icon("fa5s.plug", color)
+    if icon:
+        lbl.setPixmap(icon.pixmap(QSize(14, 14)))
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setStyleSheet("background: transparent; border: none;")
     return lbl
 
 
@@ -103,7 +142,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur", "État"]
+        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur", "État", ""]
         self.database_table = self._make_table(hdrs, stretch_cols={0, 2})
         vl.addWidget(self.database_table)
         self._database_empty = _make_empty_label(
@@ -127,7 +166,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur", "État"]
+        hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur", "État", ""]
         self.ftp_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ftp_table)
         self._ftp_empty = _make_empty_label("Aucun profil FTP — cliquez sur « Nouveau profil FTP ».")
@@ -148,7 +187,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur", "État"]
+        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur", "État", ""]
         self.smtp_table = self._make_table(hdrs, stretch_cols={0, 1, 4})
         vl.addWidget(self.smtp_table)
         self._smtp_empty = _make_empty_label("Aucun profil SMTP — cliquez sur « Nouveau profil SMTP ».")
@@ -169,7 +208,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "Via", "État"]
+        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "Via", "État", ""]
         self.ssh_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.ssh_table)
         self._ssh_empty = _make_empty_label("Aucun profil SSH — cliquez sur « Nouveau profil SSH ».")
@@ -190,7 +229,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Principal", "État"]
+        hdrs = ["Nom", "Principal", "État", ""]
         self.kerberos_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.kerberos_table)
         self._kerberos_empty = _make_empty_label(
@@ -213,7 +252,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Utilisateur cible", "État"]
+        hdrs = ["Nom", "Utilisateur cible", "État", ""]
         self.elevation_table = self._make_table(hdrs, stretch_cols={0, 1})
         vl.addWidget(self.elevation_table)
         self._elevation_empty = _make_empty_label(
@@ -233,6 +272,22 @@ class ConnectionsView(QWidget):
         _configure_columns(t, stretch_cols)
         t.horizontalHeader().setSectionResizeMode(len(headers), QHeaderView.Fixed)
         t.setColumnWidth(len(headers), 90)
+        # Colonne "prise vivante" (chantier identité, vague 2, idée 10) : dernier en-tête vide,
+        # juste avant Actions. ResizeToContents sur un en-tête vide se calcule trop juste pour
+        # l'icône (14px + marges) et la rogne légèrement sur le bord droit — largeur fixe comme
+        # pour Actions (repéré sur une capture réelle).
+        if headers and headers[-1] == "":
+            t.horizontalHeader().setSectionResizeMode(len(headers) - 1, QHeaderView.Fixed)
+            t.setColumnWidth(len(headers) - 1, 40)
+        # "État" (badge OK/Échec/Jamais testé) : ResizeToContents se faisait squeeze en dessous
+        # de son besoin réel une fois l'ensemble des colonnes trop serré pour la largeur
+        # disponible (le texte se rognait silencieusement, ex. "Jamais testé" → "mais tes" —
+        # repéré sur une capture réelle après l'ajout de la colonne "prise"). Largeur fixe,
+        # garantie de ne jamais être compressée, quelle que soit la pression des autres colonnes.
+        if "État" in headers:
+            etat_idx = headers.index("État")
+            t.horizontalHeader().setSectionResizeMode(etat_idx, QHeaderView.Fixed)
+            t.setColumnWidth(etat_idx, 140)
         return t
 
     # ── Recherche ────────────────────────────────
@@ -270,7 +325,10 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.database_table.setItem(r_idx, c_idx, item)
-            self.database_table.setCellWidget(r_idx, 5, _health_badge(p.get("last_test_success")))
+            self.database_table.setCellWidget(
+                r_idx, 5, _health_badge(p.get("last_test_success"), p.get("last_tested_at"))
+            )
+            self.database_table.setCellWidget(r_idx, 6, _connection_indicator(p.get("last_test_success")))
             pid, dtype = p["id"], p["db_type"]
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -278,7 +336,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid, t=dtype: self._on_edit_database(i, t))
             btn_del.clicked.connect(lambda _, i=pid, t=dtype: self._on_delete_database(i, t))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.database_table.setCellWidget(r_idx, 6, w)
+            self.database_table.setCellWidget(r_idx, 7, w)
             self.database_table.setRowHeight(r_idx, 44)
 
     def _refresh_ftp(self):
@@ -294,7 +352,8 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ftp_table.setItem(r_idx, c_idx, item)
-            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
+            self.ftp_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -302,7 +361,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ftp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ftp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ftp_table.setCellWidget(r_idx, 6, w)
+            self.ftp_table.setCellWidget(r_idx, 7, w)
             self.ftp_table.setRowHeight(r_idx, 44)
 
     def _refresh_smtp(self):
@@ -318,7 +377,8 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.smtp_table.setItem(r_idx, c_idx, item)
-            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
+            self.smtp_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -326,7 +386,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_smtp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_smtp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.smtp_table.setCellWidget(r_idx, 6, w)
+            self.smtp_table.setCellWidget(r_idx, 7, w)
             self.smtp_table.setRowHeight(r_idx, 44)
 
     def _refresh_ssh(self):
@@ -343,7 +403,8 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.ssh_table.setItem(r_idx, c_idx, item)
-            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success))
+            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
+            self.ssh_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -351,7 +412,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ssh(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ssh(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ssh_table.setCellWidget(r_idx, 6, w)
+            self.ssh_table.setCellWidget(r_idx, 7, w)
             self.ssh_table.setRowHeight(r_idx, 44)
 
     def _refresh_kerberos(self):
@@ -366,7 +427,8 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.kerberos_table.setItem(r_idx, c_idx, item)
-            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
+            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
+            self.kerberos_table.setCellWidget(r_idx, 3, _connection_indicator(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -374,7 +436,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_kerberos(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_kerberos(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.kerberos_table.setCellWidget(r_idx, 3, w)
+            self.kerberos_table.setCellWidget(r_idx, 4, w)
             self.kerberos_table.setRowHeight(r_idx, 44)
 
     def _refresh_elevation(self):
@@ -389,7 +451,8 @@ class ConnectionsView(QWidget):
                 item = QTableWidgetItem(cell)
                 item.setForeground(QColor(COLORS["text_main"]))
                 self.elevation_table.setItem(r_idx, c_idx, item)
-            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success))
+            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
+            self.elevation_table.setCellWidget(r_idx, 3, _connection_indicator(p.last_test_success))
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -397,7 +460,7 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_elevation(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_elevation(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.elevation_table.setCellWidget(r_idx, 3, w)
+            self.elevation_table.setCellWidget(r_idx, 4, w)
             self.elevation_table.setRowHeight(r_idx, 44)
 
     # ── Callbacks ────────────────────────────────

@@ -71,3 +71,33 @@ def test_run_pipeline_progress_never_written_before_the_run_row_exists(test_db, 
     result = run_pipeline(999_999)   # pipeline inexistant — échoue avant create_run()
     assert not result.success
     assert result.run_id is None
+
+
+class _FakeStepAReadsBackMidRunKey(BaseStep):
+    """Traçage lumineux (chantier identité, vague 4) : au moment où CETTE étape s'exécute,
+    current_step_key doit déjà refléter SA _step_key — c'est ce que l'éditeur graphique
+    interroge en continu pour savoir quel nœud surligner."""
+
+    def run(self, ctx, on_progress=None):
+        run = db.get_runs(_captured["pipeline_id"])[0]
+        _captured["mid_run_current_step_key"] = run.current_step_key
+        return StepResult(success=True)
+
+
+def test_run_pipeline_persists_current_step_key_incrementally(test_db, monkeypatch):
+    _captured.clear()
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeStepAReadsBackMidRunKey)
+
+    pipeline = db.create_pipeline(name="test-run-progress-key")
+    _captured["pipeline_id"] = pipeline.id
+    db.save_steps(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "label": "Étape A", "config": {"_step_key": "key-a"}},
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success
+    assert _captured["mid_run_current_step_key"] == "key-a"
+    # Nettoyé à la fin, comme current_step_label.
+    final_run = db.get_run(result.run_id)
+    assert final_run.current_step_key is None

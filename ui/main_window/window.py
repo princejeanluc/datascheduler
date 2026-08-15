@@ -112,12 +112,12 @@ class MainWindow(QMainWindow):
         logo_widget.setFixedHeight(HEADER_H)
         logo_widget.setStyleSheet(f"background: {COLORS['bg_panel']}; border-bottom: 1px solid {COLORS['border']};")
         logo_layout = QHBoxLayout(logo_widget)
-        logo_layout.setContentsMargins(16, 0, 0, 0)
+        logo_layout.setContentsMargins(18, 0, 18, 0)
         logo_layout.setSpacing(10)
+        from ui.icons import logo_icon as _logo_icon
         logo_icon = QLabel()
-        logo_icon.setPixmap(
-            _icon("fa5s.exchange-alt", COLORS["accent"]).pixmap(QSize(18, 18))
-        )
+        logo_icon.setFixedSize(22, 22)
+        logo_icon.setPixmap(_logo_icon(COLORS["accent"], size=22).pixmap(22, 22))
         logo_icon.setStyleSheet("background: transparent; border: none;")
         logo_lbl = QLabel("DataScheduler")
         logo_lbl.setStyleSheet(
@@ -130,12 +130,12 @@ class MainWindow(QMainWindow):
 
         # Boutons de navigation
         nav_items = [
-            ("Dashboard",    "fa5s.tachometer-alt", 0),
-            ("Pipelines",    "fa5s.stream",          1),
-            ("Connexions",   "fa5s.plug",            2),
-            ("Requêtes SQL", "fa5s.database",        3),
-            ("Historique",   "fa5s.history",         4),
-            ("Aide",         "fa5s.question-circle", 5),
+            ("Dashboard",    "dashboard",    0),
+            ("Pipelines",    "pipelines",    1),
+            ("Connexions",   "connexions",   2),
+            ("Requêtes SQL", "requetes_sql", 3),
+            ("Historique",   "historique",   4),
+            ("Aide",         "aide",         5),
         ]
         self._nav_buttons: list[NavButton] = []
         for label, icon, idx in nav_items:

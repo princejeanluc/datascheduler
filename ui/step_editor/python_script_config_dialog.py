@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QFont
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO, FONT_MONO_STACK
 from .common import TOKENS_HINT, _icon
 from .base_config_dialog import _BaseStepConfigDialog
 from .python_script_template import PYTHON_SCRIPT_TEMPLATE
@@ -78,7 +78,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         # Arguments (un par ligne)
         self.txt_args = QPlainTextEdit()
-        self.txt_args.setFont(QFont("Consolas", 11))
+        self.txt_args.setFont(QFont(FONT_MONO, 11))
         self.txt_args.setPlaceholderText(
             "--date {yyyyMMdd}\n--input {output_file}\n--mode production\n"
             "--context-in {ds_context_in}\n--context-out {ds_context_out}"
@@ -100,7 +100,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
 
         hint = QLabel("Tokens disponibles : " + TOKENS_HINT + "  {ds_context_in}  {ds_context_out}")
         hint.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: Consolas; font-style: italic;"
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONT_MONO_STACK}; font-style: italic;"
         )
         hint.setWordWrap(True)
         root.addWidget(hint)

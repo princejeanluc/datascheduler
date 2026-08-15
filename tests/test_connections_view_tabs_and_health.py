@@ -89,6 +89,61 @@ def test_database_health_badge_reflects_last_test_success(qapp, test_db):
     assert badge.text() == "OK"
 
 
+def test_connection_indicator_colors_by_success_state(qapp):
+    """"Prise" vivante (chantier identité, vague 2, idée 10) — icône ajoutée à côté du badge
+    texte existant, jamais à sa place (décision confirmée avec l'utilisateur)."""
+    from ui.main_window.connections_view import _connection_indicator
+
+    assert not _connection_indicator(True).pixmap().isNull()
+    assert not _connection_indicator(False).pixmap().isNull()
+    assert not _connection_indicator(None).pixmap().isNull()
+
+
+def test_ssh_table_has_a_connection_indicator_column_alongside_the_text_badge(qapp, test_db):
+    """La nouvelle colonne s'ajoute — _health_badge() et sa colonne "État" restent inchangés,
+    la colonne Actions se décale automatiquement (voir _make_table)."""
+    from ui.main_window.connections_view import ConnectionsView
+
+    p = db.create_ssh_profile(name="EDGE01", host="h", port=22, username="u", password="pw")
+    db.record_profile_test_result("ssh", p.id, True)
+
+    view = ConnectionsView()
+    badge = view.ssh_table.cellWidget(0, 5)
+    indicator = view.ssh_table.cellWidget(0, 6)
+    actions = view.ssh_table.cellWidget(0, 7)
+
+    assert badge.text() == "OK"           # inchangé
+    assert indicator is not None          # nouvelle colonne, juste après "État"
+    assert actions is not None            # colonne Actions décalée, toujours présente
+
+
+def test_health_badge_dims_a_profile_not_retested_recently(qapp, test_db):
+    """Fraîcheur visuelle (chantier identité, vague 1, idée 11) — un profil testé il y a plus de
+    30 jours s'estompe (effet d'opacité) pour signaler qu'il mérite d'être revérifié ; un profil
+    testé récemment reste net."""
+    from datetime import datetime, timedelta
+
+    from ui.main_window.connections_view import ConnectionsView
+
+    fresh = db.create_ssh_profile(name="EDGE-FRESH", host="h1", port=22, username="u", password="pw")
+    stale = db.create_ssh_profile(name="EDGE-STALE", host="h2", port=22, username="u", password="pw")
+    db.record_profile_test_result("ssh", fresh.id, True)
+    db.record_profile_test_result("ssh", stale.id, True)
+    with db.get_session() as s:
+        from database.models import SshProfile
+        obj = s.get(SshProfile, stale.id)
+        obj.last_tested_at = datetime.utcnow() - timedelta(days=40)
+
+    view = ConnectionsView()
+    rows = {view.ssh_table.item(r, 0).text(): r for r in range(view.ssh_table.rowCount())}
+    fresh_badge = view.ssh_table.cellWidget(rows["EDGE-FRESH"], 5)
+    stale_badge = view.ssh_table.cellWidget(rows["EDGE-STALE"], 5)
+
+    assert fresh_badge.graphicsEffect() is None
+    assert stale_badge.graphicsEffect() is not None
+    assert "revérifier" in stale_badge.toolTip()
+
+
 def test_search_filters_across_active_tab_tables(qapp, test_db):
     from ui.main_window.connections_view import ConnectionsView
 

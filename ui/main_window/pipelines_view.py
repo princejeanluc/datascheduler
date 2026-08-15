@@ -6,12 +6,16 @@ Vue Pipelines : liste + création + export/import.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QMenu, QInputDialog,
+    QMessageBox, QFileDialog, QMenu, QInputDialog, QApplication,
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str
+from .widgets import (
+    _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
+    _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
+    _make_status_badge, _ordered_with_chains, PipelineFlowThumbnail,
+)
 
 
 class PipelinesView(QWidget):
@@ -92,19 +96,28 @@ class PipelinesView(QWidget):
         _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4])
 
     def refresh(self):
+        # Reconstruit toute la colonne Actions à chaque appel (y compris chaque QMenu "⋯") — si
+        # un de ces menus est actuellement ouvert (l'utilisateur est en train de choisir une
+        # action), le détruire sous lui plante l'app (QMenu gère sa propre boucle d'événements
+        # imbriquée pendant qu'il est affiché). Reporté au prochain appel (30s, timer périodique)
+        # plutôt que de risquer ça — l'utilisateur aura fermé le menu bien avant.
+        if QApplication.activePopupWidget() is not None:
+            return
+
         from database import db_manager as db
         from ui.step_editor import STEP_META
-        from core.pipeline import is_cancel_requested
+        from core.pipeline import is_cancel_requested, is_pipeline_running
+        from core.scheduler import describe_schedule
         pipelines = db.get_pipelines()
+        ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
-        self._pipeline_ids = [p.id for p in pipelines]
+        self._pipeline_ids = [p.id for p, _depth in ordered]
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
-        self.table.setRowCount(len(pipelines))
-        for r_idx, p in enumerate(pipelines):
+        self.table.setRowCount(len(ordered))
+        for r_idx, (p, depth) in enumerate(ordered):
             st       = _status_str(p.last_status)
-            freq     = _status_str(p.frequency)
-            plan     = f"{freq} {p.scheduled_time or ''}".strip()
+            plan     = describe_schedule(p)
             next_run = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
 
             # Résumé des étapes
@@ -112,6 +125,7 @@ class PipelinesView(QWidget):
             steps_str  = " → ".join(
                 STEP_META.get(t, {}).get("label", t) for t in step_types
             ) or "—"
+            step_colors = [STEP_META.get(t, {}).get("color", COLORS["border"]) for t in step_types]
 
             trigger_tooltip = ""
             if p.trigger_after_pipeline_id:
@@ -122,23 +136,45 @@ class PipelinesView(QWidget):
                 trigger_tooltip = f"Se lance aussi après « {parent_name} » ({cond_label})"
 
             text_color = COLORS["text_dim"] if not p.is_active else COLORS["text_main"]
-            cells = [p.name, st, steps_str, plan, next_run]
+            name_indent = "    " * (depth - 1) if depth else ""
+            name_display = f"{name_indent}{'↳ ' if depth else ''}{p.name}"
+            name_color = COLORS["text_dim"] if (depth or not p.is_active) else COLORS["text_main"]
+            cells = [name_display, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 1:
                     badge_st   = "INACTIF" if not p.is_active else st
                     if p.is_active and st == "RUNNING" and is_cancel_requested(p.id):
                         badge_st = "ARRÊT EN COURS"
                     badge_name = "badge_idle" if not p.is_active else _STATUS_BADGE.get(st, "badge_idle")
-                    badge = QLabel(badge_st); badge.setObjectName(badge_name)
-                    badge.setAlignment(Qt.AlignCenter)
+                    badge = _make_status_badge(badge_st, badge_name)
                     if p.is_active and st == "RUNNING":
                         badge.setToolTip(step_labels.get(p.id, ""))
                     self.table.setCellWidget(r_idx, c_idx, badge)
+                elif c_idx == 2:
+                    # Vignette de flux + résumé texte (chantier identité, vague 3, idée 8) — la
+                    # vignette donne une reconnaissance visuelle immédiate, le texte reste
+                    # inchangé (déjà utile en lecture).
+                    steps_w = QWidget()
+                    steps_hl = QHBoxLayout(steps_w)
+                    steps_hl.setContentsMargins(4, 0, 4, 0)
+                    steps_hl.setSpacing(8)
+                    steps_hl.addWidget(PipelineFlowThumbnail(step_colors))
+                    # QLabel ne s'élide pas tout seul selon la largeur disponible (contrairement
+                    # à un QTableWidgetItem) — troncature statique + "…" plutôt qu'une coupe en
+                    # plein mot sans indication visuelle (repéré sur une capture réelle) ; le
+                    # texte complet reste dans l'infobulle de toute la cellule, juste en dessous.
+                    display_steps = steps_str if len(steps_str) <= 45 else steps_str[:44] + "…"
+                    steps_lbl = QLabel(display_steps)
+                    steps_lbl.setStyleSheet(
+                        f"color: {text_color}; background: transparent; border: none;"
+                    )
+                    steps_hl.addWidget(steps_lbl)
+                    steps_hl.addStretch()
+                    steps_w.setToolTip(steps_str)
+                    self.table.setCellWidget(r_idx, c_idx, steps_w)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(text_color))
-                    if c_idx == 2:
-                        item.setToolTip(steps_str)
+                    item.setForeground(QColor(name_color if c_idx == 0 else text_color))
                     if c_idx == 3 and trigger_tooltip:
                         item.setToolTip(trigger_tooltip)
                     self.table.setItem(r_idx, c_idx, item)
@@ -161,6 +197,14 @@ class PipelinesView(QWidget):
             # le bouton "+ Artefact" de ui/step_editor/base_config_dialog.py, pour ne pas garder
             # 8 boutons pleine largeur par ligne dans une colonne "Actions".
             menu = QMenu(btn_more)
+            if is_pipeline_running(pid):
+                # Accessible même quand la fenêtre d'exécution a été fermée entre-temps (elle
+                # continue en arrière-plan) — sans ça, aucun moyen direct d'interrompre un run
+                # dont on a fermé le dialogue de suivi.
+                act_interrupt = menu.addAction("Interrompre l'exécution en cours")
+                act_interrupt.triggered.connect(
+                    lambda _, i=pid, n=pname: self._on_interrupt_pipeline(i, n)
+                )
             act_toggle = menu.addAction("Désactiver" if is_active else "Activer")
             act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             act_graph = menu.addAction("Éditeur graphique")
@@ -208,6 +252,7 @@ class PipelinesView(QWidget):
 
         p = db.create_pipeline(name=name)
         if PipelineGraphEditorDialog(self, pipeline=p).exec():
+            self._schedule_if_possible(p.id)
             self.refresh()
         else:
             # Rien enregistré (annulé sans ajouter d'étape) — un pipeline coquille à 0 étape
@@ -254,6 +299,8 @@ class PipelinesView(QWidget):
         else:
             QMessageBox.information(self, "Import réussi", "Le pipeline a été importé avec succès.")
 
+        if result.pipeline_id is not None:
+            self._schedule_if_possible(result.pipeline_id)
         self.refresh()
 
     def _on_edit_pipeline(self, pipeline_id: int):
@@ -360,6 +407,42 @@ class PipelinesView(QWidget):
         if reply == QMessageBox.Yes:
             db.delete_pipeline(pipeline_id)
             self.refresh()
+
+    @staticmethod
+    def _schedule_if_possible(pipeline_id: int):
+        """(Re)planifie immédiatement auprès d'APScheduler — même patron défensif que
+        _on_toggle_pipeline() ci-dessous (RuntimeError silencieuse : scheduler non initialisé
+        dans les tests qui construisent une vue directement). Utilisé partout où un pipeline
+        actif est créé/modifié en dehors de PipelineEditorDialog._on_save() (qui gère déjà son
+        propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet."""
+        try:
+            from core.scheduler import get_scheduler
+            get_scheduler().schedule_pipeline(pipeline_id)
+        except RuntimeError:
+            pass
+
+    def _on_interrupt_pipeline(self, pipeline_id: int, pipeline_name: str):
+        """Interrompre un run en cours indépendamment de la fenêtre d'exécution — accessible
+        même après avoir fermé RunProgressDialog (qui laisse désormais le pipeline continuer en
+        arrière-plan, voir ui/dialogs/run_progress_dialog.py)."""
+        from core.pipeline import request_cancel
+        reply = QMessageBox.question(
+            self, "Interrompre l'exécution",
+            f"Interrompre l'exécution en cours de « {pipeline_name} » ?\n\n"
+            "L'interruption est coopérative : elle prend effet à la fin de l'étape en cours, "
+            "pas instantanément si celle-ci est longue (ex: une extraction Oracle de plusieurs "
+            "minutes).",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        request_cancel(pipeline_id)
+        self.refresh()
+        QMessageBox.information(
+            self, "Demande envoyée",
+            "L'arrêt a été demandé — le statut affichera « Arrêt en cours » jusqu'à ce que "
+            "l'étape en cours se termine."
+        )
 
     def _on_toggle_pipeline(self, pipeline_id: int, currently_active: bool):
         from database import db_manager as db

@@ -27,6 +27,23 @@ def qapp():
     yield app
 
 
+def test_edge_item_arrow_points_toward_the_target_node(qapp):
+    """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
+    le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de
+    tracé est toujours horizontale par construction de update_path())."""
+    from_node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    to_node = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}})
+    to_node.setPos(400, 0)
+    edge = EdgeItem(from_node, "output_file", to_node)
+
+    tip, base1, base2 = edge._arrow_points()
+    input_x = to_node.input_port_pos().x()
+
+    assert tip.x() < input_x
+    assert base1.x() < tip.x() and base2.x() < tip.x()
+    assert base1.y() < tip.y() < base2.y() or base2.y() < tip.y() < base1.y()
+
+
 def test_dialog_opens_on_empty_pipeline(qapp, test_db):
     pipeline = db.create_pipeline(name="empty")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
@@ -124,6 +141,70 @@ def test_remove_node_removes_connected_edges_before_save(qapp, test_db):
     dlg._on_save()
     assert len(db.get_steps(pipeline.id)) == 1
     assert len(db.get_edges(pipeline.id)) == 0
+
+
+def test_set_executing_step_key_highlights_node_and_incoming_edges(qapp, test_db):
+    """Traçage lumineux (chantier identité, vague 4, idée 14b) : surligne le nœud en cours
+    d'exécution + ses arêtes entrantes, retire le surlignage précédent au changement d'étape."""
+    pipeline = db.create_pipeline(name="trace-glow-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    scene = dlg._scene
+    edge_ab = next(e for e in scene.edges if e.from_node is scene.nodes["a"])
+    edge_bc = next(e for e in scene.edges if e.from_node is scene.nodes["b"])
+
+    scene.set_executing_step_key("b")
+    assert scene.nodes["b"]._is_executing
+    assert not scene.nodes["a"]._is_executing
+    assert edge_ab._is_executing    # entrante vers b
+    assert not edge_bc._is_executing   # sortante de b, pas entrante
+
+    scene.set_executing_step_key("c")
+    assert not scene.nodes["b"]._is_executing
+    assert not edge_ab._is_executing
+    assert scene.nodes["c"]._is_executing
+    assert edge_bc._is_executing
+
+    scene.set_executing_step_key(None)   # run terminé — plus rien surligné
+    assert not scene.nodes["c"]._is_executing
+    assert not edge_bc._is_executing
+
+
+def test_set_executing_step_key_unknown_key_is_a_no_op(qapp, test_db):
+    pipeline = db.create_pipeline(name="trace-glow-unknown-key")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._scene.set_executing_step_key("does-not-exist")   # ne doit pas lever d'exception
+    assert not dlg._scene.nodes["a"]._is_executing
+
+
+def test_poll_executing_step_calls_scene_with_running_step_key(qapp, test_db, monkeypatch):
+    """Le QTimer de polling interroge get_running_step_keys() et répercute le résultat sur la
+    scène — vérifié directement sur la méthode plutôt qu'en attendant un vrai déclenchement du
+    QTimer (pas d'exécution réelle de pipeline dans ce test)."""
+    pipeline = db.create_pipeline(name="trace-glow-poll")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    monkeypatch.setattr(db, "get_running_step_keys", lambda: {pipeline.id: "a"})
+    dlg._poll_executing_step()
+    assert dlg._scene.nodes["a"]._is_executing
+
+    monkeypatch.setattr(db, "get_running_step_keys", lambda: {})
+    dlg._poll_executing_step()
+    assert not dlg._scene.nodes["a"]._is_executing
 
 
 def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, monkeypatch):

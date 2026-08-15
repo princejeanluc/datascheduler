@@ -9,7 +9,15 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QFont
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
+
+# Fermer le dialogue pendant l'exécution ne doit PAS interrompre le pipeline (voir la docstring
+# de RunProgressDialog) — mais un widget Qt parenté ne suffit pas à lui seul à protéger son
+# attribut Python self._thread (et les connexions de signaux vers ses méthodes liées) du ramasse-
+# miettes une fois qu'aucune variable Python ne référence plus le dialogue (confirmé en pratique :
+# "QThread: Destroyed while thread is still running" sans ce filet). Référence forte explicite,
+# retirée dès que le thread concerné se termine (_on_finished).
+_background_runs: set = set()
 
 
 # ──────────────────────────────────────────────
@@ -40,7 +48,21 @@ class RunProgressDialog(QDialog):
     """
     Dialogue modal d'exécution d'un pipeline.
     Affiche la progression pas à pas, les logs, et le résultat final.
-    Ne peut pas être fermé pendant l'exécution.
+
+    Peut être fermé à tout moment pendant l'exécution — "Fermer" cache juste la fenêtre, le
+    pipeline continue de tourner en arrière-plan (visible ensuite via le badge "RUNNING" de
+    PipelinesView/Dashboard, interruptible depuis son menu "…") ; "Arrêter" demande
+    l'interruption coopérative (même mécanisme que pipelines_view.py::_on_run_pipeline lors d'une
+    relance sur un run déjà en cours), qui prend effet à la fin de l'étape en cours, pas
+    instantanément.
+
+    Fermer sans arrêter : un parent Qt (voir les appelants) protège le WIDGET de la destruction,
+    mais PAS l'attribut Python self._thread ni les connexions de signaux vers les méthodes liées
+    de CE dialogue — sans rien de plus, le ramasse-miettes Python peut les récupérer dès qu'aucune
+    variable ne référence plus le dialogue (confirmé en pratique par un crash réel : "QThread:
+    Destroyed while thread is still running"). D'où _background_runs (module-level) : référence
+    forte explicite tant que le thread tourne encore au moment de la fermeture, retirée une fois
+    le run terminé (_on_finished).
     """
 
     def __init__(self, pipeline_id: int, pipeline_name: str, parent=None,
@@ -97,7 +119,7 @@ class RunProgressDialog(QDialog):
 
         self.log_area = QPlainTextEdit()
         self.log_area.setReadOnly(True)
-        self.log_area.setFont(QFont("Consolas", 10))
+        self.log_area.setFont(QFont(FONT_MONO, 10))
         self.log_area.setFixedHeight(140)
         self.log_area.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_dim']}; "
@@ -113,6 +135,11 @@ class RunProgressDialog(QDialog):
         root.addStretch()
 
         btn_row = QHBoxLayout(); btn_row.addStretch()
+        self.btn_stop = QPushButton("Arrêter")
+        self.btn_stop.setObjectName("danger")
+        self.btn_stop.setFixedHeight(34)
+        self.btn_stop.clicked.connect(self._on_stop_clicked)
+        btn_row.addWidget(self.btn_stop)
         self.btn_resume = QPushButton("Reprendre depuis l'échec")
         self.btn_resume.setObjectName("secondary")
         self.btn_resume.setFixedHeight(34)
@@ -121,8 +148,7 @@ class RunProgressDialog(QDialog):
         btn_row.addWidget(self.btn_resume)
         self.btn_close = QPushButton("Fermer")
         self.btn_close.setFixedHeight(34)
-        self.btn_close.setEnabled(False)
-        self.btn_close.clicked.connect(self.accept)
+        self.btn_close.clicked.connect(self._on_close_clicked)
         btn_row.addWidget(self.btn_close)
         root.addLayout(btn_row)
 
@@ -137,8 +163,19 @@ class RunProgressDialog(QDialog):
         self.progress_bar.setValue(pct)
         self.log_area.appendPlainText(f"  {step}")
 
+    def _on_close_clicked(self):
+        if self._thread is not None and self._thread.isRunning():
+            _background_runs.add(self)   # voir le commentaire sur _background_runs en tête de fichier
+        self.accept()
+
+    def closeEvent(self, event):
+        if self._thread is not None and self._thread.isRunning():
+            _background_runs.add(self)
+        super().closeEvent(event)
+
     def _on_finished(self, result):
-        self.btn_close.setEnabled(True)
+        _background_runs.discard(self)
+        self.btn_stop.setVisible(False)
         self._last_result = result
         if result.success:
             m, s = divmod(int(result.duration_s), 60)
@@ -176,8 +213,10 @@ class RunProgressDialog(QDialog):
             resume_from_run_id=run_id,
         ).exec()
 
-    def closeEvent(self, event):
-        if self._thread and self._thread.isRunning():
-            event.ignore()   # bloque la fermeture pendant l'exécution
-        else:
-            super().closeEvent(event)
+    def _on_stop_clicked(self):
+        from core.pipeline import request_cancel
+        request_cancel(self._pipeline_id)
+        self.btn_stop.setEnabled(False)
+        self.lbl_step.setText(
+            "Arrêt demandé — prend effet à la fin de l'étape en cours, pas instantanément."
+        )

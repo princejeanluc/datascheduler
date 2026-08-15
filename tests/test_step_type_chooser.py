@@ -40,6 +40,16 @@ def test_every_step_meta_entry_has_a_known_category(qapp):
         assert meta["category"] in _CATEGORY_ORDER, step_type
 
 
+def test_every_step_meta_entry_has_a_distinct_icon(qapp):
+    """Chaque type d'étape doit être reconnaissable visuellement (chantier identité, vague 1,
+    idée 15) — un nom d'icône qtawesome non vide, distinct même entre types proches (ex :
+    DB_EXTRACT vs DB_LOAD vs DB_EXECUTE)."""
+    icons = {step_type: meta["icon"] for step_type, meta in STEP_META.items()}
+    for step_type, icon in icons.items():
+        assert isinstance(icon, str) and icon, step_type
+    assert len(set(icons.values())) == len(icons), "deux types partagent la même icône"
+
+
 def test_all_cards_present_by_default(qapp):
     dlg = StepTypeChooserDialog(None, include_condition=True)
     assert len(dlg._cards) == len(dlg._visible_types())

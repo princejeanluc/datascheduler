@@ -447,6 +447,11 @@ class PipelineRun(Base):
     # Étape en cours + log partiel, mis à jour en continu pendant l'exécution (pas seulement à
     # la fin) — visibilité d'un run en cours (chantier N). NULL une fois le run terminé.
     current_step_label = Column(String(255), nullable=True)
+    # _step_key de l'étape en cours (identité stable, contrairement au libellé humain ci-dessus)
+    # — permet au canevas de l'éditeur graphique de savoir PRÉCISÉMENT quel nœud surligner
+    # pendant une exécution (chantier identité visuelle, traçage lumineux). NULL une fois le run
+    # terminé, comme current_step_label.
+    current_step_key = Column(String(255), nullable=True)
 
     # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
     # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté

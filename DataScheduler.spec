@@ -12,11 +12,19 @@ oracledb_datas, oracledb_binaries, oracledb_hidden = collect_all('oracledb')
 # tzdata : base de données des fuseaux horaires (nécessaire sous Windows)
 tzdata_datas, _, _ = collect_all('tzdata')
 
+# numpy / pandas : mêmes extensions C que oracledb — un simple hiddenimports=['numpy'] ne
+# suffit pas (contrairement à un module Python pur), numpy a besoin de ses binaires .pyd/.dll
+# et de tout son arbre de sous-modules internes correctement collectés, sinon échec au runtime
+# gelé du type "No module named 'numpy._core._exceptions'" (repéré via une action réelle de
+# duplication de pipeline, qui importe pandas transitivement).
+numpy_datas, numpy_binaries, numpy_hidden = collect_all('numpy')
+pandas_datas, pandas_binaries, pandas_hidden = collect_all('pandas')
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=oracledb_binaries,
-    datas=oracledb_datas + tzdata_datas,
+    binaries=oracledb_binaries + numpy_binaries + pandas_binaries,
+    datas=oracledb_datas + tzdata_datas + numpy_datas + pandas_datas,
     hiddenimports=[
         # ── Modules applicatifs (déclarés explicitement pour PyInstaller) ──
         'database',
@@ -35,6 +43,10 @@ a = Analysis(
         'ui.step_editor',
         'ui.graph_editor',
         'ui.styles',
+        'ui.icons',
+
+        # ── Qt : rendu SVG des icônes/logo personnalisés (ui/icons.py) ──
+        'PySide6.QtSvg',
 
         # ── oracledb (thin mode — pas de client Oracle requis) ──
         *oracledb_hidden,
@@ -98,8 +110,8 @@ a = Analysis(
         'tzlocal',
 
         # ── Pandas / NumPy ──
-        'pandas',
-        'numpy',
+        *numpy_hidden,
+        *pandas_hidden,
     ],
     hookspath=[],
     hooksconfig={},

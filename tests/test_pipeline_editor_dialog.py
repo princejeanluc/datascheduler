@@ -103,6 +103,43 @@ def test_save_sets_trigger_configuration(qapp, test_db):
     assert str(b.trigger_condition).replace("TriggerCondition.", "") == "FAILURE"
 
 
+# ──────────────────────────────────────────────
+#  (Re)planification immédiate à l'enregistrement
+# ──────────────────────────────────────────────
+#
+# Bug réel signalé par l'utilisateur : un pipeline créé/modifié avec une fréquence Quotidien ou
+# Cron ne s'exécutait jamais — le job APScheduler n'était (re)créé qu'au prochain redémarrage de
+# l'app ou à un aller-retour actif/inactif, jamais à l'enregistrement lui-même.
+
+def test_save_schedules_the_pipeline_with_apscheduler(qapp, test_db, monkeypatch):
+    import core.scheduler as scheduler_module
+
+    calls = []
+    fake_sched = type("Fake", (), {"schedule_pipeline": lambda self, pid: calls.append(pid)})()
+    monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: fake_sched)
+
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("scheduled-on-save")
+
+    dlg._on_save()
+
+    from database import db_manager as db
+    p = next(p for p in db.get_pipelines() if p.name == "scheduled-on-save")
+    assert calls == [p.id]
+
+
+def test_save_does_not_crash_when_scheduler_not_initialized(qapp, test_db):
+    """Tous les autres tests de ce fichier appellent _on_save() sans init_scheduler() — la
+    RuntimeError levée par get_scheduler() doit être avalée silencieusement, pas remonter."""
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("no-scheduler-test")
+
+    dlg._on_save()   # ne doit pas lever d'exception
+
+    from database import db_manager as db
+    assert any(p.name == "no-scheduler-test" for p in db.get_pipelines())
+
+
 def test_save_rejects_cycle_and_warns_without_crashing(qapp, test_db, monkeypatch):
     from database import db_manager as db
 

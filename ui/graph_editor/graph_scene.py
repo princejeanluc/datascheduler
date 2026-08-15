@@ -24,6 +24,7 @@ class PipelineGraphScene(QGraphicsScene):
         self.edges: list[EdgeItem] = []
         self._pending_edge: TempEdgeItem | None = None
         self._pending_source: tuple[str, str] | None = None   # (step_key, port_name)
+        self._executing_step_key: str | None = None
 
     # ── Construction du graphe ────────────────
 
@@ -69,6 +70,28 @@ class PipelineGraphScene(QGraphicsScene):
         for e in self.edges:
             if e.from_node is node or e.to_node is node:
                 e.update_path()
+
+    def set_executing_step_key(self, step_key: str | None) -> None:
+        """Traçage lumineux (chantier identité visuelle) : surligne l'étape en cours d'une
+        exécution réelle (nœud + ses arêtes entrantes), retire le surlignage précédent le cas
+        échéant. Appelé en continu par le QTimer de polling du dialogue — no-op si l'étape en
+        cours n'a pas changé depuis le dernier appel."""
+        if step_key == self._executing_step_key:
+            return
+        old_node = self.nodes.get(self._executing_step_key) if self._executing_step_key else None
+        if old_node:
+            old_node.set_executing(False)
+            for e in self.edges:
+                if e.to_node is old_node:
+                    e.set_executing(False)
+
+        self._executing_step_key = step_key
+        new_node = self.nodes.get(step_key) if step_key else None
+        if new_node:
+            new_node.set_executing(True)
+            for e in self.edges:
+                if e.to_node is new_node:
+                    e.set_executing(True)
 
     # ── Hit-test des ports ────────────────────
 

@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QMessageBox,
 )
 from PySide6.QtCore import Qt, QSize
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 from .common import STEP_META, DAYS_OF_WEEK, _icon
 from .step_type_chooser_dialog import StepTypeChooserDialog
 
@@ -200,7 +200,7 @@ class PipelineEditorDialog(QDialog):
         self.inp_cron = self._input("ex : 0 6 * * 1-5")
         self.inp_cron.textChanged.connect(self._refresh_cron)
         cron_hint = QLabel("Format :  minute  heure  jour  mois  jour_semaine")
-        cron_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-family: Consolas;")
+        cron_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-family: {FONT_MONO_STACK};")
         hl4.addWidget(self.inp_cron); hl4.addWidget(cron_hint)
 
         for w in (self._w_daily, self._w_weekly, self._w_monthly, self._w_custom):
@@ -208,7 +208,7 @@ class PipelineEditorDialog(QDialog):
 
         self.lbl_cron = QLabel()
         self.lbl_cron.setStyleSheet(
-            f"color: {COLORS['accent']}; font-size: 12px; font-family: Consolas; "
+            f"color: {COLORS['accent']}; font-size: 12px; font-family: {FONT_MONO_STACK}; "
             f"background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
             f"border-radius: 5px; padding: 7px 12px;"
         )
@@ -317,7 +317,13 @@ class PipelineEditorDialog(QDialog):
             summary = (summary + "  ·  " if summary else "") + " · ".join(extras)
 
         info_col = QVBoxLayout(); info_col.setSpacing(2); info_col.setContentsMargins(0,0,0,0)
-        top_row  = QHBoxLayout(); top_row.setSpacing(8); top_row.setContentsMargins(0,0,0,0)
+        top_row  = QHBoxLayout(); top_row.setSpacing(6); top_row.setContentsMargins(0,0,0,0)
+        type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+        if type_icon:
+            lbl_type_icon = QLabel()
+            lbl_type_icon.setPixmap(type_icon.pixmap(QSize(14, 14)))
+            lbl_type_icon.setStyleSheet("background: transparent; border: none;")
+            top_row.addWidget(lbl_type_icon)
         top_row.addWidget(badge)
         if user_label:
             lbl_name = QLabel(user_label)
@@ -603,6 +609,17 @@ class PipelineEditorDialog(QDialog):
                 f"Le pipeline a bien été enregistré, mais le déclenchement conditionnel n'a pas "
                 f"pu être appliqué : {e}",
             )
+
+        # (Re)planifie immédiatement — sans ça, la fréquence/l'heure choisie ici ne prend effet
+        # qu'au prochain redémarrage de l'app ou à un aller-retour actif/inactif (seuls autres
+        # points d'accroche vers APScheduler, voir pipelines_view.py::_on_toggle_pipeline). Même
+        # patron défensif (RuntimeError silencieuse) : le scheduler n'est pas initialisé dans les
+        # tests qui construisent ce dialogue directement.
+        try:
+            from core.scheduler import get_scheduler
+            get_scheduler().schedule_pipeline(pipeline_id)
+        except RuntimeError:
+            pass
 
         self.accept()
 

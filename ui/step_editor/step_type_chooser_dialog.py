@@ -9,9 +9,9 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame,
     QScrollArea, QWidget,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from ui.styles import COLORS, DIALOG_STYLE
-from .common import STEP_META
+from .common import STEP_META, _icon
 
 # Ordre d'affichage des sections — indépendant de l'ordre d'insertion de STEP_META.
 _CATEGORY_ORDER = [
@@ -141,10 +141,11 @@ class StepTypeChooserDialog(QDialog):
         hl.setContentsMargins(14, 10, 14, 10)
         hl.setSpacing(14)
 
-        dot = QLabel("●")
-        dot.setStyleSheet(
-            f"color: {meta['color']}; font-size: 18px; background: transparent; border: none;"
-        )
+        dot = QLabel()
+        icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+        if icon:
+            dot.setPixmap(icon.pixmap(QSize(18, 18)))
+        dot.setStyleSheet("background: transparent; border: none;")
         dot.setFixedWidth(20)
 
         info_col = QVBoxLayout(); info_col.setSpacing(2)

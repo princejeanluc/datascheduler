@@ -5,7 +5,7 @@ Dialogue de configuration d'une étape SQOOP_EXPORT.
 
 from PySide6.QtWidgets import QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QMessageBox
 from PySide6.QtGui import QFont
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO
 from .base_config_dialog import _BaseStepConfigDialog
 
 
@@ -88,7 +88,7 @@ class _SqoopExportConfigDialog(_BaseStepConfigDialog):
         conf_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(conf_lbl)
         self.txt_sqoop_conf = QPlainTextEdit()
-        self.txt_sqoop_conf.setFont(QFont("Consolas", 11))
+        self.txt_sqoop_conf.setFont(QFont(FONT_MONO, 11))
         self.txt_sqoop_conf.setPlaceholderText("-D mapreduce.job.queuename=default --num-mappers 4")
         self.txt_sqoop_conf.setToolTip(
             "Options supplémentaires ajoutées telles quelles à la fin de la commande "

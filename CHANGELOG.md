@@ -29,6 +29,168 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.26.0] - 2026-08-15
+
+### Ajouté
+- Le dialogue d'exécution ("Exécuter maintenant") peut désormais être fermé à tout moment
+  pendant l'exécution : "Fermer" laisse le pipeline continuer en arrière-plan (visible via le
+  badge "RUNNING"), un nouveau bouton "Arrêter" demande l'interruption coopérative sans avoir à
+  fermer puis relancer.
+- Pipelines : nouvelle action "Interrompre l'exécution en cours" dans le menu "…" de chaque
+  ligne, visible uniquement pendant qu'un run est effectivement en cours — accessible même après
+  avoir fermé le dialogue de suivi (qui ne bloque plus la fermeture, voir ci-dessus).
+
+### Corrigé
+- Fermer le dialogue d'exécution pendant qu'un pipeline tournait provoquait un plantage de
+  l'application dès la fin du run ("QThread: Destroyed while thread is still running") — le
+  thread d'exécution n'était référencé que par un attribut Python du dialogue, insuffisant à lui
+  seul pour le protéger du ramasse-miettes une fois qu'aucune variable ne référençait plus le
+  dialogue fermé. Corrigé par une référence forte explicite, maintenue tant que le run continue.
+- Pipelines : laisser le menu "…" d'une ligne ouvert pendant qu'un rafraîchissement automatique
+  survenait (toutes les 30s) plantait l'application — reconstruit toute la colonne Actions (donc
+  chaque menu) à chaque appel, y compris un menu actuellement affiché. Le rafraîchissement est
+  désormais reporté tant qu'un menu contextuel est ouvert.
+
+## [0.25.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 4 (suite des vagues 1-3, derniers éléments du backlog) :
+  - Historique : calendrier de fréquence par pipeline (façon graphe de contributions, ~90
+    derniers jours) — repérer un motif ("ce pipeline échoue tous les lundis") d'un coup d'œil.
+    Survoler une case affiche le détail de ce jour précis ; cliquer une case avec au moins une
+    exécution ouvre la liste des runs de ce jour (double-clic sur une ligne pour le log complet).
+  - Éditeur graphique : traçage lumineux — le nœud de l'étape en cours d'une exécution réelle
+    (et son arête entrante) se surlignent en direct, interrogé en continu tant que le dialogue
+    est ouvert. Nouvelle colonne `current_step_key` (migration idempotente) pour identifier
+    précisément l'étape, en plus du libellé humain déjà existant.
+
+### Corrigé
+- Un pipeline enregistré avec une fréquence Quotidien ou Cron ne s'exécutait jamais à l'heure
+  prévue : l'enregistrement persistait bien la planification en base, mais ne prévenait jamais
+  APScheduler du changement — le job n'était (re)créé qu'au prochain redémarrage de l'app ou à un
+  aller-retour actif/inactif. Corrigé à la racine (planification immédiate à l'enregistrement,
+  et aux deux autres points de création d'un pipeline en dehors de cette boîte de dialogue :
+  raccourci "Nouveau (graphique)" et import).
+- Pipelines : la colonne "Planification" affichait toujours l'heure quotidienne (ex: "CUSTOM
+  06:00"), même pour une fréquence Personnalisée (Cron) où cette valeur n'est jamais utilisée —
+  affiche désormais la véritable expression cron dans ce cas.
+- Historique : la colonne "Statut" de la fenêtre de détail d'un jour du calendrier de fréquence
+  se faisait compresser par Qt en dessous de sa largeur réelle (badge tronqué en plein mot) —
+  même correctif de largeur fixe déjà appliqué ailleurs dans cette vue.
+
+## [0.24.0] - 2026-08-16
+
+### Ajouté
+- **Vue globale des pipelines** (`ui/dialogs/pipeline_topology_dialog.py`) : nouvelle fenêtre
+  dédiée montrant tous les pipelines en nœuds reliés par leurs chaînes de déclenchement, dans le
+  même langage visuel que l'aperçu du Dashboard, mais sans plafond — zoom à la molette, recherche
+  par nom, filtre par statut (En cours/Succès/Échec/Inactifs), clic sur un nœud pour ouvrir son
+  détail. Ouverte via un nouveau lien "Voir tous les pipelines (N) →" sur le Dashboard, qui
+  n'apparaît que lorsque l'aperçu (désormais plafonné à 6 chaînes racines pour rester lisible)
+  laisse des pipelines de côté.
+
+### Corrigé
+- La disposition en nœuds de la Vue globale ne repassait jamais à la ligne (largeur de calcul
+  fixée en dur bien au-delà de la fenêtre réelle) — tout s'étalait sur une seule rangée toujours
+  plus large, fastidieuse à parcourir avec beaucoup de pipelines. Utilise désormais la largeur
+  réelle de la fenêtre, et se réajuste au redimensionnement/plein écran.
+- Échec de la duplication de pipeline dans l'exécutable gelé (« No module named
+  'numpy._core._exceptions' ») — `numpy`/`pandas` (dépendance de `pandas`, utilisé pour
+  l'export CSV) n'étaient déclarés qu'en `hiddenimports` simple, insuffisant pour leurs
+  extensions C ; même traitement `collect_all()` que `oracledb` désormais appliqué aux deux.
+  Préexistant, sans lien avec ce chantier — juste repéré en le testant.
+
+## [0.23.0] - 2026-08-16
+
+### Ajouté
+- Personnalité structurelle, vague 3 (suite des vagues 1/2) :
+  - Pipelines : vignette de flux (points colorés, un par étape) devant le résumé texte de chaque
+    ligne, pour reconnaître un pipeline d'un coup d'œil.
+  - Dashboard : la section "Activité (30 derniers jours)" (graphique en barres) est remplacée par
+    "Vue d'ensemble des pipelines" — un aperçu des pipelines en nœuds reliés par leurs chaînes de
+    déclenchement, colorés par leur dernier statut. Le graphique en barres reste utilisé tel quel
+    dans la vue détail d'un pipeline.
+  - Dashboard : le tableau "Dernières exécutions" passe d'un flux chronologique plat à une ligne
+    par pipeline, avec une bande de pastilles montrant les dernières exécutions plutôt qu'un seul
+    badge de statut.
+
+### Corrigé
+- Pipelines : le résumé d'étapes trop long se coupait en plein mot sans indication visuelle —
+  troncature avec "…", texte complet toujours disponible en infobulle.
+- Dashboard : les nœuds de la mini-topologie n'avaient pas de conteneur visuellement délimité,
+  le point de statut n'était pas aligné avec le nom du pipeline, et un pipeline inactif n'avait
+  qu'une bordure grise pleine (pas assez distincte d'un statut "en échec" au premier regard) —
+  conteneur dédié, point en ligne avec le nom, bordure interrompue pour un pipeline inactif.
+
+## [0.22.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 2 (suite de la vague 1) :
+  - Dashboard : bloc santé asymétrique (anneau segmenté succès/échec + 4 cartes secondaires
+    compactes — Succès, Échecs, Pipelines actifs, Durée moy.) remplace la grille de 3 cartes
+    identiques. L'anneau ne compte que les pipelines actifs ayant déjà un dernier statut connu ;
+    les pipelines jamais exécutés sont recensés à part dans la légende plutôt que d'être invisibles.
+  - Séparateurs de section du Dashboard reprenant le motif "flux" (3 points reliés, rendu SVG)
+    au lieu d'une ligne plate.
+  - Connexions : icône de prise ajoutée à côté du badge d'état existant (OK/Échec/Jamais testé,
+    inchangé) sur les 6 tableaux de profils.
+  - Requêtes SQL : les mots-clés SQL (SELECT, FROM, WHERE…) sont désormais colorés dans
+    l'infobulle d'aperçu de la requête.
+
+### Corrigé
+- Dashboard : le contenu (rail + bloc santé plus haut que ce qu'il remplace) pouvait dépasser la
+  hauteur de la fenêtre sans zone de défilement, provoquant un chevauchement visuel — la vue
+  défile désormais correctement.
+- Connexions : la colonne "État" (badge OK/Échec/Jamais testé) et la nouvelle colonne "prise"
+  pouvaient se faire compresser par Qt en dessous de leur besoin réel une fois le tableau plus
+  chargé, rognant silencieusement le texte du badge — largeurs fixes désormais garanties.
+
+## [0.21.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 1 (suite du chantier identité — la palette seule ne suffisait
+  pas, la structure restait celle d'un dashboard générique) :
+  - Chaque type d'étape a désormais sa propre icône (extraction, FTP, Spark SQL, script Python…),
+    visible dans le sélecteur de type, l'éditeur linéaire et l'éditeur graphique — plus seulement
+    une couleur.
+  - Dashboard : rail « Prochaines & en cours » en tête de page (remplace la carte isolée
+    « Prochaine exéc. ») — le pipeline en cours d'exécution y pulse, les prochains passages
+    planifiés y sont listés.
+  - Éditeur graphique : les arêtes portent désormais une flèche indiquant le sens du flux.
+  - Badge « RUNNING » animé (légère pulsation) sur les 3 écrans qui l'affichent (Dashboard,
+    Pipelines, Historique), via une fabrique commune.
+  - Pipelines : un pipeline déclenché après un autre (chaînage) apparaît désormais indenté sous
+    son parent plutôt que noyé alphabétiquement dans la liste.
+  - Connexions : un profil non retesté depuis plus de 30 jours s'estompe légèrement dans le
+    tableau, pour repérer d'un regard ce qui mérite d'être revérifié.
+
+### Corrigé
+- Les ~12 derniers endroits qui codaient encore `"Consolas"` en dur (éditeur de requête SQL,
+  journal d'exécution, indices de tokens/cron, éditeurs de scripts Python/Spark/Sqoop) utilisent
+  désormais `FONT_MONO`/`FONT_MONO_STACK` — scope explicitement laissé de côté lors de la phase 1
+  de l'identité visuelle (v0.19.0), complété ici : JetBrains Mono s'applique maintenant partout
+  dans l'application, sans exception.
+
+## [0.20.0] - 2026-08-14
+
+### Ajouté
+- Identité visuelle, phase 2 : logo « flux de pipelines » (3 nœuds reliés) et les 6 icônes de la
+  barre de navigation redessinés en traits personnalisés (`ui/icons.py`, tracés SVG embarqués,
+  rendus via `QSvgRenderer` — remplacent les icônes Font Awesome utilisées jusqu'ici pour ces 7
+  éléments ; le reste de l'application continue d'utiliser Font Awesome, inchangé). Cartes
+  statistiques du Dashboard dotées d'un liseré de couleur (bleu-signal/vert/rouge/orange selon la
+  carte). Petit indice contextuel (« N exécution(s) sur la période ») ajouté à côté du titre de la
+  section Activité.
+
+### Modifié
+- Espacement du bloc logo de la barre de navigation aligné sur la maquette (18px au lieu de 16px).
+
+### Corrigé
+- Le logo utilisait un chemin de rendu différent des icônes de navigation (extraction manuelle
+  `.pixmap()` depuis un pixmap source surdimensionné, plutôt que le pipeline normal
+  `setIcon()`/`setIconSize()`), causant un espacement visuellement incorrect entre l'icône et le
+  texte « DataScheduler ». Corrigé en rendant le logo directement à sa taille cible.
+
 ## [0.19.0] - 2026-08-14
 
 ### Modifié

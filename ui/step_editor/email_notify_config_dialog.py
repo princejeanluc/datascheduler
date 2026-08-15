@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QMessageBox, QDoubleSpinBox,
 )
 from PySide6.QtGui import QFont
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO
 from .base_config_dialog import _BaseStepConfigDialog
 
 
@@ -53,7 +53,7 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         body_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(body_lbl)
         self.txt_body = QPlainTextEdit()
-        self.txt_body.setFont(QFont("Consolas", 11))
+        self.txt_body.setFont(QFont(FONT_MONO, 11))
         self.txt_body.setPlaceholderText("Le pipeline a exporté {rows_count} lignes le {yyyy}-{MM}-{dd}.")
         self.txt_body.setToolTip("Peut utiliser les mêmes jetons que le sujet (ex : {rows_count}, {yyyy}).")
         self.txt_body.setFixedHeight(110)

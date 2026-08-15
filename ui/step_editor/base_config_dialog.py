@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QComboBox, QPushButton, QFrame, QWidget, QCheckBox, QMenu,
 )
 from PySide6.QtCore import Qt
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 from .common import STEP_META, TOKENS_HINT
 
 
@@ -276,7 +276,7 @@ class _BaseStepConfigDialog(QDialog):
     def _tokens_hint(self) -> QLabel:
         lbl = QLabel("Tokens : " + TOKENS_HINT)
         lbl.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: Consolas; font-style: italic;"
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONT_MONO_STACK}; font-style: italic;"
         )
         lbl.setWordWrap(True)
         return lbl
