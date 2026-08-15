@@ -29,6 +29,13 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.26.1] - 2026-08-15
+
+### Corrigé
+- Étape Script Python : le dialogue de configuration (le plus long des dialogues d'étape) pouvait
+  dépasser la hauteur disponible sur certains écrans, coupant les derniers champs sans zone de
+  défilement — corrigé, boutons Annuler/Valider restant fixes en pied de fenêtre.
+
 ## [0.26.0] - 2026-08-15
 
 ### Ajouté

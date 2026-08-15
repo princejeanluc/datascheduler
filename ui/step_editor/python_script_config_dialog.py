@@ -5,7 +5,7 @@ Dialogue de configuration d'une étape PYTHON_SCRIPT.
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPlainTextEdit, QPushButton,
-    QWidget, QFileDialog, QMessageBox,
+    QWidget, QFileDialog, QMessageBox, QScrollArea, QFrame,
 )
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QFont
@@ -30,7 +30,24 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         self._prefill()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        # Le plus long des dialogues de configuration d'étape (script + arguments + tokens +
+        # contexte + répertoire de travail + timeout + sorties) — dépasse la hauteur disponible
+        # sur certains écrans sans zone de défilement, coupant les derniers champs (repéré en
+        # testant le traçage lumineux, sans lien avec ce chantier-là). Même patron de
+        # QScrollArea déjà utilisé pour Dashboard/Historique : `root` reste le layout du
+        # contenu défilant, les boutons Annuler/Valider restent fixes en pied de fenêtre.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        root = QVBoxLayout(content); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
         title_row = QHBoxLayout()
         title = QLabel("Exécution d'un script Python")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
@@ -153,9 +170,12 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         names_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
         form2.addRow("", names_hint)
         root.addLayout(form2)
-
         root.addStretch()
-        self._buttons(root)
+
+        footer = QVBoxLayout()
+        footer.setContentsMargins(28, 0, 28, 20)
+        self._buttons(footer)
+        outer.addLayout(footer)
 
     def _download_template(self):
         path, _ = QFileDialog.getSaveFileName(
