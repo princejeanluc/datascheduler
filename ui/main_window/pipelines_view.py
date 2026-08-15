@@ -6,7 +6,7 @@ Vue Pipelines : liste + création + export/import.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QFileDialog, QMenu, QInputDialog,
+    QMessageBox, QFileDialog, QMenu, QInputDialog, QApplication,
 )
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
@@ -96,9 +96,17 @@ class PipelinesView(QWidget):
         _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4])
 
     def refresh(self):
+        # Reconstruit toute la colonne Actions à chaque appel (y compris chaque QMenu "⋯") — si
+        # un de ces menus est actuellement ouvert (l'utilisateur est en train de choisir une
+        # action), le détruire sous lui plante l'app (QMenu gère sa propre boucle d'événements
+        # imbriquée pendant qu'il est affiché). Reporté au prochain appel (30s, timer périodique)
+        # plutôt que de risquer ça — l'utilisateur aura fermé le menu bien avant.
+        if QApplication.activePopupWidget() is not None:
+            return
+
         from database import db_manager as db
         from ui.step_editor import STEP_META
-        from core.pipeline import is_cancel_requested
+        from core.pipeline import is_cancel_requested, is_pipeline_running
         from core.scheduler import describe_schedule
         pipelines = db.get_pipelines()
         ordered = _ordered_with_chains(pipelines)
@@ -189,6 +197,14 @@ class PipelinesView(QWidget):
             # le bouton "+ Artefact" de ui/step_editor/base_config_dialog.py, pour ne pas garder
             # 8 boutons pleine largeur par ligne dans une colonne "Actions".
             menu = QMenu(btn_more)
+            if is_pipeline_running(pid):
+                # Accessible même quand la fenêtre d'exécution a été fermée entre-temps (elle
+                # continue en arrière-plan) — sans ça, aucun moyen direct d'interrompre un run
+                # dont on a fermé le dialogue de suivi.
+                act_interrupt = menu.addAction("Interrompre l'exécution en cours")
+                act_interrupt.triggered.connect(
+                    lambda _, i=pid, n=pname: self._on_interrupt_pipeline(i, n)
+                )
             act_toggle = menu.addAction("Désactiver" if is_active else "Activer")
             act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             act_graph = menu.addAction("Éditeur graphique")
@@ -404,6 +420,29 @@ class PipelinesView(QWidget):
             get_scheduler().schedule_pipeline(pipeline_id)
         except RuntimeError:
             pass
+
+    def _on_interrupt_pipeline(self, pipeline_id: int, pipeline_name: str):
+        """Interrompre un run en cours indépendamment de la fenêtre d'exécution — accessible
+        même après avoir fermé RunProgressDialog (qui laisse désormais le pipeline continuer en
+        arrière-plan, voir ui/dialogs/run_progress_dialog.py)."""
+        from core.pipeline import request_cancel
+        reply = QMessageBox.question(
+            self, "Interrompre l'exécution",
+            f"Interrompre l'exécution en cours de « {pipeline_name} » ?\n\n"
+            "L'interruption est coopérative : elle prend effet à la fin de l'étape en cours, "
+            "pas instantanément si celle-ci est longue (ex: une extraction Oracle de plusieurs "
+            "minutes).",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        request_cancel(pipeline_id)
+        self.refresh()
+        QMessageBox.information(
+            self, "Demande envoyée",
+            "L'arrêt a été demandé — le statut affichera « Arrêt en cours » jusqu'à ce que "
+            "l'étape en cours se termine."
+        )
 
     def _on_toggle_pipeline(self, pipeline_id: int, currently_active: bool):
         from database import db_manager as db

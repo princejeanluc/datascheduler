@@ -80,6 +80,77 @@ def test_overflow_menu_toggle_action_triggers_callback(qapp, test_db, monkeypatc
     assert calls == [(p.id, True)]
 
 
+def test_overflow_menu_offers_interrupt_only_while_running(qapp, test_db, monkeypatch):
+    """Bug réel : fermer RunProgressDialog pendant l'exécution ne laissait plus aucun moyen
+    direct d'interrompre un run devenu invisible (voir ui/dialogs/run_progress_dialog.py) —
+    ajouté en tête de menu, uniquement quand une exécution est effectivement en cours."""
+    import core.pipeline as pipeline_module
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="menu-interrupt-idle-test")
+    view = PipelinesView()
+    _, menu = _get_more_button_and_menu(view, 0)
+    labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert "Interrompre l'exécution en cours" not in labels
+
+    monkeypatch.setattr(pipeline_module, "is_pipeline_running", lambda pid: True)
+    view.refresh()
+    _, menu = _get_more_button_and_menu(view, 0)
+    labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert labels[0] == "Interrompre l'exécution en cours"
+
+
+def test_overflow_menu_interrupt_action_triggers_callback(qapp, test_db, monkeypatch):
+    import core.pipeline as pipeline_module
+    from ui.main_window.pipelines_view import PipelinesView
+
+    p = db.create_pipeline(name="menu-interrupt-trigger-test")
+    monkeypatch.setattr(pipeline_module, "is_pipeline_running", lambda pid: True)
+    view = PipelinesView()
+
+    calls = []
+    monkeypatch.setattr(view, "_on_interrupt_pipeline", lambda i, n: calls.append((i, n)))
+    _, menu = _get_more_button_and_menu(view, 0)
+    menu.actions()[0].trigger()
+
+    assert calls == [(p.id, "menu-interrupt-trigger-test")]
+
+
+def test_on_interrupt_pipeline_requests_cancel_after_confirmation(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    import core.pipeline as pipeline_module
+    from ui.main_window.pipelines_view import PipelinesView
+
+    p = db.create_pipeline(name="interrupt-confirm-test")
+    view = PipelinesView()
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    calls = []
+    monkeypatch.setattr(pipeline_module, "request_cancel", lambda pid: calls.append(pid))
+
+    view._on_interrupt_pipeline(p.id, p.name)
+
+    assert calls == [p.id]
+
+
+def test_on_interrupt_pipeline_does_nothing_without_confirmation(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+    import core.pipeline as pipeline_module
+    from ui.main_window.pipelines_view import PipelinesView
+
+    p = db.create_pipeline(name="interrupt-no-confirm-test")
+    view = PipelinesView()
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
+    calls = []
+    monkeypatch.setattr(pipeline_module, "request_cancel", lambda pid: calls.append(pid))
+
+    view._on_interrupt_pipeline(p.id, p.name)
+
+    assert calls == []
+
+
 def test_overflow_menu_delete_action_triggers_callback(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 

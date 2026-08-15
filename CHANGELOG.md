@@ -29,6 +29,28 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.26.0] - 2026-08-15
+
+### Ajouté
+- Le dialogue d'exécution ("Exécuter maintenant") peut désormais être fermé à tout moment
+  pendant l'exécution : "Fermer" laisse le pipeline continuer en arrière-plan (visible via le
+  badge "RUNNING"), un nouveau bouton "Arrêter" demande l'interruption coopérative sans avoir à
+  fermer puis relancer.
+- Pipelines : nouvelle action "Interrompre l'exécution en cours" dans le menu "…" de chaque
+  ligne, visible uniquement pendant qu'un run est effectivement en cours — accessible même après
+  avoir fermé le dialogue de suivi (qui ne bloque plus la fermeture, voir ci-dessus).
+
+### Corrigé
+- Fermer le dialogue d'exécution pendant qu'un pipeline tournait provoquait un plantage de
+  l'application dès la fin du run ("QThread: Destroyed while thread is still running") — le
+  thread d'exécution n'était référencé que par un attribut Python du dialogue, insuffisant à lui
+  seul pour le protéger du ramasse-miettes une fois qu'aucune variable ne référençait plus le
+  dialogue fermé. Corrigé par une référence forte explicite, maintenue tant que le run continue.
+- Pipelines : laisser le menu "…" d'une ligne ouvert pendant qu'un rafraîchissement automatique
+  survenait (toutes les 30s) plantait l'application — reconstruit toute la colonne Actions (donc
+  chaque menu) à chaque appel, y compris un menu actuellement affiché. Le rafraîchissement est
+  désormais reporté tant qu'un menu contextuel est ouvert.
+
 ## [0.25.0] - 2026-08-15
 
 ### Ajouté
