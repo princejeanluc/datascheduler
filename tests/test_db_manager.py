@@ -319,6 +319,112 @@ def test_reconcile_stale_runs_leaves_finished_runs_and_other_pipelines_untouched
         assert s.get(Pipeline, p_ok.id).last_status == "SUCCESS"
 
 
+def test_update_run_progress_sets_current_step_key(test_db):
+    pipeline_id = db.create_pipeline(name="P1").id
+    run = db.create_run(pipeline_id)
+
+    db.update_run_progress(run.id, "Étape 1/3 : Export", "…", current_step_key="step-a")
+
+    reloaded = db.get_run(run.id)
+    assert reloaded.current_step_key == "step-a"
+
+
+def test_update_run_progress_leaves_current_step_key_unchanged_when_omitted(test_db):
+    """Les tickets "reprise"/"ignorée" (core/pipeline.py) n'appellent pas progress() avec un
+    step_key — la dernière étape réellement en cours doit rester surlignée jusqu'au prochain
+    ticket qui en fournit un nouveau, pas être effacée entre deux appels."""
+    pipeline_id = db.create_pipeline(name="P1").id
+    run = db.create_run(pipeline_id)
+
+    db.update_run_progress(run.id, "Étape 1/3 : Export", "…", current_step_key="step-a")
+    db.update_run_progress(run.id, "Étape 1/3 : Export (50%)", "…")   # pas de step_key
+
+    reloaded = db.get_run(run.id)
+    assert reloaded.current_step_key == "step-a"
+
+
+def test_finish_run_clears_current_step_key(test_db):
+    pipeline_id = db.create_pipeline(name="P1").id
+    run = db.create_run(pipeline_id)
+    db.update_run_progress(run.id, "Étape 2/2 : Envoi", "log partiel", current_step_key="step-b")
+
+    db.finish_run(run.id, status="SUCCESS", log_text="log complet")
+
+    reloaded = db.get_run(run.id)
+    assert reloaded.current_step_key is None
+
+
+def test_get_running_step_keys_returns_most_recent_run_per_pipeline(test_db):
+    p1 = db.create_pipeline(name="P1").id
+    p2 = db.create_pipeline(name="P2").id
+
+    older = db.create_run(p1)
+    db.update_run_progress(older.id, "…", "…", current_step_key="old-key")
+    db.finish_run(older.id, status="FAILED")   # terminé — ne doit plus apparaître
+
+    newer = db.create_run(p1)
+    db.update_run_progress(newer.id, "…", "…", current_step_key="new-key")
+
+    db.create_run(p2)   # jamais de step_key pour p2 — absent du résultat
+
+    keys = db.get_running_step_keys()
+    assert keys[p1] == "new-key"
+    assert p2 not in keys
+
+
+def test_get_runs_for_pipeline_on_day_filters_by_date_and_pipeline(test_db):
+    """Calendrier de fréquence (chantier identité, vague 4, idée 13) : cliquer une case doit
+    isoler les runs de CE jour pour CE pipeline, sans ramener les autres jours ni les runs d'un
+    autre pipeline."""
+    from datetime import date, datetime, timedelta
+
+    p1 = db.create_pipeline(name="P1").id
+    p2 = db.create_pipeline(name="P2").id
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+
+    run_today = db.create_run(p1)
+    db.finish_run(run_today.id, status="SUCCESS")
+
+    run_yesterday = db.create_run(p1)
+    with db.get_session() as s:
+        from database.models import PipelineRun
+        s.get(PipelineRun, run_yesterday.id).started_at = datetime.combine(
+            yesterday, datetime.min.time())
+    db.finish_run(run_yesterday.id, status="FAILED")
+
+    other_pipeline_run = db.create_run(p2)
+    db.finish_run(other_pipeline_run.id, status="SUCCESS")
+
+    runs = db.get_runs_for_pipeline_on_day(p1, today)
+    assert [r.id for r in runs] == [run_today.id]
+
+
+def test_migrate_adds_current_step_key_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Même patron que le test current_step_label ci-dessus — exerce réellement le bloc
+    ALTER TABLE ajouté à _migrate() pour current_step_key."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs_key.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "current_step_key" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 def test_migrate_adds_current_step_label_to_a_pre_existing_pipeline_runs_table(tmp_path):
     """Table pipeline_runs "legacy" (antérieure au chantier N) — exerce réellement le bloc
     ALTER TABLE ajouté à _migrate(), pas seulement Base.metadata.create_all() sur une base

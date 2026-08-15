@@ -99,6 +99,7 @@ class PipelinesView(QWidget):
         from database import db_manager as db
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested
+        from core.scheduler import describe_schedule
         pipelines = db.get_pipelines()
         ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
@@ -108,8 +109,7 @@ class PipelinesView(QWidget):
         self.table.setRowCount(len(ordered))
         for r_idx, (p, depth) in enumerate(ordered):
             st       = _status_str(p.last_status)
-            freq     = _status_str(p.frequency)
-            plan     = f"{freq} {p.scheduled_time or ''}".strip()
+            plan     = describe_schedule(p)
             next_run = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
 
             # Résumé des étapes
@@ -236,6 +236,7 @@ class PipelinesView(QWidget):
 
         p = db.create_pipeline(name=name)
         if PipelineGraphEditorDialog(self, pipeline=p).exec():
+            self._schedule_if_possible(p.id)
             self.refresh()
         else:
             # Rien enregistré (annulé sans ajouter d'étape) — un pipeline coquille à 0 étape
@@ -282,6 +283,8 @@ class PipelinesView(QWidget):
         else:
             QMessageBox.information(self, "Import réussi", "Le pipeline a été importé avec succès.")
 
+        if result.pipeline_id is not None:
+            self._schedule_if_possible(result.pipeline_id)
         self.refresh()
 
     def _on_edit_pipeline(self, pipeline_id: int):
@@ -388,6 +391,19 @@ class PipelinesView(QWidget):
         if reply == QMessageBox.Yes:
             db.delete_pipeline(pipeline_id)
             self.refresh()
+
+    @staticmethod
+    def _schedule_if_possible(pipeline_id: int):
+        """(Re)planifie immédiatement auprès d'APScheduler — même patron défensif que
+        _on_toggle_pipeline() ci-dessous (RuntimeError silencieuse : scheduler non initialisé
+        dans les tests qui construisent une vue directement). Utilisé partout où un pipeline
+        actif est créé/modifié en dehors de PipelineEditorDialog._on_save() (qui gère déjà son
+        propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet."""
+        try:
+            from core.scheduler import get_scheduler
+            get_scheduler().schedule_pipeline(pipeline_id)
+        except RuntimeError:
+            pass
 
     def _on_toggle_pipeline(self, pipeline_id: int, currently_active: bool):
         from database import db_manager as db

@@ -6,7 +6,7 @@ PipelineEditorDialog ("Modifier"), inchangé — les deux dialogues restent inte
 même pipeline (voir docs/ARCHITECTURE.md).
 """
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox,
 )
@@ -39,6 +39,21 @@ class PipelineGraphEditorDialog(QDialog):
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui()
         self._load_graph()
+
+        # Traçage lumineux (chantier identité visuelle) : actif en permanence dès l'ouverture,
+        # pas de bascule de mode — éditer un pipeline qui se trouve être en cours d'exécution
+        # ailleurs affiche simplement le surlignage par-dessus, sans bloquer l'édition.
+        self._executing_timer = QTimer(self)
+        self._executing_timer.setInterval(1000)
+        self._executing_timer.timeout.connect(self._poll_executing_step)
+        self._executing_timer.start()
+
+    def _poll_executing_step(self):
+        if not self._pipeline:
+            return
+        from database import db_manager as db
+        step_key = db.get_running_step_keys().get(self._pipeline.id)
+        self._scene.set_executing_step_key(step_key)
 
     # ── Données ──────────────────────────────
 

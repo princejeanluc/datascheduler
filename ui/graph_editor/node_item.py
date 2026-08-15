@@ -29,12 +29,21 @@ class StepNodeItem(QGraphicsObject):
     def __init__(self, step: dict):
         super().__init__()
         self.step = step
+        self._is_executing = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
             | QGraphicsItem.ItemSendsGeometryChanges
         )
         self.setZValue(1)
+
+    def set_executing(self, executing: bool) -> None:
+        """Traçage lumineux (chantier identité visuelle) : surligne ce nœud comme étant
+        l'étape en cours d'une exécution réelle. Bordure signal statique — pas d'animation,
+        distincte de la sélection (même épaisseur, couleur différente)."""
+        if executing != self._is_executing:
+            self._is_executing = executing
+            self.update()
 
     # ── Identité ──────────────────────────────
 
@@ -77,8 +86,8 @@ class StepNodeItem(QGraphicsObject):
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
-        border_color = QColor(meta["color"])
-        pen = QPen(border_color, 3 if self.isSelected() else 1.5)
+        border_color = QColor(COLORS["signal"]) if self._is_executing else QColor(meta["color"])
+        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing) else 1.5)
         painter.setPen(pen)
         painter.drawPath(path)
 

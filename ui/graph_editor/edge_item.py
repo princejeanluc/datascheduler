@@ -28,9 +28,17 @@ class EdgeItem(QGraphicsPathItem):
         self.from_node = from_node
         self.from_port = from_port
         self.to_node   = to_node
+        self._is_executing = False
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setZValue(0)
         self.update_path()
+
+    def set_executing(self, executing: bool) -> None:
+        """Traçage lumineux (chantier identité visuelle) : surligne cette arête comme entrante
+        vers l'étape en cours d'une exécution réelle. Voir StepNodeItem.set_executing()."""
+        if executing != self._is_executing:
+            self._is_executing = executing
+            self.update()
 
     def update_path(self):
         p1 = self.from_node.output_port_pos(self.from_port)
@@ -49,8 +57,13 @@ class EdgeItem(QGraphicsPathItem):
         return tip, base1, base2
 
     def paint(self, painter, option, widget=None):
-        color = QColor(COLORS["accent"] if self.isSelected() else COLORS["text_dim"])
-        painter.setPen(QPen(color, 2.5 if self.isSelected() else 1.8))
+        if self._is_executing:
+            color = QColor(COLORS["signal"])
+        elif self.isSelected():
+            color = QColor(COLORS["accent"])
+        else:
+            color = QColor(COLORS["text_dim"])
+        painter.setPen(QPen(color, 2.5 if (self.isSelected() or self._is_executing) else 1.8))
         painter.drawPath(self.path())
 
         tip, base1, base2 = self._arrow_points()

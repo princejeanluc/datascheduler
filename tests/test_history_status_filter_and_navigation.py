@@ -399,6 +399,89 @@ def test_run_history_dots_handles_various_statuses(qapp):
     dots.set_statuses(["SUCCESS"])
 
 
+def test_heatmap_day_color_key_worst_result_wins():
+    """Calendrier de fréquence (chantier identité, vague 4, idée 13) : un seul échec dans la
+    journée colore la case en danger, même si d'autres runs ce jour-là ont réussi."""
+    from ui.main_window.widgets import _heatmap_day_color_key
+
+    assert _heatmap_day_color_key({"success": 2, "failed": 1, "cancelled": 0}) == "danger"
+    assert _heatmap_day_color_key({"success": 3, "failed": 0, "cancelled": 0}) == "success"
+    assert _heatmap_day_color_key({"success": 0, "failed": 0, "cancelled": 0}) == "border"
+    assert _heatmap_day_color_key({}) == "border"
+
+
+def test_run_frequency_heatmap_constructs_without_error(qapp):
+    from ui.main_window.widgets import RunFrequencyHeatmap
+
+    RunFrequencyHeatmap([])
+    widget = RunFrequencyHeatmap([
+        {"success": 1, "failed": 0, "cancelled": 0},
+        {"success": 0, "failed": 1, "cancelled": 0},
+        {"success": 0, "failed": 0, "cancelled": 0},
+    ])
+    widget.set_counts([{"success": 1, "failed": 0, "cancelled": 0}])
+
+
+def test_heatmap_day_tooltip_is_specific_to_that_day():
+    """Le survol doit renseigner CE jour précis (date + détail), pas un texte générique
+    identique sur toutes les cases — c'est ce qui rendait le calendrier peu informatif."""
+    from datetime import date
+
+    from ui.main_window.widgets import _heatmap_day_tooltip
+
+    d = date(2026, 8, 12)
+    assert _heatmap_day_tooltip({"date": d, "success": 0, "failed": 0, "cancelled": 0}) == \
+        "12/08/2026 — aucune exécution"
+    assert _heatmap_day_tooltip({"date": d, "success": 2, "failed": 1, "cancelled": 0}) == \
+        "12/08/2026 — 2 succès, 1 échec"
+    assert _heatmap_day_tooltip({"date": d, "success": 0, "failed": 2, "cancelled": 1}) == \
+        "12/08/2026 — 2 échecs, 1 annulé"
+
+
+def test_run_frequency_heatmap_emits_day_clicked_only_for_days_with_data(qapp):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
+    from datetime import date
+
+    from ui.main_window.widgets import RunFrequencyHeatmap
+
+    empty_day = date(2026, 8, 10)
+    active_day = date(2026, 8, 11)
+    widget = RunFrequencyHeatmap([
+        {"date": empty_day, "success": 0, "failed": 0, "cancelled": 0},
+        {"date": active_day, "success": 1, "failed": 0, "cancelled": 0},
+    ])
+    widget.show()
+
+    clicks = []
+    widget.day_clicked.connect(clicks.append)
+
+    step = widget.SQUARE + widget.GAP
+    QTest.mouseClick(widget, Qt.LeftButton, pos=QPoint(step * 0 + 4, 4))
+    assert clicks == []   # jour vide — pas d'exécution à montrer, pas de signal
+
+    QTest.mouseClick(widget, Qt.LeftButton, pos=QPoint(step * 1 + 4, 4))
+    assert clicks == [active_day]
+
+
+def test_history_view_shows_frequency_row_per_active_pipeline(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    active = db.create_pipeline(name="freq-active")
+    inactive = db.create_pipeline(name="freq-inactive")
+    db.set_pipeline_active(inactive.id, False)
+    run = db.create_run(active.id)
+    db.finish_run(run.id, status="SUCCESS")
+
+    view = HistoryView()
+    names = [
+        view._freq_rows_layout.itemAt(i).widget().findChild(QLabel).toolTip()
+        for i in range(view._freq_rows_layout.count())
+    ]
+    assert "freq-active" in names
+    assert "freq-inactive" not in names
+
+
 def test_dashboard_runs_table_groups_multiple_runs_of_the_same_pipeline_into_one_row(qapp, test_db):
     """Dernières exécutions regroupées par pipeline (chantier identité, vague 3, idée 7) — un
     pipeline avec plusieurs runs récents n'occupe qu'une ligne, avec une bande de pastilles pour

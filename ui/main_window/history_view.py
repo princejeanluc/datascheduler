@@ -4,13 +4,19 @@ Vue Historique : journal complet des exécutions.
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
+    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from .widgets import _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge
+from .widgets import (
+    _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label,
+    _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
+    RunFrequencyHeatmap,
+)
+
+_HEATMAP_DAYS = 90
 
 _STATUS_FILTER_OPTIONS = [
     ("Tous les statuts", None),
@@ -27,7 +33,21 @@ class HistoryView(QWidget):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        # Le calendrier de fréquence (une ligne par pipeline actif) grandit avec le nombre de
+        # pipelines, même risque de dépassement de fenêtre déjà rencontré et corrigé sur le
+        # Dashboard (chantier identité vague 2) — appliqué ici préventivement. `layout` reste le
+        # layout du contenu interne, tout le reste de cette méthode est inchangé.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
+
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
@@ -55,6 +75,22 @@ class HistoryView(QWidget):
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
+
+        freq_frame = QFrame(); freq_frame.setObjectName("card")
+        freq_layout = QVBoxLayout(freq_frame)
+        freq_layout.setContentsMargins(20, 16, 20, 16)
+        freq_layout.setSpacing(10)
+        freq_title = QLabel("Fréquence d'exécution")
+        freq_title.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {COLORS['text_main']}; border: none;")
+        freq_layout.addWidget(freq_title)
+        self._freq_rows_layout = QVBoxLayout()
+        self._freq_rows_layout.setSpacing(8)
+        freq_layout.addLayout(self._freq_rows_layout)
+        self._freq_empty_label = _make_empty_label("Aucun pipeline actif pour l'instant.")
+        self._freq_empty_label.setVisible(False)
+        freq_layout.addWidget(self._freq_empty_label)
+        layout.addWidget(freq_frame)
 
         self._run_ids = []   # index ligne → run_id
 
@@ -113,8 +149,118 @@ class HistoryView(QWidget):
         else:
             self._apply_filters()
 
+    def _refresh_frequency(self):
+        """Une ligne (nom + calendrier de fréquence) par pipeline actif — pipelines désactivés
+        exclus, leur historique n'étant plus d'actualité opérationnelle."""
+        from database import db_manager as db
+
+        while self._freq_rows_layout.count():
+            item = self._freq_rows_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        pipelines = db.get_pipelines(active_only=True)
+        self._freq_empty_label.setVisible(not pipelines)
+        for p in pipelines:
+            counts = db.get_run_counts_by_day(days=_HEATMAP_DAYS, pipeline_id=p.id)
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(12)
+            name = p.name if len(p.name) <= 22 else p.name[:21] + "…"
+            name_lbl = QLabel(name)
+            name_lbl.setFixedWidth(160)
+            name_lbl.setToolTip(p.name)
+            name_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 12px; border: none;")
+            row.addWidget(name_lbl)
+            heatmap = RunFrequencyHeatmap(counts)
+            heatmap.day_clicked.connect(lambda day, pl=p: self._on_frequency_day_clicked(pl, day))
+            row.addWidget(heatmap)
+            row.addStretch()
+            self._freq_rows_layout.addWidget(row_widget)
+
+    @staticmethod
+    def _build_day_runs_table(runs) -> QTableWidget:
+        """Même patron que _build_audit_table() ci-dessous — extrait en méthode statique pour
+        être testable sans ouvrir le QDialog qui l'englobe."""
+        table = QTableWidget(0, 4)
+        table.setHorizontalHeaderLabels(["Heure", "Durée", "Lignes", "Statut"])
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        table.setShowGrid(False)
+        _configure_columns(table, stretch_cols={0})
+        # Colonne à cellule-widget (badge, pas un QTableWidgetItem) — ResizeToContents la
+        # comprime sous la pression de la colonne étirée (même bug déjà rencontré et corrigé
+        # sur la colonne "Statut" du tableau principal de cette vue, voir _build_ui() ci-dessus).
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
+        table.setColumnWidth(3, 130)
+        table.setRowCount(len(runs))
+        for i, r in enumerate(runs):
+            time_s = r.started_at.strftime("%H:%M:%S") if r.started_at else "—"
+            dur = "—"
+            if r.duration_seconds is not None:
+                m, s = divmod(int(r.duration_seconds), 60)
+                dur = f"{m}m {s:02d}s"
+            rows_s = f"{r.rows_exported:,}".replace(",", " ") if r.rows_exported else "—"
+            st = _status_str(r.status)
+            table.setItem(i, 0, QTableWidgetItem(time_s))
+            table.setItem(i, 1, QTableWidgetItem(dur))
+            table.setItem(i, 2, QTableWidgetItem(rows_s))
+            table.setCellWidget(i, 3, _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle")))
+            table.setRowHeight(i, 40)
+        return table
+
+    def _on_frequency_day_clicked(self, pipeline, day):
+        """Case du calendrier de fréquence cliquée (chantier identité, vague 4, idée 13) —
+        détail des exécutions de CE jour pour CE pipeline, pas juste sa couleur agrégée. Même
+        patron que _on_audit_log() ci-dessous : petit QDialog construit à la volée, tableau en
+        lecture seule, double-clic sur une ligne ouvre le log complet de ce run."""
+        from database import db_manager as db
+        runs = db.get_runs_for_pipeline_on_day(pipeline.id, day)
+        if not runs:
+            return
+
+        from PySide6.QtWidgets import QDialog
+        date_s = day.strftime("%d/%m/%Y")
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Exécutions du {date_s} — {pipeline.name}")
+        dlg.setMinimumSize(560, 360)
+        from ui.styles import DIALOG_STYLE
+        dlg.setStyleSheet(DIALOG_STYLE)
+
+        vl = QVBoxLayout(dlg)
+        vl.setContentsMargins(20, 16, 20, 16)
+        vl.setSpacing(12)
+
+        lbl_title = QLabel(f"Exécutions du {date_s}")
+        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        vl.addWidget(lbl_title)
+
+        table = self._build_day_runs_table(runs)
+        run_ids = [r.id for r in runs]
+
+        def _open_full_log(index):
+            from .run_log_dialog import open_run_log_dialog
+            open_run_log_dialog(dlg, run_ids[index.row()])
+
+        table.doubleClicked.connect(_open_full_log)
+        vl.addWidget(table)
+
+        hint = _make_subtitle("Double-cliquer une ligne pour voir le log complet.")
+        vl.addWidget(hint)
+
+        btn_close = QPushButton("Fermer")
+        btn_close.setFixedHeight(34)
+        btn_close.clicked.connect(dlg.accept)
+        vl.addWidget(btn_close, alignment=Qt.AlignRight)
+
+        dlg.exec()
+
     def refresh(self):
         from database import db_manager as db
+        self._refresh_frequency()
         runs = db.get_recent_runs(limit=100)
         self._run_ids = [r.id for r in runs]
         self.table.setVisible(bool(runs))

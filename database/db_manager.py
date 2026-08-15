@@ -172,6 +172,14 @@ def _migrate(engine) -> None:
                 "ALTER TABLE pipeline_runs ADD COLUMN current_step_label VARCHAR(255)"
             ))
             conn.commit()
+        # _step_key de l'étape en cours (chantier identité visuelle, traçage lumineux) —
+        # identité stable pour retrouver le bon nœud sur le canevas, contrairement au libellé
+        # humain ci-dessus.
+        if "current_step_key" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN current_step_key VARCHAR(255)"
+            ))
+            conn.commit()
         # Position sur le canevas (chantier 6a/6b) — DEFAULT 0 constant pour toutes les lignes,
         # pas besoin d'un backfill ligne par ligne comme pour uuid (valeurs devant être distinctes).
         for col in ("pos_x", "pos_y"):
@@ -1039,20 +1047,28 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.error_message = error_message
         run.log_text      = log_text
         run.current_step_label   = None   # run terminé — plus d'étape "en cours" à afficher
+        run.current_step_key     = None
         run.resumable_state_json = resumable_state_json
         run.resumed_from_run_id  = resumed_from_run_id
         return True
 
 
-def update_run_progress(run_id: int, current_step_label: str, log_text: str) -> None:
+def update_run_progress(run_id: int, current_step_label: str, log_text: str,
+                         current_step_key: str | None = None) -> None:
     """Écriture incrémentale pendant l'exécution (chantier N) — contrairement à finish_run(),
     ne touche ni status ni finished_at : appelée en continu à chaque changement d'étape, pas
-    seulement une fois à la fin. Voir core/pipeline.py::run_pipeline()'s closure progress()."""
+    seulement une fois à la fin. Voir core/pipeline.py::run_pipeline()'s closure progress().
+
+    `current_step_key` (chantier identité visuelle, traçage lumineux) optionnel : les tickets
+    de progression fine intra-étape (step_progress()) le repassent tel quel pour qu'il reste
+    stable pendant toute la durée de l'étape plutôt que d'être effacé entre deux ticks."""
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
         if run:
             run.current_step_label = current_step_label
             run.log_text = log_text
+            if current_step_key is not None:
+                run.current_step_key = current_step_key
 
 
 def get_running_step_labels() -> dict[int, str]:
@@ -1069,6 +1085,25 @@ def get_running_step_labels() -> dict[int, str]:
     result: dict[int, str] = {}
     for r in rows:
         result.setdefault(r.pipeline_id, r.current_step_label or "Étape en cours…")
+    return result
+
+
+def get_running_step_keys() -> dict[int, str]:
+    """pipeline_id -> current_step_key du run RUNNING le plus récent pour ce pipeline — même
+    patron que get_running_step_labels() ci-dessus, mais l'identité stable (_step_key) plutôt
+    que le libellé humain, utilisée par l'éditeur graphique pour surligner le bon nœud pendant
+    une exécution réelle (chantier identité visuelle, traçage lumineux)."""
+    with get_session() as s:
+        rows = (
+            s.query(PipelineRun)
+            .filter(PipelineRun.status == PipelineStatus.RUNNING)
+            .order_by(PipelineRun.started_at.desc())
+            .all()
+        )
+    result: dict[int, str] = {}
+    for r in rows:
+        if r.current_step_key:
+            result.setdefault(r.pipeline_id, r.current_step_key)
     return result
 
 
@@ -1089,6 +1124,7 @@ def reconcile_stale_runs() -> int:
             run.finished_at        = datetime.utcnow()
             run.error_message      = "Exécution interrompue (redémarrage de l'application)."
             run.current_step_label = None
+            run.current_step_key   = None
         pipeline_ids = {r.pipeline_id for r in stale}
         if pipeline_ids:
             s.query(Pipeline).filter(
@@ -1134,6 +1170,25 @@ def get_runs(pipeline_id: int, limit: int = 50) -> list[PipelineRun]:
             .filter(PipelineRun.pipeline_id == pipeline_id)
             .order_by(PipelineRun.started_at.desc())
             .limit(limit)
+            .all()
+        )
+
+
+def get_runs_for_pipeline_on_day(pipeline_id: int, day) -> list[PipelineRun]:
+    """Exécutions d'UN pipeline pour UNE journée précise — utilisé par le calendrier de
+    fréquence de l'Historique (chantier identité, vague 4, idée 13) : cliquer une case doit
+    montrer QUOI s'est passé ce jour-là, pas juste sa couleur agrégée."""
+    from datetime import datetime, timedelta
+
+    start = datetime.combine(day, datetime.min.time())
+    end = start + timedelta(days=1)
+    with get_session() as s:
+        return (
+            s.query(PipelineRun)
+            .filter(PipelineRun.pipeline_id == pipeline_id,
+                    PipelineRun.started_at >= start,
+                    PipelineRun.started_at < end)
+            .order_by(PipelineRun.started_at.desc())
             .all()
         )
 

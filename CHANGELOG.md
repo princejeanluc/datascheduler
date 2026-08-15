@@ -29,6 +29,33 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.25.0] - 2026-08-15
+
+### Ajouté
+- Personnalité structurelle, vague 4 (suite des vagues 1-3, derniers éléments du backlog) :
+  - Historique : calendrier de fréquence par pipeline (façon graphe de contributions, ~90
+    derniers jours) — repérer un motif ("ce pipeline échoue tous les lundis") d'un coup d'œil.
+    Survoler une case affiche le détail de ce jour précis ; cliquer une case avec au moins une
+    exécution ouvre la liste des runs de ce jour (double-clic sur une ligne pour le log complet).
+  - Éditeur graphique : traçage lumineux — le nœud de l'étape en cours d'une exécution réelle
+    (et son arête entrante) se surlignent en direct, interrogé en continu tant que le dialogue
+    est ouvert. Nouvelle colonne `current_step_key` (migration idempotente) pour identifier
+    précisément l'étape, en plus du libellé humain déjà existant.
+
+### Corrigé
+- Un pipeline enregistré avec une fréquence Quotidien ou Cron ne s'exécutait jamais à l'heure
+  prévue : l'enregistrement persistait bien la planification en base, mais ne prévenait jamais
+  APScheduler du changement — le job n'était (re)créé qu'au prochain redémarrage de l'app ou à un
+  aller-retour actif/inactif. Corrigé à la racine (planification immédiate à l'enregistrement,
+  et aux deux autres points de création d'un pipeline en dehors de cette boîte de dialogue :
+  raccourci "Nouveau (graphique)" et import).
+- Pipelines : la colonne "Planification" affichait toujours l'heure quotidienne (ex: "CUSTOM
+  06:00"), même pour une fréquence Personnalisée (Cron) où cette valeur n'est jamais utilisée —
+  affiche désormais la véritable expression cron dans ce cas.
+- Historique : la colonne "Statut" de la fenêtre de détail d'un jour du calendrier de fréquence
+  se faisait compresser par Qt en dessous de sa largeur réelle (badge tronqué en plein mot) —
+  même correctif de largeur fixe déjà appliqué ailleurs dans cette vue.
+
 ## [0.24.0] - 2026-08-16
 
 ### Ajouté

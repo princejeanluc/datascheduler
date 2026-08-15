@@ -610,6 +610,17 @@ class PipelineEditorDialog(QDialog):
                 f"pu être appliqué : {e}",
             )
 
+        # (Re)planifie immédiatement — sans ça, la fréquence/l'heure choisie ici ne prend effet
+        # qu'au prochain redémarrage de l'app ou à un aller-retour actif/inactif (seuls autres
+        # points d'accroche vers APScheduler, voir pipelines_view.py::_on_toggle_pipeline). Même
+        # patron défensif (RuntimeError silencieuse) : le scheduler n'est pas initialisé dans les
+        # tests qui construisent ce dialogue directement.
+        try:
+            from core.scheduler import get_scheduler
+            get_scheduler().schedule_pipeline(pipeline_id)
+        except RuntimeError:
+            pass
+
         self.accept()
 
     def _validate(self) -> bool:

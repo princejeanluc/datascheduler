@@ -6,9 +6,9 @@ Helpers, constantes et petits composants partagés par toutes les vues.
 import qtawesome as qta
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QLineEdit,
-    QTableWidget, QHeaderView, QGraphicsOpacityEffect, QWidget,
+    QTableWidget, QHeaderView, QGraphicsOpacityEffect, QWidget, QToolTip,
 )
-from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF
+from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QEvent
 from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
@@ -826,3 +826,105 @@ class RunHistoryDots(QWidget):
             color_key = _RUN_DOT_COLOR_KEY.get(status, "border")
             painter.setBrush(QBrush(QColor(COLORS[color_key])))
             painter.drawEllipse(QPointF(x, y), self.DOT_R, self.DOT_R)
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : CALENDRIER DE FRÉQUENCE (Historique, chantier identité, vague 4, idée 13)
+# ──────────────────────────────────────────────
+
+def _heatmap_day_color_key(day_counts: dict) -> str:
+    """Couleur d'une case du calendrier de fréquence pour un jour donné — pire résultat du jour
+    l'emporte (un seul échec dans la journée suffit à colorer la case en danger), pour que
+    "ce pipeline échoue tous les lundis" saute aux yeux d'un coup d'œil."""
+    if day_counts.get("failed", 0) > 0:
+        return "danger"
+    if day_counts.get("success", 0) > 0:
+        return "success"
+    return "border"
+
+
+def _heatmap_day_tooltip(day_counts: dict) -> str:
+    """Texte d'infobulle d'UNE case précise (date + détail des exécutions ce jour-là) — un
+    "90 derniers jours" identique sur toutes les cases n'apprend rien à l'utilisateur qui
+    cherche justement à savoir QUAND et QUOI s'est produit."""
+    d = day_counts.get("date")
+    date_s = d.strftime("%d/%m/%Y") if d else "?"
+    success, failed, cancelled = (
+        day_counts.get("success", 0), day_counts.get("failed", 0), day_counts.get("cancelled", 0))
+    if not (success or failed or cancelled):
+        return f"{date_s} — aucune exécution"
+    parts = []
+    if success:
+        parts.append(f"{success} succès")
+    if failed:
+        parts.append(f"{failed} échec" + ("s" if failed > 1 else ""))
+    if cancelled:
+        parts.append(f"{cancelled} annulé" + ("s" if cancelled > 1 else ""))
+    return f"{date_s} — " + ", ".join(parts)
+
+
+class RunFrequencyHeatmap(QWidget):
+    """Bande de cases colorées, une par jour, façon graphe de contributions — vue d'ensemble de
+    la fréquence/fiabilité d'exécution d'un pipeline sur les derniers mois. Alimentée par
+    get_run_counts_by_day(days, pipeline_id) (chantier D.1), déjà zéro-rempli jour par jour.
+
+    Survoler une case affiche le détail de CE jour (pas un texte générique identique partout) ;
+    cliquer une case avec au moins une exécution émet day_clicked(date) — au widget appelant de
+    décider quoi en faire (ici, HistoryView ouvre la liste des exécutions de ce jour)."""
+
+    SQUARE = 8
+    GAP = 3
+
+    day_clicked = Signal(object)   # datetime.date
+
+    def __init__(self, counts: list = None):
+        super().__init__()
+        self._counts = counts or []
+        self.setFixedSize(self._width_for(len(self._counts)), self.SQUARE)
+        self.setStyleSheet("background: transparent; border: none;")
+        self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
+
+    def set_counts(self, counts: list):
+        self._counts = counts or []
+        self.setFixedWidth(self._width_for(len(self._counts)))
+        self.update()
+
+    def _width_for(self, n: int) -> int:
+        return (n * self.SQUARE + max(0, n - 1) * self.GAP) if n else 1
+
+    def _index_at(self, x: float) -> int | None:
+        if not self._counts:
+            return None
+        i = int(x // (self.SQUARE + self.GAP))
+        return i if 0 <= i < len(self._counts) else None
+
+    def event(self, ev):
+        if ev.type() == QEvent.ToolTip:
+            idx = self._index_at(ev.pos().x())
+            if idx is not None:
+                QToolTip.showText(ev.globalPos(), _heatmap_day_tooltip(self._counts[idx]), self)
+            else:
+                QToolTip.hideText()
+            return True
+        return super().event(ev)
+
+    def mousePressEvent(self, event):
+        idx = self._index_at(event.position().x())
+        if idx is not None:
+            day_counts = self._counts[idx]
+            if day_counts.get("success") or day_counts.get("failed") or day_counts.get("cancelled"):
+                self.day_clicked.emit(day_counts.get("date"))
+        super().mousePressEvent(event)
+
+    def paintEvent(self, event):
+        if not self._counts:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.setPen(Qt.NoPen)
+        for i, day_counts in enumerate(self._counts):
+            x = i * (self.SQUARE + self.GAP)
+            color_key = _heatmap_day_color_key(day_counts)
+            painter.setBrush(QBrush(QColor(COLORS[color_key])))
+            painter.drawRoundedRect(QRectF(x, 0, self.SQUARE, self.SQUARE), 2, 2)

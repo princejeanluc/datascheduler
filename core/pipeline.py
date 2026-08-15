@@ -376,11 +376,11 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
         base_pct = int(i * 90 / total)       # 0 → 90 %
         next_pct = int((i + 1) * 90 / total)
 
-        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct, _sk=step_key):
             scaled = _bp + int(pct * (_np - _bp) / 100)
-            progress(msg, scaled)
+            progress(msg, scaled, _sk)
 
-        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
+        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct, step_key)
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
@@ -575,11 +575,11 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         # config (ex: SPARK_SQL avec la case "Récupérer le résultat").
         before_output_file = ctx.output_file
 
-        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct, _sk=step_key):
             scaled = _bp + int(pct * (_np - _bp) / 100)
-            progress(msg, scaled)
+            progress(msg, scaled, _sk)
 
-        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct)
+        progress(f"Étape {i + 1}/{total} : {step_label}", base_pct, step_key)
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
@@ -841,7 +841,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
     result = PipelineResult()
     run_id = None
 
-    def progress(msg: str, pct: int):
+    def progress(msg: str, pct: int, step_key: str | None = None):
         if on_progress:
             on_progress(msg, pct)
         # Écriture incrémentale (chantier N) — visible dès qu'un run existe (run_id devient
@@ -852,9 +852,12 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # Le chantier O (granularité fine dans SPARK_SQL/SQOOP_EXPORT) multiplie la fréquence
         # d'appel — un incident SQLite transitoire (verrou, antivirus) ne doit jamais faire
         # échouer une vraie opération réseau en cours pour un simple souci d'affichage.
+        # `step_key` (chantier identité visuelle, traçage lumineux) optionnel — seuls les
+        # appels correspondant à une VRAIE exécution le passent (voir _execute_linear/
+        # _execute_graph), pas les tickets "reprise"/"ignorée" où rien ne tourne réellement.
         if run_id is not None:
             try:
-                db.update_run_progress(run_id, msg, result.log_text)
+                db.update_run_progress(run_id, msg, result.log_text, step_key)
             except Exception:
                 logger.warning("Échec de la mise à jour de progression du run %s (ignoré).", run_id)
 

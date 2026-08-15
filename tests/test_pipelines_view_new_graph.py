@@ -72,6 +72,24 @@ def test_new_pipeline_graph_blank_name_creates_nothing(qapp, test_db, monkeypatc
     assert db.get_pipelines() == []
 
 
+def test_new_pipeline_graph_schedules_the_pipeline_on_accept(qapp, test_db, monkeypatch):
+    """Bug réel : un pipeline créé via ce raccourci restait actif en base mais n'était jamais
+    enregistré auprès d'APScheduler avant le prochain redémarrage de l'app."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("scheduled-shell", True)))
+    _FakeGraphDialog.accept = True
+    monkeypatch.setattr("ui.graph_editor.PipelineGraphEditorDialog", _FakeGraphDialog)
+
+    calls = []
+    view = PipelinesView()
+    monkeypatch.setattr(view, "_schedule_if_possible", lambda pid: calls.append(pid))
+    view._on_new_pipeline_graph()
+
+    p = next(p for p in db.get_pipelines() if p.name == "scheduled-shell")
+    assert calls == [p.id]
+
+
 def test_new_pipeline_graph_deletes_shell_when_editor_cancelled(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 
