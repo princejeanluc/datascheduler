@@ -90,20 +90,45 @@ def test_search_shows_category_chip_only_while_searching(qapp, test_db):
     assert not matched["chip"].isHidden()
 
 
-def test_max_concurrent_runs_setting_is_stored_but_documented_as_not_yet_applied(qapp, test_db):
-    """Choix de scope explicite (voir le chantier) : le plafond est un champ réel et persisté,
-    mais son application concrète reste pour un futur chantier — la description doit le dire
-    honnêtement plutôt que suggérer un comportement qui n'existe pas encore."""
+def test_max_concurrent_runs_setting_saves_and_is_applied(qapp, test_db):
+    """Depuis le chantier suivi des ressources, ce champ est réellement appliqué par
+    run_pipeline() (tests/test_concurrency_cap.py) — ici on vérifie seulement que l'écran le
+    sauvegarde correctement."""
     from ui.main_window.settings_view import SettingsView
 
     view = SettingsView()
-    row = _row(view, "plafond d'exécutions simultanées")
-    # La ligne existe et porte un contrôle réel (pas un simple texte statique).
     assert view.spin_max_concurrent is not None
 
     view.spin_max_concurrent.setValue(9)
     view._on_save()
     assert db.get_app_settings().max_concurrent_runs == 9
+
+
+def test_resources_category_saves_sample_interval_and_retention(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.select_category("resources")
+    for row in view._row_widgets:
+        assert row["wrapper"].isHidden() == (row["category"] != "resources")
+
+    view.spin_sample_interval.setValue(30)
+    view.spin_sample_retention.setValue(3)
+    view._on_save()
+
+    settings = db.get_app_settings()
+    assert settings.resource_sample_interval_s == 30
+    assert settings.resource_sample_retention_days == 3
+
+
+def test_resources_category_prefills_from_app_settings(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(resource_sample_interval_s=120, resource_sample_retention_days=14)
+    view = SettingsView()
+
+    assert view.spin_sample_interval.value() == 120
+    assert view.spin_sample_retention.value() == 14
 
 
 def test_on_save_persists_scheduler_logging_and_interface_fields(qapp, test_db):

@@ -17,6 +17,7 @@ from typing import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from apscheduler.events import (
     EVENT_JOB_EXECUTED, EVENT_JOB_ERROR, EVENT_JOB_MISSED,
 )
@@ -123,6 +124,7 @@ class PipelineScheduler:
 
     JOB_PREFIX = "pipeline_"
     DIGEST_JOB_ID = "digest_job"   # hors JOB_PREFIX : list_jobs() ne doit pas le compter comme un pipeline
+    RESOURCE_SAMPLER_JOB_ID = "resource_sampler_job"   # idem — jamais compté comme un pipeline
 
     def __init__(
         self,
@@ -191,6 +193,11 @@ class PipelineScheduler:
             self.refresh_digest_job()
         except Exception as e:
             logger.error("Impossible de planifier le digest de notification : %s", e)
+
+        try:
+            self.refresh_resource_sampler()
+        except Exception as e:
+            logger.error("Impossible de planifier l'échantillonnage des ressources : %s", e)
 
         return count
 
@@ -298,6 +305,45 @@ class PipelineScheduler:
                 lines.append(f"  - {pname} ({when}) : {r.error_message or 'erreur inconnue'}")
         return "\n".join(lines)
 
+    # ── Échantillonnage des ressources (vue Ressources) ──
+
+    def refresh_resource_sampler(self) -> None:
+        """(Ré)enregistre le job d'échantillonnage CPU/mémoire selon AppSettings.
+        resource_sample_interval_s — appelé au démarrage et depuis apply_settings() si
+        l'intervalle change, même patron que refresh_digest_job() ci-dessus. Contrairement au
+        digest, jamais désactivable : tourne tant que l'appli est ouverte."""
+        interval = db.get_app_settings().resource_sample_interval_s
+        self._scheduler.add_job(
+            func=self._sample_resources,
+            trigger=IntervalTrigger(seconds=interval),
+            id=self.RESOURCE_SAMPLER_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=interval,
+            coalesce=True,
+        )
+        logger.info("Échantillonnage des ressources planifié (toutes les %ds).", interval)
+
+    def _sample_resources(self) -> None:
+        """Cible du job d'échantillonnage — mesure CPU/mémoire du process DataScheduler
+        (jamais par pipeline : ils tournent en threads dans ce même process, impossible à
+        attribuer proprement, voir ui/main_window/resources_view.py) puis purge les échantillons
+        expirés selon la rétention courante, dans le même appel plutôt qu'un job de purge
+        séparé. Ne lève jamais d'exception (même logique que _run_digest) : un souci de mesure
+        ne doit jamais faire tomber le scheduler."""
+        try:
+            import psutil
+
+            process = psutil.Process()
+            cpu_percent = process.cpu_percent(interval=None)
+            memory_mb = process.memory_info().rss / 1_000_000
+            db.record_resource_sample(cpu_percent, memory_mb)
+
+            settings = db.get_app_settings()
+            cutoff = datetime.utcnow() - timedelta(days=settings.resource_sample_retention_days)
+            db.prune_resource_samples(cutoff)
+        except Exception as e:
+            logger.warning("Échec de l'échantillonnage des ressources (ignoré) : %s", e)
+
     # ── Gestion des jobs individuels ─────────
 
     def schedule_pipeline(self, pipeline_id: int) -> bool:
@@ -374,13 +420,15 @@ class PipelineScheduler:
         return jobs
 
     def apply_settings(self) -> None:
-        """Réapplique AppSettings (tolérance de rattrapage, coalesce) à tous les jobs pipeline
-        déjà planifiés — appelé par l'écran Paramètres après enregistrement (chantier écran
-        Paramètres). Le fuseau horaire, lui, n'est lu qu'à la construction du scheduler (voir
-        __init__) et ne peut pas être appliqué à chaud ici — redémarrage requis pour celui-là.
-        Même patron que refresh_digest_job(), généralisé à tous les jobs plutôt qu'à un seul."""
+        """Réapplique AppSettings (tolérance de rattrapage, coalesce, intervalle
+        d'échantillonnage des ressources) à tous les jobs déjà planifiés — appelé par l'écran
+        Paramètres après enregistrement. Le fuseau horaire, lui, n'est lu qu'à la construction du
+        scheduler (voir __init__) et ne peut pas être appliqué à chaud ici — redémarrage requis
+        pour celui-là. Même patron que refresh_digest_job(), généralisé à tous les jobs plutôt
+        qu'à un seul."""
         for job in self.list_jobs():
             self.schedule_pipeline(job["pipeline_id"])
+        self.refresh_resource_sampler()
 
     # ── Interne ──────────────────────────────
 

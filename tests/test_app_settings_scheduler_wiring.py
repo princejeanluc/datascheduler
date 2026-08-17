@@ -5,6 +5,10 @@ de regroupement des rattrapages manqués du scheduler APScheduler venaient jusqu
 constantes câblées en dur (core/scheduler.py). Ce fichier verrouille qu'ils sont désormais lus
 depuis AppSettings, et qu'apply_settings() répercute un changement sur tous les jobs déjà
 planifiés sans attendre un redémarrage.
+
+La deuxième moitié (chantier suivi des ressources) couvre le job d'échantillonnage CPU/mémoire :
+enregistrement à l'intervalle configuré, ré-enregistrement par apply_settings(), et le
+comportement de _sample_resources() (psutil mocké — pas de vraie mesure système en test).
 """
 
 import os
@@ -74,3 +78,97 @@ def test_apply_settings_reschedules_all_active_jobs_with_new_values(test_db):
             assert job.coalesce is False
     finally:
         sched.stop()
+
+
+# ──────────────────────────────────────────────
+#  ÉCHANTILLONNAGE DES RESSOURCES (chantier suivi des ressources)
+# ──────────────────────────────────────────────
+
+def test_refresh_resource_sampler_registers_job_with_configured_interval(test_db):
+    db.update_app_settings(resource_sample_interval_s=45)
+
+    sched = PipelineScheduler()
+    try:
+        sched.start()
+        sched.refresh_resource_sampler()
+
+        job = sched._scheduler.get_job(sched.RESOURCE_SAMPLER_JOB_ID)
+        assert job is not None
+        assert job.trigger.interval.total_seconds() == 45
+    finally:
+        sched.stop()
+
+
+def test_apply_settings_reregisters_resource_sampler_with_new_interval(test_db):
+    sched = PipelineScheduler()
+    try:
+        sched.start()
+        sched.refresh_resource_sampler()
+        job = sched._scheduler.get_job(sched.RESOURCE_SAMPLER_JOB_ID)
+        assert job.trigger.interval.total_seconds() == 60   # défaut
+
+        db.update_app_settings(resource_sample_interval_s=10)
+        sched.apply_settings()
+
+        job = sched._scheduler.get_job(sched.RESOURCE_SAMPLER_JOB_ID)
+        assert job.trigger.interval.total_seconds() == 10
+    finally:
+        sched.stop()
+
+
+def test_load_all_pipelines_registers_resource_sampler(test_db):
+    sched = PipelineScheduler()
+    try:
+        sched.start()
+        sched.load_all_pipelines()
+        assert sched._scheduler.get_job(sched.RESOURCE_SAMPLER_JOB_ID) is not None
+    finally:
+        sched.stop()
+
+
+def test_sample_resources_records_a_sample_and_prunes_old_ones(test_db, monkeypatch):
+    import core.scheduler as scheduler_module
+    from datetime import datetime, timedelta
+    from database.models import ResourceSample
+
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=datetime.utcnow() - timedelta(days=30),
+                              cpu_percent=1.0, memory_mb=100.0))
+    db.update_app_settings(resource_sample_retention_days=7)
+
+    class _FakeProcess:
+        def cpu_percent(self, interval=None):
+            return 12.5
+
+        def memory_info(self):
+            class _Mem:
+                rss = 256_000_000   # 256 Mo
+            return _Mem()
+
+    fake_psutil = type("FakePsutil", (), {"Process": staticmethod(lambda: _FakeProcess())})
+    monkeypatch.setitem(__import__("sys").modules, "psutil", fake_psutil)
+
+    sched = PipelineScheduler()
+    sched._sample_resources()
+
+    samples = db.get_resource_samples(since=datetime.utcnow() - timedelta(minutes=1))
+    assert len(samples) == 1
+    assert samples[0].cpu_percent == 12.5
+    assert samples[0].memory_mb == 256.0
+
+    # L'échantillon vieux de 30 jours a été purgé (rétention 7 jours).
+    all_samples = db.get_resource_samples(since=datetime.utcnow() - timedelta(days=60))
+    assert len(all_samples) == 1
+
+
+def test_sample_resources_never_raises_on_measurement_failure(test_db, monkeypatch):
+    """Même logique que _run_digest : un souci de mesure ne doit jamais faire tomber le
+    scheduler."""
+    def _raise():
+        raise OSError("mesure impossible")
+
+    fake_psutil = type("FakePsutil", (), {"Process": staticmethod(_raise)})
+    monkeypatch.setitem(__import__("sys").modules, "psutil", fake_psutil)
+
+    sched = PipelineScheduler()
+    sched._sample_resources()   # ne doit pas lever

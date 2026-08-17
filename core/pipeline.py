@@ -901,10 +901,26 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # négligeable sur ce chemin froid (une seule fois par démarrage de run).
         with _active_runs_lock:
             already_running = pipeline_id in _active_runs
+            current_count   = len(_active_runs)
             if not already_running:
                 stale = db.get_last_resumable_run(pipeline_id)
                 if stale and stale.id != resume_from_run_id:
                     _purge_resumable_run(stale)
+
+        # Plafond de concurrence (chantier suivi des ressources) — premier vrai usage du champ
+        # AppSettings.max_concurrent_runs, jusqu'ici stocké sans effet. Refuse simplement, pas de
+        # file d'attente (choix assumé, cohérent avec l'exécution séquentielle du reste du
+        # projet) : un run planifié refusé n'est PAS rejoué automatiquement, il attendra son
+        # prochain déclenchement normal. Sortie AVANT create_run(), même patron que les autres
+        # refus anticipés ci-dessus (pipeline introuvable, aucune étape) — aucune ligne
+        # d'historique créée pour un refus de capacité, seulement journalisé via result.error.
+        max_concurrent = db.get_app_settings().max_concurrent_runs
+        if current_count >= max_concurrent:
+            result.fail(
+                f"Plafond d'exécutions simultanées atteint ({max_concurrent}) — cette exécution "
+                "n'a pas démarré, réessayez plus tard."
+            )
+            result.finish(); return result
 
         if resume_from_run_id:
             if already_running:

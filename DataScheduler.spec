@@ -20,11 +20,15 @@ tzdata_datas, _, _ = collect_all('tzdata')
 numpy_datas, numpy_binaries, numpy_hidden = collect_all('numpy')
 pandas_datas, pandas_binaries, pandas_hidden = collect_all('pandas')
 
+# psutil (vue Ressources, chantier suivi des ressources) : même famille — extension C, même
+# traitement que les trois ci-dessus plutôt qu'un hiddenimports simple.
+psutil_datas, psutil_binaries, psutil_hidden = collect_all('psutil')
+
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=oracledb_binaries + numpy_binaries + pandas_binaries,
-    datas=oracledb_datas + tzdata_datas + numpy_datas + pandas_datas,
+    binaries=oracledb_binaries + numpy_binaries + pandas_binaries + psutil_binaries,
+    datas=oracledb_datas + tzdata_datas + numpy_datas + pandas_datas + psutil_datas,
     hiddenimports=[
         # ── Modules applicatifs (déclarés explicitement pour PyInstaller) ──
         'database',
@@ -112,6 +116,9 @@ a = Analysis(
         # ── Pandas / NumPy ──
         *numpy_hidden,
         *pandas_hidden,
+
+        # ── psutil (vue Ressources) ──
+        *psutil_hidden,
     ],
     hookspath=[],
     hooksconfig={},

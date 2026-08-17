@@ -5,7 +5,7 @@ DataScheduler — Modèles de données SQLAlchemy (SQLite)
 from datetime import datetime
 from sqlalchemy import (
     create_engine, Column, Integer, String, Text,
-    DateTime, Boolean, ForeignKey, Enum
+    DateTime, Boolean, Float, ForeignKey, Enum
 )
 from sqlalchemy.orm import declarative_base, relationship, Session
 import enum
@@ -508,9 +508,9 @@ class AppSettings(Base):
     Ligne singleton (id=1 toujours) — même patron que NotificationSettings ci-dessus. Réunit ce
     qui, jusqu'ici, était câblé en dur dans le code (fuseau horaire du scheduler, niveau de log,
     fréquences de rafraîchissement de l'UI…) sans aucun endroit pour le consulter ou le modifier
-    sans reconstruire l'exe. max_concurrent_runs est stocké dès maintenant mais volontairement
-    PAS ENCORE appliqué (voir ui/main_window/settings_view.py) — sa mise en application réelle
-    est le premier acte d'un futur chantier dédié au suivi des ressources, pas de celui-ci.
+    sans reconstruire l'exe. max_concurrent_runs est appliqué depuis le chantier suivi des
+    ressources (core/pipeline.py::run_pipeline()) — les deux derniers champs (échantillonnage)
+    sont le premier réglage né directement avec ce même chantier, sans jamais avoir été en dur.
     """
     __tablename__ = "app_settings"
 
@@ -536,8 +536,35 @@ class AppSettings(Base):
     live_log_refresh_s      = Column(Integer, default=2, nullable=False)
     trace_glow_refresh_s    = Column(Integer, default=1, nullable=False)
 
+    # Échantillonnage des ressources (vue Ressources, core/scheduler.py::_sample_resources)
+    resource_sample_interval_s     = Column(Integer, default=60, nullable=False)
+    resource_sample_retention_days = Column(Integer, default=7, nullable=False)
+
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
+
+
+# ──────────────────────────────────────────────
+#  ÉCHANTILLONS DE RESSOURCES (vue Ressources, chantier suivi des ressources)
+# ──────────────────────────────────────────────
+
+class ResourceSample(Base):
+    """
+    Historique (pas une ligne singleton, contrairement à AppSettings ci-dessus) — un point
+    toutes les `AppSettings.resource_sample_interval_s`, purgé au-delà de
+    `resource_sample_retention_days` (core/scheduler.py::_sample_resources). CPU/mémoire du
+    PROCESS DataScheduler uniquement — pas une mesure par pipeline, impossible à attribuer
+    proprement puisqu'ils tournent en threads dans ce même process (voir la vue Ressources).
+    """
+    __tablename__ = "resource_samples"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp   = Column(DateTime, default=datetime.utcnow, nullable=False)
+    cpu_percent = Column(Float, nullable=False)
+    memory_mb   = Column(Float, nullable=False)
+
+    def __repr__(self):
+        return f"<ResourceSample {self.timestamp} cpu={self.cpu_percent}% mem={self.memory_mb}Mo>"
 
 
 # ──────────────────────────────────────────────
