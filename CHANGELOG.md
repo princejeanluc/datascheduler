@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.27.0] - 2026-08-15
+
+### Ajouté
+- Nouvel écran "Paramètres" (nav rail, entre Historique et Aide) réunissant tout ce qui était
+  jusqu'ici câblé en dur dans le code sans aucun endroit pour le consulter ou le modifier sans
+  reconstruire l'exe : fuseau horaire et tolérance de rattrapage du scheduler, niveau/rotation
+  des logs, fréquences de rafraîchissement de l'UI (Dashboard, Pipelines, log en direct, traçage
+  lumineux), plus un nouveau plafond d'exécutions simultanées (stocké et modifiable, pas encore
+  appliqué — premier acte d'un futur chantier sur le suivi des ressources). Recherche + catégories
+  à gauche, détail à droite, façon VSCode. La description de chaque champ précise s'il prend
+  effet immédiatement ou seulement au prochain redémarrage.
+- Les champs du digest de notification (résumé périodique par email) sont repris dans la
+  catégorie "Notifications" de ce nouvel écran — le bouton 🔔 du Dashboard y amène directement.
+  `NotificationSettingsDialog`, devenu redondant, est retiré.
+
 ## [0.26.1] - 2026-08-15
 
 ### Corrigé

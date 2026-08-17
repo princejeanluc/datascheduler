@@ -18,7 +18,6 @@ from .run_progress_dialog import RunProgressThread, RunProgressDialog
 from .sql_query_dialog import SqlQueryDialog
 from .pipeline_export_dialog import PipelineExportDialog
 from .pipeline_import_dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
-from .notification_settings_dialog import NotificationSettingsDialog
 from .pipeline_dry_run_dialog import PipelineDryRunDialog
 from .pipeline_detail_dialog import PipelineDetailDialog
 from .pipeline_topology_dialog import PipelineTopologyDialog
@@ -36,7 +35,6 @@ __all__ = [
     "SqlQueryDialog",
     "PipelineExportDialog",
     "PipelineImportPasswordDialog", "PipelineImportReviewDialog",
-    "NotificationSettingsDialog",
     "PipelineDryRunDialog",
     "PipelineDetailDialog",
     "PipelineTopologyDialog",

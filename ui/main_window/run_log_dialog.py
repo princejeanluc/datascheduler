@@ -11,8 +11,6 @@ from PySide6.QtGui import QFont
 from ui.styles import COLORS, DIALOG_STYLE
 from .widgets import _status_str, FONT_MONO
 
-_LIVE_REFRESH_INTERVAL_MS = 2000
-
 
 def open_run_log_dialog(parent, run_id: int) -> None:
     """
@@ -111,7 +109,7 @@ def open_run_log_dialog(parent, run_id: int) -> None:
                         timer.stop()
 
         timer = QTimer(dlg)
-        timer.setInterval(_LIVE_REFRESH_INTERVAL_MS)
+        timer.setInterval(db.get_app_settings().live_log_refresh_s * 1000)
         timer.timeout.connect(_refresh_live)
         timer.start()
 

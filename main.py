@@ -61,6 +61,14 @@ def main():
     init_db()
     logger.info("Base de données initialisée")
 
+    # Niveau de log — appliqué APRÈS la config initiale ci-dessus (elle doit rester capable de
+    # capturer un souci pendant init_db() lui-même, donc ne peut pas dépendre de la base). La
+    # rotation des fichiers (taille/nombre conservés), elle, reste figée à ce qui a été passé à
+    # RotatingFileHandler ci-dessus — pas rechargée ici (voir ui/main_window/settings_view.py).
+    from database.db_manager import get_app_settings
+    app_settings = get_app_settings()
+    logging.getLogger().setLevel(app_settings.log_level)
+
     # Nettoyage des runs restés bloqués sur "en cours" suite à un arrêt brutal de l'application
     # précédente (crash, kill) — doit s'exécuter ici, avant que le scheduler ne recommence à
     # accepter de nouveaux runs (chantier N).

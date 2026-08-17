@@ -43,8 +43,9 @@ class PipelineGraphEditorDialog(QDialog):
         # Traçage lumineux (chantier identité visuelle) : actif en permanence dès l'ouverture,
         # pas de bascule de mode — éditer un pipeline qui se trouve être en cours d'exécution
         # ailleurs affiche simplement le surlignage par-dessus, sans bloquer l'édition.
+        from database import db_manager as db
         self._executing_timer = QTimer(self)
-        self._executing_timer.setInterval(1000)
+        self._executing_timer.setInterval(db.get_app_settings().trace_glow_refresh_s * 1000)
         self._executing_timer.timeout.connect(self._poll_executing_step)
         self._executing_timer.start()
 

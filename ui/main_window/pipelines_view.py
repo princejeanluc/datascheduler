@@ -22,8 +22,9 @@ class PipelinesView(QWidget):
     def __init__(self):
         super().__init__()
         self._build_ui()
+        from database import db_manager as db
         self._timer = QTimer(self)
-        self._timer.setInterval(30_000)
+        self._timer.setInterval(db.get_app_settings().pipelines_refresh_s * 1000)
         self._timer.timeout.connect(self.refresh)
         self._timer.start()
 

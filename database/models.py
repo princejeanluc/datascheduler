@@ -500,6 +500,47 @@ class NotificationSettings(Base):
 
 
 # ──────────────────────────────────────────────
+#  PARAMÈTRES APPLICATIFS (chantier écran "Paramètres")
+# ──────────────────────────────────────────────
+
+class AppSettings(Base):
+    """
+    Ligne singleton (id=1 toujours) — même patron que NotificationSettings ci-dessus. Réunit ce
+    qui, jusqu'ici, était câblé en dur dans le code (fuseau horaire du scheduler, niveau de log,
+    fréquences de rafraîchissement de l'UI…) sans aucun endroit pour le consulter ou le modifier
+    sans reconstruire l'exe. max_concurrent_runs est stocké dès maintenant mais volontairement
+    PAS ENCORE appliqué (voir ui/main_window/settings_view.py) — sa mise en application réelle
+    est le premier acte d'un futur chantier dédié au suivi des ressources, pas de celui-ci.
+    """
+    __tablename__ = "app_settings"
+
+    id                      = Column(Integer, primary_key=True, default=1)
+
+    # Ordonnanceur (core/scheduler.py)
+    timezone                = Column(String(64), default="UTC", nullable=False)
+    misfire_grace_time_min  = Column(Integer, default=60, nullable=False)
+    # Défaut = True, pas False : préserve le comportement actuellement câblé en dur
+    # (core/scheduler.py) — une nouvelle colonne ne doit jamais changer le comportement
+    # silencieusement pour qui n'a jamais ouvert l'écran Paramètres.
+    coalesce_missed_runs    = Column(Boolean, default=True, nullable=False)
+    max_concurrent_runs     = Column(Integer, default=6, nullable=False)
+
+    # Journalisation (main.py)
+    log_level               = Column(String(10), default="INFO", nullable=False)
+    log_max_bytes           = Column(Integer, default=5_000_000, nullable=False)
+    log_backup_count        = Column(Integer, default=5, nullable=False)
+
+    # Rafraîchissement de l'interface
+    dashboard_refresh_s     = Column(Integer, default=30, nullable=False)
+    pipelines_refresh_s     = Column(Integer, default=30, nullable=False)
+    live_log_refresh_s      = Column(Integer, default=2, nullable=False)
+    trace_glow_refresh_s    = Column(Integer, default=1, nullable=False)
+
+    def __repr__(self):
+        return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
+
+
+# ──────────────────────────────────────────────
 #  JOURNAL D'AUDIT (modifications de pipeline, exports, imports)
 # ──────────────────────────────────────────────
 

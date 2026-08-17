@@ -134,7 +134,16 @@ class PipelineScheduler:
             on_job_success(pipeline_id, remote_path) — appelé après succès
             on_job_error(pipeline_id, error_msg)     — appelé après échec
         """
-        self._scheduler      = BackgroundScheduler(timezone="UTC")
+        # Fuseau horaire lu une seule fois, à la construction — le changer en cours de vie
+        # n'est pas fiable pour les triggers déjà actifs (voir ui/main_window/settings_view.py),
+        # donc un changement via l'écran Paramètres ne prend effet qu'au redémarrage de l'app.
+        # Repli sur UTC si la base n'est pas encore prête (ne devrait pas arriver hors tests qui
+        # construisent un PipelineScheduler sans passer par test_db).
+        try:
+            timezone = db.get_app_settings().timezone
+        except RuntimeError:
+            timezone = "UTC"
+        self._scheduler      = BackgroundScheduler(timezone=timezone)
         self._on_job_success = on_job_success
         self._on_job_error   = on_job_error
         self._lock           = threading.Lock()
@@ -364,6 +373,15 @@ class PipelineScheduler:
                 })
         return jobs
 
+    def apply_settings(self) -> None:
+        """Réapplique AppSettings (tolérance de rattrapage, coalesce) à tous les jobs pipeline
+        déjà planifiés — appelé par l'écran Paramètres après enregistrement (chantier écran
+        Paramètres). Le fuseau horaire, lui, n'est lu qu'à la construction du scheduler (voir
+        __init__) et ne peut pas être appliqué à chaud ici — redémarrage requis pour celui-là.
+        Même patron que refresh_digest_job(), généralisé à tous les jobs plutôt qu'à un seul."""
+        for job in self.list_jobs():
+            self.schedule_pipeline(job["pipeline_id"])
+
     # ── Interne ──────────────────────────────
 
     def _job_id(self, pipeline_id: int) -> str:
@@ -389,6 +407,7 @@ class PipelineScheduler:
         """Ajoute ou remplace le job APScheduler pour ce pipeline."""
         job_id  = self._job_id(pipeline.id)
         trigger = build_cron_trigger(pipeline)
+        settings = db.get_app_settings()
 
         # add_job avec replace_existing=True pour la mise à jour à chaud
         self._scheduler.add_job(
@@ -399,8 +418,8 @@ class PipelineScheduler:
             kwargs={},
             name=pipeline.name,
             replace_existing=True,
-            misfire_grace_time=3600,   # 1h de tolérance si le PC était éteint
-            coalesce=True,             # ne pas rattraper les exécutions manquées
+            misfire_grace_time=settings.misfire_grace_time_min * 60,
+            coalesce=settings.coalesce_missed_runs,
         )
 
         next_run = self._scheduler.get_job(job_id).next_run_time

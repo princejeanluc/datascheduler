@@ -1,7 +1,7 @@
 """
 DataScheduler — tests/test_icons.py
 Vérifie ui/icons.py (chantier identité visuelle, phase 2) : les tracés SVG embarqués (logo +
-6 icônes de navigation) sont valides et se rendent en QIcon non nulles.
+icônes de navigation) sont valides et se rendent en QIcon non nulles.
 """
 
 import os
@@ -23,7 +23,7 @@ def qapp():
 def test_all_nav_icon_bodies_produce_valid_svg():
     from ui.icons import _NAV_ICON_BODIES, _SVG_WRAPPER
 
-    assert len(_NAV_ICON_BODIES) == 6
+    assert len(_NAV_ICON_BODIES) == 7   # +1 "parametres" (chantier écran Paramètres)
     for key, body in _NAV_ICON_BODIES.items():
         svg = _SVG_WRAPPER.format(color="#ffffff", body=body.format(color="#ffffff"))
         renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))

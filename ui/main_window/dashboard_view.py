@@ -34,12 +34,14 @@ def _cap_topology_preview(ordered: list, max_chains: int = 6) -> list:
 
 class DashboardView(QWidget):
     navigate_to_history = Signal(str)
+    navigate_to_settings = Signal(str)
 
     def __init__(self):
         super().__init__()
         self._build_ui()
+        from database import db_manager as db
         self._timer = QTimer(self)
-        self._timer.setInterval(30_000)   # 30 secondes
+        self._timer.setInterval(db.get_app_settings().dashboard_refresh_s * 1000)
         self._timer.timeout.connect(self.refresh)
         self._timer.start()
 
@@ -442,8 +444,7 @@ class DashboardView(QWidget):
         return chip
 
     def _on_notifications(self):
-        from ui.dialogs import NotificationSettingsDialog
-        NotificationSettingsDialog(self).exec()
+        self.navigate_to_settings.emit("notifications")
 
     def _on_open_topology_dialog(self):
         from database import db_manager as db
