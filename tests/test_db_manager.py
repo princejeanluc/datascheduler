@@ -556,3 +556,48 @@ def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
 
     db._engine = None
     db._SessionFactory = None
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES APPLICATIFS (chantier écran "Paramètres")
+# ──────────────────────────────────────────────
+
+def test_get_app_settings_creates_singleton_row_with_defaults(test_db):
+    settings = db.get_app_settings()
+    assert settings.timezone == "UTC"
+    assert settings.misfire_grace_time_min == 60
+    assert settings.coalesce_missed_runs is True   # préserve le comportement câblé en dur avant
+    assert settings.max_concurrent_runs == 6
+    assert settings.log_level == "INFO"
+    assert settings.dashboard_refresh_s == 30
+
+
+def test_get_app_settings_is_idempotent_get_or_create(test_db):
+    first = db.get_app_settings()
+    second = db.get_app_settings()
+    assert first.id == second.id == 1
+
+
+def test_update_app_settings_updates_only_given_fields(test_db):
+    db.update_app_settings(timezone="Europe/Paris", max_concurrent_runs=3)
+
+    settings = db.get_app_settings()
+    assert settings.timezone == "Europe/Paris"
+    assert settings.max_concurrent_runs == 3
+    assert settings.log_level == "INFO"   # inchangé
+
+
+def test_app_settings_table_created_fresh_without_migration(tmp_path):
+    """Table neuve — Base.metadata.create_all() doit suffire, sans bloc ALTER TABLE dans
+    _migrate() (contrairement à l'ajout d'une colonne sur une table déjà existante)."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "fresh_app_settings.db"
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(app_settings)")).fetchall()}
+    assert "timezone" in cols
+    assert "max_concurrent_runs" in cols
+
+    db._engine = None
+    db._SessionFactory = None

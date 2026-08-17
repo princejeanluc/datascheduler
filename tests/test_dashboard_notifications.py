@@ -1,8 +1,9 @@
 """
 DataScheduler — tests/test_dashboard_notifications.py
 Fumée (offscreen Qt) : la ligne d'un run en échec ressort visuellement dans le Dashboard
-(persona "Karim" — repérer un échec en un coup d'œil) et NotificationSettingsDialog s'ouvre et
-enregistre correctement (persona "Sophie").
+(persona "Karim" — repérer un échec en un coup d'œil) et la catégorie "Notifications" de
+SettingsView enregistre correctement le digest (persona "Sophie") — migré depuis l'ancien
+NotificationSettingsDialog, retiré au profit de l'écran Paramètres unifié.
 """
 
 import os
@@ -52,23 +53,31 @@ def test_successful_run_is_not_highlighted(qapp, test_db):
     assert item.toolTip() == ""
 
 
-def test_notification_settings_dialog_opens_and_saves(qapp, test_db):
+def _row_wrapper(view, label_substr: str):
+    """Retrouve le wrapper d'une ligne de SettingsView par une sous-chaîne (insensible à la
+    casse) de son libellé — évite de dépendre de l'ordre d'ajout des lignes."""
+    return next(r["wrapper"] for r in view._row_widgets if label_substr in r["label"])
+
+
+def test_settings_view_saves_notification_fields(qapp, test_db):
+    """Migration du digest email vers l'écran Paramètres unifié (retrait de
+    NotificationSettingsDialog) — même vérification qu'avant : les champs se sauvegardent et le
+    job de digest est bien (re)planifié auprès d'APScheduler."""
     from core.scheduler import init_scheduler
-    from ui.dialogs import NotificationSettingsDialog
+    from ui.main_window.settings_view import SettingsView
 
     sched = init_scheduler()
     try:
         smtp = db.create_smtp_profile(name="SMTP_TEST", host="h", port=587, from_address="a@b.c")
 
-        dlg = NotificationSettingsDialog(None)
-        assert dlg.windowTitle()
-        assert not dlg.chk_enabled.isChecked()
+        view = SettingsView()
+        assert not view.chk_digest_enabled.isChecked()
 
-        dlg.chk_enabled.setChecked(True)
-        idx = dlg.cb_smtp.findData(smtp.id)
-        dlg.cb_smtp.setCurrentIndex(idx)
-        dlg.inp_recipients.setText("dest@test.com")
-        dlg._on_save()
+        view.chk_digest_enabled.setChecked(True)
+        idx = view.cb_smtp.findData(smtp.id)
+        view.cb_smtp.setCurrentIndex(idx)
+        view.inp_recipients.setText("dest@test.com")
+        view._on_save()
 
         settings = db.get_notification_settings()
         assert settings.digest_enabled
@@ -81,35 +90,37 @@ def test_notification_settings_dialog_opens_and_saves(qapp, test_db):
         scheduler_module._scheduler_instance = None
 
 
-def test_notification_settings_dialog_day_combo_only_visible_for_weekly(qapp, test_db):
-    from ui.dialogs import NotificationSettingsDialog
+def test_settings_view_day_row_only_visible_for_weekly_notifications_category(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
 
-    dlg = NotificationSettingsDialog(None)
-    assert dlg.cb_day.isHidden()   # DAILY par défaut
+    view = SettingsView()
+    view.select_category("notifications")
+    day_row = _row_wrapper(view, "jour (si")
+    assert day_row.isHidden()   # DAILY par défaut
 
-    dlg.cb_frequency.setCurrentIndex(dlg.cb_frequency.findData("WEEKLY"))
-    assert not dlg.cb_day.isHidden()
+    view.cb_frequency.setCurrentIndex(view.cb_frequency.findData("WEEKLY"))
+    assert not day_row.isHidden()
 
-    dlg.cb_frequency.setCurrentIndex(dlg.cb_frequency.findData("DAILY"))
-    assert dlg.cb_day.isHidden()
+    view.cb_frequency.setCurrentIndex(view.cb_frequency.findData("DAILY"))
+    assert day_row.isHidden()
 
 
-def test_notification_settings_dialog_saves_time_and_day(qapp, test_db):
+def test_settings_view_saves_time_and_day(qapp, test_db):
     from core.scheduler import init_scheduler
-    from ui.dialogs import NotificationSettingsDialog
+    from ui.main_window.settings_view import SettingsView
 
     sched = init_scheduler()
     try:
         smtp = db.create_smtp_profile(name="SMTP_TEST2", host="h", port=587, from_address="a@b.c")
 
-        dlg = NotificationSettingsDialog(None)
-        dlg.chk_enabled.setChecked(True)
-        dlg.cb_smtp.setCurrentIndex(dlg.cb_smtp.findData(smtp.id))
-        dlg.inp_recipients.setText("dest@test.com")
-        dlg.cb_frequency.setCurrentIndex(dlg.cb_frequency.findData("WEEKLY"))
-        dlg.inp_time.setText("22:30")
-        dlg.cb_day.setCurrentIndex(dlg.cb_day.findData(5))
-        dlg._on_save()
+        view = SettingsView()
+        view.chk_digest_enabled.setChecked(True)
+        view.cb_smtp.setCurrentIndex(view.cb_smtp.findData(smtp.id))
+        view.inp_recipients.setText("dest@test.com")
+        view.cb_frequency.setCurrentIndex(view.cb_frequency.findData("WEEKLY"))
+        view.inp_time.setText("22:30")
+        view.cb_day.setCurrentIndex(view.cb_day.findData(5))
+        view._on_save()
 
         settings = db.get_notification_settings()
         assert settings.digest_time == "22:30"
@@ -120,29 +131,31 @@ def test_notification_settings_dialog_saves_time_and_day(qapp, test_db):
         scheduler_module._scheduler_instance = None
 
 
-def test_notification_settings_dialog_prefill_restores_time_and_day(qapp, test_db):
-    from ui.dialogs import NotificationSettingsDialog
+def test_settings_view_prefill_restores_time_and_day(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
 
     db.update_notification_settings(digest_time="14:20", digest_day_of_week=2, digest_frequency="WEEKLY")
-    dlg = NotificationSettingsDialog(None)
-    assert dlg.inp_time.text() == "14:20"
-    assert dlg.cb_day.currentData() == 2
-    assert not dlg.cb_day.isHidden()
+    view = SettingsView()
+    assert view.inp_time.text() == "14:20"
+    assert view.cb_day.currentData() == 2
+
+    view.select_category("notifications")
+    assert not _row_wrapper(view, "jour (si").isHidden()
 
 
-def test_notification_settings_dialog_rejects_invalid_time(qapp, test_db, monkeypatch):
-    from ui.dialogs import notification_settings_dialog as nsd_module
-    from ui.dialogs import NotificationSettingsDialog
+def test_settings_view_rejects_invalid_time(qapp, test_db, monkeypatch):
+    from ui.main_window import settings_view as sv_module
+    from ui.main_window.settings_view import SettingsView
 
     warnings = []
     monkeypatch.setattr(
-        nsd_module.QMessageBox, "warning",
+        sv_module.QMessageBox, "warning",
         lambda *a, **kw: warnings.append(a) or None,
     )
 
-    dlg = NotificationSettingsDialog(None)
-    dlg.chk_enabled.setChecked(False)
-    dlg.inp_time.setText("99:99")
-    dlg._on_save()
+    view = SettingsView()
+    view.chk_digest_enabled.setChecked(False)
+    view.inp_time.setText("99:99")
+    view._on_save()
 
     assert warnings   # QMessageBox.warning appelé, pas d'enregistrement silencieux d'une heure invalide

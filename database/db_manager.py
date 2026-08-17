@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -1271,6 +1271,32 @@ def update_notification_settings(**kwargs) -> NotificationSettings:
         settings = s.get(NotificationSettings, 1)
         if not settings:
             settings = NotificationSettings(id=1)
+            s.add(settings)
+        for key, value in kwargs.items():
+            setattr(settings, key, value)
+    return settings
+
+
+# ──────────────────────────────────────────────
+#  PARAMÈTRES APPLICATIFS (chantier écran "Paramètres")
+# ──────────────────────────────────────────────
+
+def get_app_settings() -> AppSettings:
+    """Get-or-create la ligne singleton (id=1) — même patron que get_notification_settings()."""
+    with get_session() as s:
+        settings = s.get(AppSettings, 1)
+        if not settings:
+            settings = AppSettings(id=1)
+            s.add(settings)
+    return settings
+
+
+def update_app_settings(**kwargs) -> AppSettings:
+    """Met à jour un sous-ensemble de champs de la ligne singleton (get-or-create implicite)."""
+    with get_session() as s:
+        settings = s.get(AppSettings, 1)
+        if not settings:
+            settings = AppSettings(id=1)
             s.add(settings)
         for key, value in kwargs.items():
             setattr(settings, key, value)

@@ -20,6 +20,7 @@ from .pipelines_view import PipelinesView
 from .connections_view import ConnectionsView
 from .queries_view import QueriesView
 from .history_view import HistoryView
+from .settings_view import SettingsView
 
 
 class MainWindow(QMainWindow):
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
             ConnectionsView(),
             QueriesView(),
             HistoryView(),
+            SettingsView(),
             HelpView(),
         ]
         for v in self._views:
@@ -81,6 +83,7 @@ class MainWindow(QMainWindow):
         root.addWidget(self._stack, stretch=1)
 
         self._views[0].navigate_to_history.connect(self._on_dashboard_navigate_to_history)
+        self._views[0].navigate_to_settings.connect(self._on_dashboard_navigate_to_settings)
 
         # Statut bar
         status = QStatusBar()
@@ -135,7 +138,8 @@ class MainWindow(QMainWindow):
             ("Connexions",   "connexions",   2),
             ("Requêtes SQL", "requetes_sql", 3),
             ("Historique",   "historique",   4),
-            ("Aide",         "aide",         5),
+            ("Paramètres",   "parametres",   5),
+            ("Aide",         "aide",         6),
         ]
         self._nav_buttons: list[NavButton] = []
         for label, icon, idx in nav_items:
@@ -156,6 +160,10 @@ class MainWindow(QMainWindow):
     def _on_dashboard_navigate_to_history(self, status: str):
         self._navigate(4)
         self._views[4].set_status_filter(status)
+
+    def _on_dashboard_navigate_to_settings(self, category: str):
+        self._navigate(5)
+        self._views[5].select_category(category)
 
     def _navigate(self, index: int):
         self._stack.setCurrentIndex(index)

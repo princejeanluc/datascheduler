@@ -288,6 +288,39 @@ def test_main_window_navigates_to_filtered_history_on_dashboard_signal(qapp, tes
         scheduler_module._scheduler_instance = None
 
 
+def test_main_window_navigates_to_settings_notifications_on_dashboard_bell_click(qapp, test_db):
+    """Chantier écran "Paramètres" : le bouton 🔔 du Dashboard (autrefois
+    NotificationSettingsDialog) amène désormais sur la vue Paramètres, catégorie
+    Notifications — même patron que le renvoi vers Historique ci-dessus."""
+    from core.scheduler import init_scheduler
+    from ui.main_window.window import MainWindow
+
+    sched = init_scheduler()
+    try:
+        win = MainWindow()
+        win._on_dashboard_navigate_to_settings("notifications")
+
+        assert win._stack.currentIndex() == 5
+        settings_view = win._views[5]
+        assert settings_view._active_category == "notifications"
+    finally:
+        sched.stop()
+        import core.scheduler as scheduler_module
+        scheduler_module._scheduler_instance = None
+
+
+def test_dashboard_bell_button_emits_navigate_to_settings(qapp, test_db):
+    from ui.main_window.dashboard_view import DashboardView
+
+    view = DashboardView()
+    captured = []
+    view.navigate_to_settings.connect(captured.append)
+
+    view._on_notifications()
+
+    assert captured == ["notifications"]
+
+
 def test_make_status_badge_pulses_only_for_running(qapp):
     """Pulsation du badge RUNNING (chantier identité, vague 1, idée 3) — centralisée dans
     _make_status_badge() pour bénéficier au Dashboard, Pipelines et Historique d'un coup."""
