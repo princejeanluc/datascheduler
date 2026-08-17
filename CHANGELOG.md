@@ -29,6 +29,23 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.28.0] - 2026-08-17
+
+### Ajouté
+- Plafond d'exécutions simultanées **appliqué** — champ stocké depuis le chantier écran
+  Paramètres mais jamais utilisé jusqu'ici : `run_pipeline()` refuse désormais tout nouveau
+  lancement (manuel, planifié ou en chaîne) au-delà du plafond configuré, sans mettre en file
+  d'attente (choix assumé — voir la description du champ dans Paramètres). Un run planifié
+  refusé n'est pas rejoué automatiquement, il attend son prochain déclenchement normal.
+- Nouvel écran "Ressources" (nav rail, entre Historique et Paramètres) : CPU/mémoire agrégés de
+  l'application dans le temps (jamais une mesure par pipeline — ils tournent en threads dans le
+  même process, impossible à attribuer proprement), mis en regard du nombre de pipelines en
+  cours sur le même axe temporel. Survoler un point synchronise le curseur sur les 3 graphiques
+  et liste précisément les pipelines actifs à cet instant — à l'utilisateur de faire le lien
+  entre une pointe de ressources et une salve de pipelines, pas à l'appli de l'inventer.
+  Sélecteur de plage (1h/6h/24h/7j). Nouvelle catégorie "Ressources" dans Paramètres (intervalle
+  d'échantillonnage, rétention).
+
 ## [0.27.0] - 2026-08-15
 
 ### Ajouté

@@ -28,6 +28,8 @@ _CATEGORIES = [
      "sub": "Fréquences de rafraîchissement automatique."},
     {"key": "notifications", "label": "Notifications",   "icon": "fa5s.bell",
      "sub": "Résumé périodique des exécutions par email."},
+    {"key": "resources",     "label": "Ressources",      "icon": "fa5s.chart-line",
+     "sub": "Échantillonnage CPU/mémoire de la vue Ressources."},
 ]
 
 _TIMEZONES = ["UTC", "Europe/Paris"]
@@ -259,9 +261,10 @@ class SettingsView(QWidget):
         self.spin_max_concurrent = QSpinBox(); self.spin_max_concurrent.setStyleSheet(_spinbox_style())
         self.spin_max_concurrent.setRange(1, 100)
         self._add_row("scheduler", "Plafond d'exécutions simultanées",
-                       "« Tout exécuter » et le déclenchement en chaîne n'ont aujourd'hui aucune "
-                       "limite. Pas encore appliqué — arrive avec le prochain chantier sur le "
-                       "suivi des ressources.", self.spin_max_concurrent, badge="Nouveau")
+                       "Au-delà, un nouveau lancement (manuel, planifié ou en chaîne) est "
+                       "refusé — pas mis en file d'attente. Un run planifié refusé n'est pas "
+                       "rejoué automatiquement, il attend son prochain déclenchement normal.",
+                       self.spin_max_concurrent)
 
         # Journalisation
         self.cb_log_level = QComboBox(); self.cb_log_level.setStyleSheet(_combo_style())
@@ -339,6 +342,20 @@ class SettingsView(QWidget):
         self.inp_time.setStyleSheet(_input_style())
         self._add_row("notifications", "Heure d'envoi", "Format HH:MM.", self.inp_time)
 
+        # Ressources (chantier suivi des ressources) — premier réglage né directement avec ce
+        # socle, jamais en dur auparavant.
+        self.spin_sample_interval = QSpinBox(); self.spin_sample_interval.setStyleSheet(_spinbox_style())
+        self.spin_sample_interval.setRange(10, 3600); self.spin_sample_interval.setSuffix(" s")
+        self._add_row("resources", "Intervalle d'échantillonnage",
+                       "Fréquence de mesure du CPU/mémoire de l'application. Effet immédiat.",
+                       self.spin_sample_interval)
+
+        self.spin_sample_retention = QSpinBox(); self.spin_sample_retention.setStyleSheet(_spinbox_style())
+        self.spin_sample_retention.setRange(1, 90); self.spin_sample_retention.setSuffix(" j")
+        self._add_row("resources", "Rétention des échantillons",
+                       "Au-delà, les échantillons les plus anciens sont supprimés automatiquement.",
+                       self.spin_sample_retention)
+
     # ── Données ───────────────────────────────
 
     def _prefill(self):
@@ -360,6 +377,9 @@ class SettingsView(QWidget):
         self.spin_pipelines_refresh.setValue(settings.pipelines_refresh_s)
         self.spin_live_log_refresh.setValue(settings.live_log_refresh_s)
         self.spin_trace_glow_refresh.setValue(settings.trace_glow_refresh_s)
+
+        self.spin_sample_interval.setValue(settings.resource_sample_interval_s)
+        self.spin_sample_retention.setValue(settings.resource_sample_retention_days)
 
         notif = db.get_notification_settings()
         self._smtp_profiles = db.get_smtp_profiles()
@@ -466,6 +486,8 @@ class SettingsView(QWidget):
             pipelines_refresh_s=self.spin_pipelines_refresh.value(),
             live_log_refresh_s=self.spin_live_log_refresh.value(),
             trace_glow_refresh_s=self.spin_trace_glow_refresh.value(),
+            resource_sample_interval_s=self.spin_sample_interval.value(),
+            resource_sample_retention_days=self.spin_sample_retention.value(),
         )
         db.update_notification_settings(
             digest_enabled=digest_enabled,

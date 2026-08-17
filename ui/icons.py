@@ -39,6 +39,7 @@ _NAV_ICON_BODIES = {
         '<path d="M5 5v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V5M5 11v6c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-6"/>'
     ),
     "historique": '<circle cx="12" cy="13" r="7.5"/><path d="M12 9v4l2.5 2M9 2h6"/>',
+    "ressources": '<path d="M3 12h4l2.5-7L13 19l2.5-7H21"/>',
     "parametres": (
         '<circle cx="12" cy="12" r="3"/>'
         '<path d="M19.4 13a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 '

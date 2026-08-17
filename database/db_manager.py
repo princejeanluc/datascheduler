@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, ResourceSample, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -303,6 +303,22 @@ def _migrate(engine) -> None:
         if "digest_day_of_week" not in notif_cols:
             conn.execute(text(
                 "ALTER TABLE notification_settings ADD COLUMN digest_day_of_week INTEGER NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
+        # Échantillonnage des ressources (chantier suivi des ressources) — colonnes ajoutées à
+        # app_settings, table déjà créée par le chantier écran Paramètres précédent (donc pas
+        # forcément neuve pour toutes les bases : ALTER TABLE requis ici, contrairement à
+        # resource_samples elle-même, table entièrement neuve créée par create_all()).
+        app_settings_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(app_settings)")).fetchall()}
+        if "resource_sample_interval_s" not in app_settings_cols:
+            conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN resource_sample_interval_s INTEGER NOT NULL DEFAULT 60"
+            ))
+            conn.commit()
+        if "resource_sample_retention_days" not in app_settings_cols:
+            conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN resource_sample_retention_days INTEGER NOT NULL DEFAULT 7"
             ))
             conn.commit()
 
@@ -1301,6 +1317,62 @@ def update_app_settings(**kwargs) -> AppSettings:
         for key, value in kwargs.items():
             setattr(settings, key, value)
     return settings
+
+
+# ──────────────────────────────────────────────
+#  ÉCHANTILLONS DE RESSOURCES (vue Ressources, chantier suivi des ressources)
+# ──────────────────────────────────────────────
+
+def record_resource_sample(cpu_percent: float, memory_mb: float) -> ResourceSample:
+    from datetime import datetime
+    with get_session() as s:
+        sample = ResourceSample(
+            timestamp=datetime.utcnow(), cpu_percent=cpu_percent, memory_mb=memory_mb,
+        )
+        s.add(sample)
+    return sample
+
+
+def get_resource_samples(since) -> list[ResourceSample]:
+    """Échantillons depuis `since` (datetime), ordre chronologique croissant — c'est l'ordre
+    attendu par les graphiques de la vue Ressources (le plus ancien en premier)."""
+    with get_session() as s:
+        return (
+            s.query(ResourceSample)
+            .filter(ResourceSample.timestamp >= since)
+            .order_by(ResourceSample.timestamp.asc())
+            .all()
+        )
+
+
+def prune_resource_samples(older_than) -> int:
+    """Supprime les échantillons antérieurs à `older_than` (datetime) — appelé après chaque
+    nouvel échantillon plutôt que via un job de purge séparé. Retourne le nombre supprimé."""
+    with get_session() as s:
+        n = (
+            s.query(ResourceSample)
+            .filter(ResourceSample.timestamp < older_than)
+            .delete(synchronize_session=False)
+        )
+    return n
+
+
+def get_runs_overlapping_window(start, end) -> list[PipelineRun]:
+    """Runs dont l'intervalle [started_at, finished_at ou maintenant] chevauche [start, end] —
+    réutilisé par la vue Ressources à la fois pour compter les pipelines en cours à chaque
+    instant échantillonné et pour la liste détaillée au survol (une seule requête pour toute la
+    fenêtre visible, filtrage en mémoire ensuite plutôt qu'une requête par point)."""
+    with get_session() as s:
+        return (
+            s.query(PipelineRun)
+            .options(joinedload(PipelineRun.pipeline))
+            .filter(
+                PipelineRun.started_at <= end,
+                (PipelineRun.finished_at.is_(None)) | (PipelineRun.finished_at >= start),
+            )
+            .order_by(PipelineRun.started_at.asc())
+            .all()
+        )
 
 
 # ──────────────────────────────────────────────

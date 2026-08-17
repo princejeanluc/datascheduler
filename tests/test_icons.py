@@ -23,7 +23,7 @@ def qapp():
 def test_all_nav_icon_bodies_produce_valid_svg():
     from ui.icons import _NAV_ICON_BODIES, _SVG_WRAPPER
 
-    assert len(_NAV_ICON_BODIES) == 7   # +1 "parametres" (chantier écran Paramètres)
+    assert len(_NAV_ICON_BODIES) == 8   # +1 "ressources" (chantier suivi des ressources)
     for key, body in _NAV_ICON_BODIES.items():
         svg = _SVG_WRAPPER.format(color="#ffffff", body=body.format(color="#ffffff"))
         renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))

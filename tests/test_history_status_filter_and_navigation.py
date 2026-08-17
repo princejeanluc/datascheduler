@@ -300,8 +300,8 @@ def test_main_window_navigates_to_settings_notifications_on_dashboard_bell_click
         win = MainWindow()
         win._on_dashboard_navigate_to_settings("notifications")
 
-        assert win._stack.currentIndex() == 5
-        settings_view = win._views[5]
+        assert win._stack.currentIndex() == 6
+        settings_view = win._views[6]
         assert settings_view._active_category == "notifications"
     finally:
         sched.stop()
