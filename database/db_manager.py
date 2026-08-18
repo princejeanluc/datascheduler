@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, ResourceSample, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -319,6 +319,14 @@ def _migrate(engine) -> None:
         if "resource_sample_retention_days" not in app_settings_cols:
             conn.execute(text(
                 "ALTER TABLE app_settings ADD COLUMN resource_sample_retention_days INTEGER NOT NULL DEFAULT 7"
+            ))
+            conn.commit()
+
+        # Exécution en arrière-plan (chantier worker) — même situation : colonne ajoutée à
+        # app_settings, table déjà existante pour les bases antérieures à ce chantier.
+        if "execution_mode" not in app_settings_cols:
+            conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN execution_mode VARCHAR(20) NOT NULL DEFAULT 'IN_APP'"
             ))
             conn.commit()
 
@@ -1373,6 +1381,55 @@ def get_runs_overlapping_window(start, end) -> list[PipelineRun]:
             .order_by(PipelineRun.started_at.asc())
             .all()
         )
+
+
+def get_latest_resource_sample() -> ResourceSample | None:
+    """Le plus récent échantillon — réutilisé comme battement de cœur du worker en arrière-plan
+    (chantier exécution en arrière-plan) : le job d'échantillonnage tourne déjà en continu dans
+    le process qui exécute les pipelines, pas besoin d'inventer une mesure de vivacité séparée."""
+    with get_session() as s:
+        return (
+            s.query(ResourceSample)
+            .order_by(ResourceSample.timestamp.desc())
+            .first()
+        )
+
+
+# ──────────────────────────────────────────────
+#  FILE DE COMMANDES (chantier exécution en arrière-plan)
+# ──────────────────────────────────────────────
+
+def enqueue_worker_command(command: str, payload: dict | None = None) -> WorkerCommand:
+    import json
+    from datetime import datetime
+    with get_session() as s:
+        cmd = WorkerCommand(
+            command=command,
+            payload_json=json.dumps(payload) if payload is not None else None,
+            created_at=datetime.utcnow(),
+        )
+        s.add(cmd)
+    return cmd
+
+
+def get_pending_worker_commands() -> list[WorkerCommand]:
+    """Commandes non encore consommées, ordre chronologique — lu uniquement par le worker
+    (core/scheduler.py::_poll_worker_commands), jamais par l'appli desktop elle-même."""
+    with get_session() as s:
+        return (
+            s.query(WorkerCommand)
+            .filter(WorkerCommand.consumed_at.is_(None))
+            .order_by(WorkerCommand.created_at.asc())
+            .all()
+        )
+
+
+def mark_worker_command_consumed(command_id: int) -> None:
+    from datetime import datetime
+    with get_session() as s:
+        cmd = s.get(WorkerCommand, command_id)
+        if cmd:
+            cmd.consumed_at = datetime.utcnow()
 
 
 # ──────────────────────────────────────────────

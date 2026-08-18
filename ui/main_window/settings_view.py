@@ -72,6 +72,11 @@ class SettingsView(QWidget):
         self._row_widgets: list[dict] = []   # {category, label, desc, widget, category_chip}
         self._build_ui()
         self._prefill()
+        self._refresh_worker_status()
+        self._worker_status_timer = QTimer(self)
+        self._worker_status_timer.setInterval(5000)
+        self._worker_status_timer.timeout.connect(self._refresh_worker_status)
+        self._worker_status_timer.start()
 
     # ── Construction ──────────────────────────
 
@@ -266,6 +271,23 @@ class SettingsView(QWidget):
                        "rejoué automatiquement, il attend son prochain déclenchement normal.",
                        self.spin_max_concurrent)
 
+        # Exécution en arrière-plan (chantier worker) — un worker détaché devient le seul
+        # exécuteur, l'appli desktop devient purement cliente. Jamais à chaud (voir _on_save) :
+        # évite toute fenêtre avec deux planificateurs actifs en même temps.
+        self.cb_execution_mode = QComboBox(); self.cb_execution_mode.setStyleSheet(_combo_style())
+        self.cb_execution_mode.addItem("Dans l'application seulement", "IN_APP")
+        self.cb_execution_mode.addItem("Avec exécution en arrière-plan", "BACKGROUND")
+        self._add_row("scheduler", "Mode d'exécution",
+                       "En arrière-plan : un worker détaché continue de planifier/exécuter même "
+                       "l'appli fermée, tant que la session est ouverte. Redémarrage de "
+                       "l'application requis pour prendre effet.", self.cb_execution_mode)
+
+        self.lbl_worker_status = QLabel("—")
+        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._add_row("scheduler", "État du worker en arrière-plan",
+                       "Déduit du dernier échantillon de ressources — le worker en écrit un en "
+                       "continu tant qu'il tourne.", self.lbl_worker_status)
+
         # Journalisation
         self.cb_log_level = QComboBox(); self.cb_log_level.setStyleSheet(_combo_style())
         self.cb_log_level.addItems(_LOG_LEVELS)
@@ -368,6 +390,9 @@ class SettingsView(QWidget):
         self.chk_coalesce.setChecked(settings.coalesce_missed_runs)
         self.spin_max_concurrent.setValue(settings.max_concurrent_runs)
 
+        idx = self.cb_execution_mode.findData(settings.execution_mode)
+        self.cb_execution_mode.setCurrentIndex(idx if idx >= 0 else 0)
+
         idx = self.cb_log_level.findText(settings.log_level)
         self.cb_log_level.setCurrentIndex(idx if idx >= 0 else 1)
         self.spin_log_mb.setValue(max(1, settings.log_max_bytes // 1_000_000))
@@ -401,6 +426,33 @@ class SettingsView(QWidget):
         if day_idx >= 0:
             self.cb_day.setCurrentIndex(day_idx)
         self._on_frequency_changed()
+
+    def _refresh_worker_status(self):
+        """État "en cours"/"arrêté" déduit du dernier échantillon de ressources — c'est le
+        même battement de cœur déjà utilisé par la vue Ressources, pas une nouvelle mesure.
+        Un échantillon plus vieux que 2x l'intervalle configuré est considéré périmé (le worker
+        a probablement été arrêté ou n'a jamais démarré)."""
+        from datetime import datetime
+        from database import db_manager as db
+
+        settings = db.get_app_settings()
+        if settings.execution_mode != "BACKGROUND":
+            self.lbl_worker_status.setText("—")
+            return
+
+        sample = db.get_latest_resource_sample()
+        if not sample:
+            self.lbl_worker_status.setText("Arrêté (aucun signal reçu)")
+            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+            return
+
+        age_s = (datetime.utcnow() - sample.timestamp).total_seconds()
+        if age_s <= 2 * settings.resource_sample_interval_s:
+            self.lbl_worker_status.setText(f"Actif (dernier signal il y a {int(age_s)}s)")
+            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['success']}; font-size: 12px;")
+        else:
+            self.lbl_worker_status.setText(f"Arrêté (dernier signal il y a {int(age_s)}s)")
+            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
 
     # ── Navigation catégories / recherche ─────
 
@@ -474,11 +526,16 @@ class SettingsView(QWidget):
             return
 
         from database import db_manager as db
+
+        previous_mode = db.get_app_settings().execution_mode
+        new_mode = self.cb_execution_mode.currentData()
+
         db.update_app_settings(
             timezone=self.cb_timezone.currentText(),
             misfire_grace_time_min=self.spin_misfire.value(),
             coalesce_missed_runs=self.chk_coalesce.isChecked(),
             max_concurrent_runs=self.spin_max_concurrent.value(),
+            execution_mode=new_mode,
             log_level=self.cb_log_level.currentText(),
             log_max_bytes=self.spin_log_mb.value() * 1_000_000,
             log_backup_count=self.spin_log_backups.value(),
@@ -501,13 +558,28 @@ class SettingsView(QWidget):
         import logging
         logging.getLogger().setLevel(self.cb_log_level.currentText())
 
-        try:
-            from core.scheduler import get_scheduler
-            sched = get_scheduler()
-            sched.apply_settings()
-            sched.refresh_digest_job()
-        except RuntimeError:
-            pass   # scheduler pas encore démarré (ne devrait pas arriver depuis l'UI)
+        # Mode d'exécution en arrière-plan (chantier worker) — jamais délégué ET local à la
+        # fois pour une même sauvegarde (voir core/execution_mode.py) ; le comportement du
+        # process desktop courant (son propre scheduler) ne change qu'au redémarrage, mais la
+        # tâche planifiée Windows et le worker déjà lancé, eux, réagissent tout de suite.
+        from core.execution_mode import request_reload
+        if not request_reload():
+            try:
+                from core.scheduler import get_scheduler
+                sched = get_scheduler()
+                sched.apply_settings()
+                sched.refresh_digest_job()
+            except RuntimeError:
+                pass   # scheduler pas encore démarré (ne devrait pas arriver depuis l'UI)
+
+        if new_mode != previous_mode:
+            from core.task_scheduler import register_logon_task, unregister_logon_task
+            if new_mode == "BACKGROUND":
+                register_logon_task()
+            else:
+                unregister_logon_task()
+                db.enqueue_worker_command("SHUTDOWN")
+            self._refresh_worker_status()
 
         # Confirmation non bloquante (pas de QMessageBox.information ici, volontairement) : un
         # "Enregistrer" qu'on peut cliquer plusieurs fois de suite sans devoir fermer une boîte

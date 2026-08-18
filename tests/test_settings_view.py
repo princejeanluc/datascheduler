@@ -161,6 +161,129 @@ def test_on_save_persists_scheduler_logging_and_interface_fields(qapp, test_db):
     assert settings.trace_glow_refresh_s == 3
 
 
+def test_execution_mode_row_present_and_prefills_default(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view.cb_execution_mode is not None
+    assert view.cb_execution_mode.currentData() == "IN_APP"
+    assert view.lbl_worker_status.text() == "—"
+
+
+def test_execution_mode_row_prefills_background(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(execution_mode="BACKGROUND")
+    view = SettingsView()
+
+    assert view.cb_execution_mode.currentData() == "BACKGROUND"
+
+
+def test_on_save_persists_execution_mode(qapp, test_db, monkeypatch):
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: True)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert db.get_app_settings().execution_mode == "BACKGROUND"
+
+
+def test_on_save_switching_to_background_registers_logon_task(qapp, test_db, monkeypatch):
+    calls = []
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: calls.append(True))
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert calls == [True]
+
+
+def test_on_save_switching_to_in_app_unregisters_task_and_enqueues_shutdown(qapp, test_db, monkeypatch):
+    db.update_app_settings(execution_mode="BACKGROUND")
+    calls = []
+    monkeypatch.setattr("core.task_scheduler.unregister_logon_task", lambda: calls.append(True))
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("IN_APP")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert calls == [True]
+    pending = db.get_pending_worker_commands()
+    assert any(c.command == "SHUTDOWN" for c in pending)
+
+
+def test_on_save_without_mode_change_does_not_touch_logon_task(qapp, test_db, monkeypatch):
+    """Rester en IN_APP (défaut) ne doit ni enregistrer ni désinscrire la tâche planifiée —
+    seule une vraie transition de mode déclenche ces appels (voir _on_save())."""
+    register_calls = []
+    unregister_calls = []
+    monkeypatch.setattr("core.task_scheduler.register_logon_task",
+                         lambda: register_calls.append(True))
+    monkeypatch.setattr("core.task_scheduler.unregister_logon_task",
+                         lambda: unregister_calls.append(True))
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    view._on_save()
+
+    assert register_calls == []
+    assert unregister_calls == []
+
+
+def test_refresh_worker_status_shows_dash_in_app_mode(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view._refresh_worker_status()
+    assert view.lbl_worker_status.text() == "—"
+
+
+def test_refresh_worker_status_shows_stopped_without_any_sample(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(execution_mode="BACKGROUND")
+    view = SettingsView()
+    view._refresh_worker_status()
+    assert "Arrêté" in view.lbl_worker_status.text()
+
+
+def test_refresh_worker_status_shows_active_for_recent_sample(qapp, test_db):
+    from datetime import datetime
+    from database.models import ResourceSample
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(execution_mode="BACKGROUND")
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=datetime.utcnow(), cpu_percent=1.0, memory_mb=10.0))
+
+    view = SettingsView()
+    view._refresh_worker_status()
+    assert "Actif" in view.lbl_worker_status.text()
+
+
+def test_refresh_worker_status_shows_stopped_for_stale_sample(qapp, test_db):
+    from datetime import datetime, timedelta
+    from database.models import ResourceSample
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(execution_mode="BACKGROUND", resource_sample_interval_s=10)
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=datetime.utcnow() - timedelta(minutes=5),
+                              cpu_percent=1.0, memory_mb=10.0))
+
+    view = SettingsView()
+    view._refresh_worker_status()
+    assert "Arrêté" in view.lbl_worker_status.text()
+
+
 def test_select_category_public_method_clears_search_first(qapp, test_db):
     """select_category() (utilisée par le raccourci 🔔 du Dashboard) doit toujours retomber sur
     la vue catégorie même si une recherche était en cours — sinon la recherche masquerait les

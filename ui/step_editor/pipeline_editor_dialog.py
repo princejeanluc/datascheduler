@@ -612,14 +612,18 @@ class PipelineEditorDialog(QDialog):
 
         # (Re)planifie immédiatement — sans ça, la fréquence/l'heure choisie ici ne prend effet
         # qu'au prochain redémarrage de l'app ou à un aller-retour actif/inactif (seuls autres
-        # points d'accroche vers APScheduler, voir pipelines_view.py::_on_toggle_pipeline). Même
-        # patron défensif (RuntimeError silencieuse) : le scheduler n'est pas initialisé dans les
-        # tests qui construisent ce dialogue directement.
-        try:
-            from core.scheduler import get_scheduler
-            get_scheduler().schedule_pipeline(pipeline_id)
-        except RuntimeError:
-            pass
+        # points d'accroche vers APScheduler, voir pipelines_view.py::_on_toggle_pipeline). En
+        # mode exécution en arrière-plan, c'est le worker qui replanifie — jamais les deux à la
+        # fois pour une même sauvegarde (voir core/execution_mode.py). Patron défensif
+        # (RuntimeError silencieuse) conservé pour le chemin local : le scheduler n'est pas
+        # initialisé dans les tests qui construisent ce dialogue directement.
+        from core.execution_mode import request_reload
+        if not request_reload():
+            try:
+                from core.scheduler import get_scheduler
+                get_scheduler().schedule_pipeline(pipeline_id)
+            except RuntimeError:
+                pass
 
         self.accept()
 

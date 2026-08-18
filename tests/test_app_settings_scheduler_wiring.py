@@ -172,3 +172,91 @@ def test_sample_resources_never_raises_on_measurement_failure(test_db, monkeypat
 
     sched = PipelineScheduler()
     sched._sample_resources()   # ne doit pas lever
+
+
+# ──────────────────────────────────────────────
+#  SONDAGE DES COMMANDES WORKER (chantier exécution en arrière-plan)
+# ──────────────────────────────────────────────
+
+def test_refresh_command_poller_registers_job(test_db):
+    sched = PipelineScheduler()
+    try:
+        sched.start()
+        sched.refresh_command_poller()
+        job = sched._scheduler.get_job(sched.COMMAND_POLLER_JOB_ID)
+        assert job is not None
+        assert job.trigger.interval.total_seconds() == 3
+    finally:
+        sched.stop()
+
+
+def test_poll_worker_commands_run_now_calls_trigger_now(test_db, monkeypatch):
+    db.enqueue_worker_command("RUN_NOW", {"pipeline_id": 7})
+
+    sched = PipelineScheduler()
+    calls = []
+    monkeypatch.setattr(sched, "trigger_now", lambda pid: calls.append(pid))
+
+    sched._poll_worker_commands()
+
+    assert calls == [7]
+    assert db.get_pending_worker_commands() == []
+
+
+def test_poll_worker_commands_reload_calls_load_all_pipelines(test_db, monkeypatch):
+    db.enqueue_worker_command("RELOAD")
+
+    sched = PipelineScheduler()
+    calls = []
+    monkeypatch.setattr(sched, "load_all_pipelines", lambda: calls.append(True))
+
+    sched._poll_worker_commands()
+
+    assert calls == [True]
+    assert db.get_pending_worker_commands() == []
+
+
+def test_poll_worker_commands_cancel_calls_request_cancel(test_db, monkeypatch):
+    import core.pipeline as pipeline_module
+
+    db.enqueue_worker_command("CANCEL", {"pipeline_id": 3})
+    calls = []
+    monkeypatch.setattr(pipeline_module, "request_cancel", lambda pid: calls.append(pid))
+
+    sched = PipelineScheduler()
+    sched._poll_worker_commands()
+
+    assert calls == [3]
+    assert db.get_pending_worker_commands() == []
+
+
+def test_poll_worker_commands_shutdown_sets_event(test_db):
+    db.enqueue_worker_command("SHUTDOWN")
+
+    sched = PipelineScheduler()
+    assert not sched.shutdown_requested.is_set()
+    sched._poll_worker_commands()
+
+    assert sched.shutdown_requested.is_set()
+    assert db.get_pending_worker_commands() == []
+
+
+def test_poll_worker_commands_never_raises_on_malformed_command(test_db):
+    """Même logique défensive que _sample_resources/_run_digest : payload absent/invalide pour
+    une commande qui en a besoin ne doit jamais faire tomber le sondage."""
+    db.enqueue_worker_command("RUN_NOW")   # pas de payload -> KeyError interne, capturée
+
+    sched = PipelineScheduler()
+    sched._poll_worker_commands()   # ne doit pas lever
+
+    # Marquée consommée malgré l'échec — jamais rejouée en boucle.
+    assert db.get_pending_worker_commands() == []
+
+
+def test_poll_worker_commands_ignores_unknown_command(test_db):
+    db.enqueue_worker_command("BOGUS")
+
+    sched = PipelineScheduler()
+    sched._poll_worker_commands()   # ne doit pas lever
+
+    assert db.get_pending_worker_commands() == []

@@ -540,6 +540,12 @@ class AppSettings(Base):
     resource_sample_interval_s     = Column(Integer, default=60, nullable=False)
     resource_sample_retention_days = Column(Integer, default=7, nullable=False)
 
+    # Exécution en arrière-plan (chantier worker) — "IN_APP" (défaut, comportement historique)
+    # ou "BACKGROUND" (un worker détaché exécute tout, l'appli devient purement cliente). Ne
+    # prend effet qu'au redémarrage de l'appli (voir core/execution_mode.py) — jamais à chaud,
+    # pour ne jamais avoir deux planificateurs actifs en même temps.
+    execution_mode          = Column(String(20), default="IN_APP", nullable=False)
+
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
 
@@ -565,6 +571,33 @@ class ResourceSample(Base):
 
     def __repr__(self):
         return f"<ResourceSample {self.timestamp} cpu={self.cpu_percent}% mem={self.memory_mb}Mo>"
+
+
+# ──────────────────────────────────────────────
+#  FILE DE COMMANDES (chantier exécution en arrière-plan)
+# ──────────────────────────────────────────────
+
+class WorkerCommand(Base):
+    """
+    Canal de coordination entre l'appli desktop (cliente en mode BACKGROUND) et le worker
+    détaché — l'appli dépose une commande, le worker la lit à son prochain cycle de sondage
+    (core/scheduler.py::_poll_worker_commands, toutes les ~3s) et la marque consommée. Choix
+    délibéré d'une file en base plutôt qu'un canal réseau (pipe nommé, serveur local) : reste
+    dans la même philosophie que le reste du projet (tout passe par SQLite), évite toute
+    question de pare-feu Windows dans un environnement d'entreprise contraint, au prix d'une
+    latence de quelques secondes — acceptable pour ces commandes, jamais sur le chemin critique
+    d'exécution d'un pipeline planifié.
+    """
+    __tablename__ = "worker_commands"
+
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    command      = Column(String(20), nullable=False)   # "RUN_NOW" | "RELOAD" | "CANCEL" | "SHUTDOWN"
+    payload_json = Column(Text, nullable=True)
+    created_at   = Column(DateTime, default=datetime.utcnow, nullable=False)
+    consumed_at  = Column(DateTime, nullable=True)
+
+    def __repr__(self):
+        return f"<WorkerCommand {self.command} consumed={self.consumed_at is not None}>"
 
 
 # ──────────────────────────────────────────────

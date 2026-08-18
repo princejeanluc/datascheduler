@@ -355,11 +355,26 @@ class PipelinesView(QWidget):
         from database import db_manager as db
         from ui.dialogs import RunProgressDialog
         from core.pipeline import is_pipeline_running, request_cancel
+        from core.execution_mode import (
+            is_background_mode_active, is_pipeline_running_anywhere,
+            request_run_now, request_cancel_run,
+        )
         p = db.get_pipeline(pipeline_id)
         if not p:
             return
 
-        if p.prevent_overlap and is_pipeline_running(pipeline_id):
+        # En mode arrière-plan, l'exécution réelle vit dans le process worker, pas ici —
+        # is_pipeline_running()/request_cancel() (core.pipeline) ne lisent/n'écrivent qu'un état
+        # en mémoire propre au process courant, donc toujours "pas en cours" côté appli desktop
+        # même si le worker l'exécute réellement. is_pipeline_running_anywhere() lit le statut en
+        # base (écrit par n'importe quel process qui exécute), fiable dans les deux modes.
+        background = is_background_mode_active()
+        currently_running = (
+            is_pipeline_running_anywhere(pipeline_id) if background
+            else is_pipeline_running(pipeline_id)
+        )
+
+        if p.prevent_overlap and currently_running:
             box = QMessageBox(self)
             box.setWindowTitle("Pipeline déjà en cours")
             box.setText(
@@ -373,7 +388,8 @@ class PipelinesView(QWidget):
             box.setDefaultButton(box.buttons()[-1])
             box.exec()
             if box.clickedButton() == btn_interrupt:
-                request_cancel(pipeline_id)
+                if not request_cancel_run(pipeline_id):
+                    request_cancel(pipeline_id)
                 # Reflète l'état "Arrêt en cours" tout de suite dans le tableau (colonne Statut)
                 # plutôt que d'attendre le prochain rafraîchissement automatique (30s) — sans ça,
                 # rien n'indique visuellement que la demande a bien été prise en compte.
@@ -385,7 +401,11 @@ class PipelinesView(QWidget):
                 )
             return
 
-        RunProgressDialog(pipeline_id, p.name, self).exec()
+        if request_run_now(pipeline_id):
+            from .remote_run_dialog import open_remote_run_dialog
+            open_remote_run_dialog(self, pipeline_id, p.name)
+        else:
+            RunProgressDialog(pipeline_id, p.name, self).exec()
         self.refresh()
 
     def _on_resume_pipeline(self, pipeline_id: int, pipeline_name: str, resume_from_run_id: int):
@@ -415,7 +435,12 @@ class PipelinesView(QWidget):
         _on_toggle_pipeline() ci-dessous (RuntimeError silencieuse : scheduler non initialisé
         dans les tests qui construisent une vue directement). Utilisé partout où un pipeline
         actif est créé/modifié en dehors de PipelineEditorDialog._on_save() (qui gère déjà son
-        propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet."""
+        propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet. En
+        mode exécution en arrière-plan, délègue au worker (core/execution_mode.py) plutôt que de
+        toucher un scheduler local qui n'existe pas dans ce mode."""
+        from core.execution_mode import request_reload
+        if request_reload():
+            return
         try:
             from core.scheduler import get_scheduler
             get_scheduler().schedule_pipeline(pipeline_id)
