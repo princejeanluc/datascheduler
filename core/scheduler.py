@@ -125,6 +125,7 @@ class PipelineScheduler:
     JOB_PREFIX = "pipeline_"
     DIGEST_JOB_ID = "digest_job"   # hors JOB_PREFIX : list_jobs() ne doit pas le compter comme un pipeline
     RESOURCE_SAMPLER_JOB_ID = "resource_sampler_job"   # idem — jamais compté comme un pipeline
+    COMMAND_POLLER_JOB_ID = "command_poller_job"   # idem — jamais compté comme un pipeline
 
     def __init__(
         self,
@@ -149,6 +150,11 @@ class PipelineScheduler:
         self._on_job_success = on_job_success
         self._on_job_error   = on_job_error
         self._lock           = threading.Lock()
+        # Positionné par une commande SHUTDOWN (chantier exécution en arrière-plan) — worker_main()
+        # bloque dessus tant qu'aucun arrêt n'a été demandé depuis l'appli desktop cliente.
+        # Existe même côté appli desktop (jamais utilisé là — inoffensif, évite un attribut
+        # conditionnel).
+        self.shutdown_requested = threading.Event()
 
         # Écouter les événements APScheduler
         self._scheduler.add_listener(
@@ -343,6 +349,48 @@ class PipelineScheduler:
             db.prune_resource_samples(cutoff)
         except Exception as e:
             logger.warning("Échec de l'échantillonnage des ressources (ignoré) : %s", e)
+
+    # ── Sondage des commandes (chantier exécution en arrière-plan) ──
+
+    def refresh_command_poller(self) -> None:
+        """Enregistre le job qui lit WorkerCommand — appelé UNIQUEMENT par worker_main() (voir
+        main.py), jamais par le process desktop : l'appli desktop dépose des commandes dans
+        cette file, elle ne doit jamais les consommer elle-même."""
+        self._scheduler.add_job(
+            func=self._poll_worker_commands,
+            trigger=IntervalTrigger(seconds=3),
+            id=self.COMMAND_POLLER_JOB_ID,
+            replace_existing=True,
+            misfire_grace_time=3,
+            coalesce=True,
+        )
+        logger.info("Sondage des commandes worker planifié (toutes les 3s).")
+
+    def _poll_worker_commands(self) -> None:
+        """Cible du job de sondage — traite chaque commande en attente puis la marque
+        consommée. Ne lève jamais (même logique que _run_digest/_sample_resources) : une
+        commande malformée ne doit jamais faire tomber le worker."""
+        import json
+
+        for cmd in db.get_pending_worker_commands():
+            try:
+                payload = json.loads(cmd.payload_json) if cmd.payload_json else {}
+                if cmd.command == "RUN_NOW":
+                    self.trigger_now(payload["pipeline_id"])
+                elif cmd.command == "RELOAD":
+                    self.load_all_pipelines()
+                elif cmd.command == "CANCEL":
+                    from core.pipeline import request_cancel
+                    request_cancel(payload["pipeline_id"])
+                elif cmd.command == "SHUTDOWN":
+                    self.shutdown_requested.set()
+                else:
+                    logger.warning("Commande worker inconnue ignorée : %s", cmd.command)
+            except Exception as e:
+                logger.warning("Échec du traitement de la commande worker %s (ignoré) : %s",
+                                cmd.id, e)
+            finally:
+                db.mark_worker_command_consumed(cmd.id)
 
     # ── Gestion des jobs individuels ─────────
 

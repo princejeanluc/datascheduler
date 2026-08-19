@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.29.0] - 2026-08-18
+
+### Ajouté
+- Exécution en arrière-plan (worker + client léger) : nouveau mode "Avec exécution en
+  arrière-plan" dans Paramètres, à côté du mode "Dans l'application seulement" (défaut,
+  comportement inchangé). Une fois activé (redémarrage requis), un worker détaché
+  (`DataScheduler.exe --worker`) est enregistré comme tâche planifiée Windows à l'ouverture de
+  session (`schtasks`, droits utilisateur — pas d'élévation admin) et devient le seul exécuteur
+  de pipelines, planifiés comme manuels : il continue de tourner après la fermeture de
+  l'application et survit à une déconnexion/reconnexion. L'appli desktop devient un pur client
+  dans ce mode — un lancement manuel ("Exécuter maintenant") ouvre un dialogue de suivi à
+  distance qui relit la progression écrite en base par le worker, avec un bouton "Arrêter"
+  (interruption coopérative relayée au worker).
+- Nouvelle ligne "État du worker en arrière-plan" dans Paramètres (Ordonnanceur) — dérivée du
+  dernier échantillon de ressources (déjà écrit en continu par le job d'échantillonnage), sans
+  nouvelle mesure de vivacité.
+- Repasser en "Dans l'application seulement" désinscrit la tâche planifiée et arrête
+  immédiatement le worker déjà lancé (pas d'attente d'une prochaine déconnexion).
+
 ## [0.28.0] - 2026-08-17
 
 ### Ajouté

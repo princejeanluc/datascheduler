@@ -601,3 +601,94 @@ def test_app_settings_table_created_fresh_without_migration(tmp_path):
 
     db._engine = None
     db._SessionFactory = None
+
+
+def test_migrate_adds_execution_mode_to_a_pre_existing_app_settings_table(tmp_path):
+    """execution_mode ajouté par ALTER TABLE (chantier exécution en arrière-plan) — même patron
+    que les colonnes resource_sample_* du chantier précédent : base pré-existante (avec toutes
+    les autres colonnes déjà migrées) sans execution_mode, valeur par défaut 'IN_APP' appliquée
+    par la migration."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_app_settings.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE app_settings (
+                id INTEGER PRIMARY KEY,
+                timezone VARCHAR(64) NOT NULL DEFAULT 'UTC',
+                misfire_grace_time_min INTEGER NOT NULL DEFAULT 60,
+                coalesce_missed_runs BOOLEAN NOT NULL DEFAULT 1,
+                max_concurrent_runs INTEGER NOT NULL DEFAULT 6,
+                log_level VARCHAR(10) NOT NULL DEFAULT 'INFO',
+                log_max_bytes INTEGER NOT NULL DEFAULT 5000000,
+                log_backup_count INTEGER NOT NULL DEFAULT 5,
+                dashboard_refresh_s INTEGER NOT NULL DEFAULT 30,
+                pipelines_refresh_s INTEGER NOT NULL DEFAULT 30,
+                live_log_refresh_s INTEGER NOT NULL DEFAULT 2,
+                trace_glow_refresh_s INTEGER NOT NULL DEFAULT 2,
+                resource_sample_interval_s INTEGER NOT NULL DEFAULT 60,
+                resource_sample_retention_days INTEGER NOT NULL DEFAULT 7
+            )
+        """))
+        conn.commit()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(app_settings)")).fetchall()}
+    assert "execution_mode" in cols
+    assert db.get_app_settings().execution_mode == "IN_APP"
+
+    db._engine = None
+    db._SessionFactory = None
+
+
+# ──────────────────────────────────────────────
+#  FILE DE COMMANDES WORKER (chantier exécution en arrière-plan)
+# ──────────────────────────────────────────────
+
+def test_enqueue_and_consume_worker_command_cycle(test_db):
+    cmd = db.enqueue_worker_command("RUN_NOW", {"pipeline_id": 42})
+    assert cmd.id is not None
+    assert cmd.consumed_at is None
+
+    pending = db.get_pending_worker_commands()
+    assert len(pending) == 1
+    assert pending[0].command == "RUN_NOW"
+    assert pending[0].payload_json == '{"pipeline_id": 42}'
+
+    db.mark_worker_command_consumed(cmd.id)
+    assert db.get_pending_worker_commands() == []
+
+
+def test_enqueue_worker_command_without_payload(test_db):
+    cmd = db.enqueue_worker_command("RELOAD")
+    assert cmd.payload_json is None
+    pending = db.get_pending_worker_commands()
+    assert len(pending) == 1
+    assert pending[0].command == "RELOAD"
+
+
+def test_get_pending_worker_commands_orders_chronologically_and_excludes_consumed(test_db):
+    first = db.enqueue_worker_command("RELOAD")
+    second = db.enqueue_worker_command("SHUTDOWN")
+    db.mark_worker_command_consumed(first.id)
+
+    pending = db.get_pending_worker_commands()
+    assert [c.id for c in pending] == [second.id]
+
+
+def test_get_latest_resource_sample_returns_most_recent(test_db):
+    from datetime import datetime, timedelta
+    from database.models import ResourceSample
+
+    assert db.get_latest_resource_sample() is None
+
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=datetime.utcnow() - timedelta(minutes=5),
+                              cpu_percent=1.0, memory_mb=100.0))
+        s.add(ResourceSample(timestamp=datetime.utcnow(),
+                              cpu_percent=9.0, memory_mb=200.0))
+
+    latest = db.get_latest_resource_sample()
+    assert latest.cpu_percent == 9.0

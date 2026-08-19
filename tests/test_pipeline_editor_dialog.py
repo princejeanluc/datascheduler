@@ -128,6 +128,30 @@ def test_save_schedules_the_pipeline_with_apscheduler(qapp, test_db, monkeypatch
     assert calls == [p.id]
 
 
+def test_save_delegates_to_worker_instead_of_local_scheduler_in_background_mode(qapp, test_db, monkeypatch):
+    """Chantier exécution en arrière-plan : en mode BACKGROUND, _on_save() ne doit JAMAIS
+    appeler get_scheduler() localement — le worker (pas l'appli desktop) est le seul exécuteur,
+    donc la (re)planification passe uniquement par la file de commandes (RELOAD)."""
+    import core.scheduler as scheduler_module
+    from database import db_manager as db
+
+    db.update_app_settings(execution_mode="BACKGROUND")
+    local_calls = []
+    monkeypatch.setattr(
+        scheduler_module, "get_scheduler",
+        lambda: (_ for _ in ()).throw(AssertionError("ne doit pas être appelé en mode arrière-plan")),
+    )
+
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("scheduled-background-test")
+
+    dlg._on_save()   # ne doit pas lever (get_scheduler() jamais appelé)
+
+    p = next(p for p in db.get_pipelines() if p.name == "scheduled-background-test")
+    pending = db.get_pending_worker_commands()
+    assert any(c.command == "RELOAD" for c in pending)
+
+
 def test_save_does_not_crash_when_scheduler_not_initialized(qapp, test_db):
     """Tous les autres tests de ce fichier appellent _on_save() sans init_scheduler() — la
     RuntimeError levée par get_scheduler() doit être avalée silencieusement, pas remonter."""
