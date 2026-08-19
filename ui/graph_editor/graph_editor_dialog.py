@@ -182,6 +182,13 @@ class PipelineGraphEditorDialog(QDialog):
         max_x = max(n.pos().x() for n in self._scene.nodes.values())
         return QPointF(max_x + _NODE_SPACING_X, _START_Y)
 
+    def _incoming_prior_steps(self, node: StepNodeItem) -> list:
+        """Étapes amont réellement connectées à `node` par une arête — ce que le sélecteur
+        "Source"/bouton "+ Artefact" (chantier 3, ui/step_editor/base_config_dialog.py) doivent
+        voir pour lister les producteurs par nom, au lieu de toujours retomber sur "étape
+        précédente (par défaut)" faute de savoir à qui ce nœud est relié."""
+        return [e.from_node.step for e in self._scene.edges if e.to_node is node]
+
     def _on_add_step(self):
         from ui.step_editor import _open_config_dialog
 
@@ -192,7 +199,11 @@ class PipelineGraphEditorDialog(QDialog):
             dlg.chosen_type, {}, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles, self._db_profiles,
-            prior_steps=[],
+            # Le nœud n'existe pas encore, donc aucune arête entrante réelle — même souplesse
+            # que l'éditeur linéaire à l'ajout (prior_steps=self._steps_data, la liste complète
+            # à ce stade) : tous les nœuds déjà sur le canevas sont proposés comme sources
+            # possibles, à connecter ensuite par un glisser-déposer.
+            prior_steps=[n.step for n in self._scene.nodes.values()],
         )
         if config_dlg and config_dlg.exec():
             step = config_dlg.result_step()
@@ -210,7 +221,7 @@ class PipelineGraphEditorDialog(QDialog):
             retry_count=step.get("retry_count", 0),
             run_always=step.get("run_always", False),
             timeout_s=step.get("timeout_s", 0),
-            prior_steps=[],
+            prior_steps=self._incoming_prior_steps(node),
         )
         if config_dlg and config_dlg.exec():
             node.step = config_dlg.result_step()
