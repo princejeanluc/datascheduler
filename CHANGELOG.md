@@ -29,6 +29,19 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.29.1] - 2026-08-19
+
+### Corrigé
+- Éditeur graphique : le sélecteur "Source" et le bouton "+ Artefact" d'un champ d'étape
+  n'affichaient jamais les étapes réellement connectées sur le canevas — toujours "étape
+  précédente (par défaut)" sans nom, quel que soit le nombre d'arêtes entrantes dessinées à la
+  main. `_on_add_step()`/`_on_node_double_clicked()` passaient `prior_steps=[]` en dur au
+  dialogue de configuration d'étape, sans lien avec les arêtes de la scène — contrairement à
+  l'éditeur linéaire, où cette liste a toujours été correctement remplie. Corrigé : à l'édition
+  d'un nœud existant, la liste reflète désormais ses arêtes entrantes réelles ; à l'ajout d'un
+  nouveau nœud (pas encore connecté), tous les nœuds déjà présents sur le canevas sont proposés,
+  à connecter ensuite par glisser-déposer.
+
 ## [0.29.0] - 2026-08-18
 
 ### Ajouté

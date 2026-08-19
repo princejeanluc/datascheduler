@@ -207,6 +207,94 @@ def test_poll_executing_step_calls_scene_with_running_step_key(qapp, test_db, mo
     assert not dlg._scene.nodes["a"]._is_executing
 
 
+def test_incoming_prior_steps_returns_only_connected_upstream_steps(qapp, test_db):
+    """Régression : _on_add_step()/_on_node_double_clicked() passaient prior_steps=[] en dur au
+    dialogue de config d'étape, donc le sélecteur "Source"/bouton "+ Artefact" (chantier 3)
+    n'affichaient jamais les étapes réellement connectées dans l'éditeur graphique (toujours
+    "étape précédente (par défaut)", contrairement à l'éditeur linéaire où prior_steps a toujours
+    été correctement rempli)."""
+    pipeline = db.create_pipeline(name="incoming-prior-steps-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    prior = dlg._incoming_prior_steps(dlg._scene.nodes["c"])
+    assert {s["config"]["_step_key"] for s in prior} == {"a", "b"}
+
+    # "a" n'a aucune arête entrante — sa liste doit rester vide, pas celle du nœud "c".
+    assert dlg._incoming_prior_steps(dlg._scene.nodes["a"]) == []
+
+
+def test_on_node_double_clicked_passes_connected_steps_to_config_dialog(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    import ui.step_editor as step_editor_module
+
+    pipeline = db.create_pipeline(name="double-click-prior-steps-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    captured = {}
+
+    class _FakeConfigDialog:
+        def exec(self):
+            return QDialog.Rejected
+
+    def _fake_open_config_dialog(*args, **kwargs):
+        captured["prior_steps"] = kwargs.get("prior_steps")
+        return _FakeConfigDialog()
+
+    monkeypatch.setattr(step_editor_module, "_open_config_dialog", _fake_open_config_dialog)
+
+    dlg._on_node_double_clicked(dlg._scene.nodes["b"])
+
+    assert [s["config"]["_step_key"] for s in captured["prior_steps"]] == ["a"]
+
+
+def test_on_add_step_passes_all_scene_steps_as_prior_steps(qapp, test_db, monkeypatch):
+    """À l'ajout, le nouveau nœud n'a encore aucune arête (il n'existe pas sur le canevas) — même
+    souplesse que l'éditeur linéaire à l'ajout (prior_steps=self._steps_data, la liste complète) :
+    tous les nœuds déjà présents sont proposés, à connecter ensuite par glisser-déposer."""
+    from PySide6.QtWidgets import QDialog
+    import ui.step_editor as step_editor_module
+    from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+
+    pipeline = db.create_pipeline(name="add-step-prior-steps-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    monkeypatch.setattr(StepTypeChooserDialog, "exec", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(StepTypeChooserDialog, "chosen_type", "LOCAL_COPY", raising=False)
+
+    captured = {}
+
+    class _FakeConfigDialog:
+        def exec(self):
+            return QDialog.Rejected
+
+    def _fake_open_config_dialog(*args, **kwargs):
+        captured["prior_steps"] = kwargs.get("prior_steps")
+        return _FakeConfigDialog()
+
+    monkeypatch.setattr(step_editor_module, "_open_config_dialog", _fake_open_config_dialog)
+
+    dlg._on_add_step()
+
+    assert [s["config"]["_step_key"] for s in captured["prior_steps"]] == ["a"]
+
+
 def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, monkeypatch):
     """Raccourci ajouté après le chantier de déclenchement conditionnel — évite l'aller-retour
     "fermer, retrouver la ligne, cliquer Modifier" juste pour la planification/le déclenchement,
