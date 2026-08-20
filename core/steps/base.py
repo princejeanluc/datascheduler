@@ -42,6 +42,28 @@ class StepContext:
         ts = datetime.utcnow().strftime("%H:%M:%S")
         self.log_lines.append(f"[{ts}] {msg}")
 
+    def fork(self) -> "StepContext":
+        """
+        Copie isolée pour l'exécution concurrente d'une étape (chantier parallélisme
+        intra-pipeline) — son propre dict `artifacts` (copie superficielle : les valeurs sont
+        des `Path`, immuables, donc une copie superficielle suffit à isoler complètement les
+        écritures) et son propre `log_lines`, pour qu'aucune écriture faite par une étape en
+        train de tourner dans un thread n'affecte jamais une autre étape concurrente avant que
+        le coordinateur ne fusionne son résultat après coup — un seul thread (le coordinateur)
+        touche jamais le `StepContext` partagé, voir core/pipeline.py::_execute_graph_parallel.
+
+        `extra` partagé par référence à dessein (lu par les steps — ex: `{error}`/
+        `{failed_step}` dans resolve_tokens — jamais écrit par eux) ; `started_at` copié tel
+        quel (purement informatif, jamais utilisé pour une décision d'exécution).
+        """
+        return StepContext(
+            started_at=self.started_at,
+            artifacts=dict(self.artifacts),
+            rows_count=self.rows_count,
+            log_lines=[],
+            extra=self.extra,
+        )
+
     def resolve_tokens(self, template: str) -> str:
         """Remplace {yyyy}, {MM}, {dd}, {HH}, {mm}, {output_file}, etc."""
         now = datetime.now()
