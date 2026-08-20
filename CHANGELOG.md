@@ -29,6 +29,34 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.31.0] - 2026-08-20
+
+### Ajouté
+- Parallélisme intra-pipeline : deux branches indépendantes d'un pipeline en graphe peuvent
+  désormais tourner réellement en même temps au lieu de s'exécuter l'une après l'autre — un
+  choix explicite par pipeline (case "Exécuter les branches indépendantes en parallèle" +
+  plafond de branches simultanées, 1 à 16, défaut 4, dans l'éditeur de planification), jamais
+  une bascule automatique. Désactivé par défaut pour tout pipeline existant — aucun changement
+  de comportement sans action explicite de l'utilisateur.
+  - Nouveau moteur d'exécution dédié (`_execute_graph_parallel`), séparé des moteurs
+    séquentiels existants (linéaire, graphe) qui restent inchangés et demeurent le chemin par
+    défaut. Chaque étape lancée en parallèle reçoit sa propre copie isolée du contexte
+    (`StepContext.fork()`) ; seul le thread coordinateur fusionne les résultats dans le
+    contexte partagé, sans verrou nécessaire sur celui-ci.
+  - L'annulation coopérative (v0.30.0) s'applique telle quelle : une demande d'arrêt bloque
+    toute nouvelle soumission mais laisse les étapes déjà en vol se terminer normalement.
+  - Suivi visuel : le traçage lumineux du graphe peut désormais surligner plusieurs étapes en
+    cours simultanément, et les dialogues de suivi d'exécution (lancement direct et lancement
+    en arrière-plan) affichent la liste des étapes actives quand plus d'une tourne à la fois —
+    aucun changement d'affichage pour un run à une seule étape active à la fois.
+  - `AppSettings.max_concurrent_runs` (chantier Ressources) continue de compter des pipelines,
+    pas des étapes, et reste donc correct sans modification : le parallélisme reste interne à
+    un seul pipeline, toujours compté comme 1 run actif.
+  - Vérifié empiriquement (script direct, pas seulement les tests) : un pipeline à 2 branches
+    indépendantes contenant chacune un vrai sous-processus de 3s tourne en ~6s en mode
+    parallèle contre ~9s en mode séquentiel classique (33 % plus rapide), sans régression sur
+    le mode séquentiel par défaut.
+
 ## [0.30.0] - 2026-08-20
 
 ### Ajouté
