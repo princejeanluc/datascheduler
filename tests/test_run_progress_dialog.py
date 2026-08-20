@@ -93,6 +93,9 @@ def test_finished_releases_the_keepalive_reference(qapp, test_db, monkeypatch):
         def isRunning(self):
             return True
 
+        def wait(self):
+            pass
+
     dlg._thread = _FakeRunningThread()
     dlg._on_close_clicked()
     assert dlg in _background_runs

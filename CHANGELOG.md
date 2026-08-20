@@ -57,6 +57,15 @@ bas pour son introduction).
     parallèle contre ~9s en mode séquentiel classique (33 % plus rapide), sans régression sur
     le mode séquentiel par défaut.
 
+### Corrigé
+- `RunProgressDialog` pouvait occasionnellement afficher l'avertissement Qt "QThread: Destroyed
+  while thread is still running" en fin d'exécution — course déjà connue entre la fin réelle du
+  thread d'exécution et le traitement de son signal de fin côté interface, rendue plus probable
+  par les threads supplémentaires du nouveau moteur parallèle (davantage de contention sur le
+  GIL au moment précis où le thread se termine). `_on_finished()` attend désormais explicitement
+  la fin effective du thread (`QThread.wait()`, quasi instantané à ce stade) avant de relâcher sa
+  dernière référence Python.
+
 ## [0.30.0] - 2026-08-20
 
 ### Ajouté

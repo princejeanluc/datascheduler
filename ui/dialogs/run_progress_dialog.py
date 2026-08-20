@@ -227,6 +227,14 @@ class RunProgressDialog(QDialog):
         super().closeEvent(event)
 
     def _on_finished(self, result):
+        # finished_signal est émis en toute dernière ligne de RunProgressThread.run() — au moment
+        # où ce slot s'exécute (connexion en file d'attente, thread GUI), le thread natif a très
+        # probablement déjà fini de se dérouler, mais ce n'est pas garanti (surtout avec plusieurs
+        # threads daemon du moteur parallèle qui se disputent le GIL au même instant) : un
+        # self._thread.wait() ici ferme cette fenêtre de course sans jamais bloquer réellement
+        # (confirmé en pratique par "QThread: Destroyed while thread is still running").
+        if self._thread is not None:
+            self._thread.wait()
         _background_runs.discard(self)
         self.btn_stop.setVisible(False)
         if getattr(self, "_active_steps_timer", None) is not None:
