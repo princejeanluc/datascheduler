@@ -104,6 +104,86 @@ def test_save_sets_trigger_configuration(qapp, test_db):
 
 
 # ──────────────────────────────────────────────
+#  Parallélisme intra-pipeline (chantier dédié)
+# ──────────────────────────────────────────────
+
+def test_parallel_execution_defaults_unchecked_and_branches_row_hidden(qapp, test_db):
+    dlg = _dialog_with_one_step(qapp, test_db)
+    assert not dlg.chk_parallel_execution.isChecked()
+    assert dlg._w_parallel_branches.isHidden()
+
+
+def test_checking_parallel_execution_reveals_branches_spinbox(qapp, test_db):
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.chk_parallel_execution.setChecked(True)
+    assert not dlg._w_parallel_branches.isHidden()
+
+    dlg.chk_parallel_execution.setChecked(False)
+    assert dlg._w_parallel_branches.isHidden()
+
+
+def test_save_new_pipeline_persists_parallel_execution_settings(qapp, test_db):
+    from database import db_manager as db
+
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("parallel-new-pipeline")
+    dlg.chk_parallel_execution.setChecked(True)
+    dlg.spin_max_parallel_branches.setValue(8)
+
+    dlg._on_save()
+
+    p = next(p for p in db.get_pipelines() if p.name == "parallel-new-pipeline")
+    assert p.parallel_execution_enabled is True
+    assert p.max_parallel_branches == 8
+
+
+def test_save_new_pipeline_defaults_parallel_execution_disabled(qapp, test_db):
+    """Non-régression explicite : un pipeline enregistré sans toucher à la case doit rester
+    séquentiel, comme tout pipeline existant avant ce chantier."""
+    from database import db_manager as db
+
+    dlg = _dialog_with_one_step(qapp, test_db)
+    dlg.inp_name.setText("parallel-default-on-save")
+
+    dlg._on_save()
+
+    p = next(p for p in db.get_pipelines() if p.name == "parallel-default-on-save")
+    assert p.parallel_execution_enabled is False
+    assert p.max_parallel_branches == 4
+
+
+def test_save_existing_pipeline_persists_parallel_execution_settings(qapp, test_db):
+    from database import db_manager as db
+
+    existing = db.create_pipeline(name="parallel-existing-pipeline")
+    db.save_steps(existing.id, [
+        {"step_type": "DB_EXTRACT", "label": "Source", "config": {}, "retry_count": 0, "run_always": False},
+    ])
+    dlg = PipelineEditorDialog(None, pipeline=existing)
+    dlg.chk_parallel_execution.setChecked(True)
+    dlg.spin_max_parallel_branches.setValue(6)
+
+    dlg._on_save()
+
+    reloaded = db.get_pipeline(existing.id)
+    assert reloaded.parallel_execution_enabled is True
+    assert reloaded.max_parallel_branches == 6
+
+
+def test_editing_existing_pipeline_prefills_parallel_execution_settings(qapp, test_db):
+    from database import db_manager as db
+
+    existing = db.create_pipeline(
+        name="parallel-prefill-test", parallel_execution_enabled=True, max_parallel_branches=10,
+    )
+    dlg = PipelineEditorDialog(None, pipeline=existing)
+
+    assert dlg.chk_parallel_execution.isChecked()
+    assert not dlg._w_parallel_branches.isHidden()
+    assert dlg.spin_max_parallel_branches.value() == 10
+
+
+# ──────────────────────────────────────────────
 #  (Re)planification immédiate à l'enregistrement
 # ──────────────────────────────────────────────
 #

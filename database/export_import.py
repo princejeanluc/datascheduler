@@ -436,6 +436,8 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "scheduled_time":  pipeline.scheduled_time,
                 "scheduled_day":   pipeline.scheduled_day,
                 "prevent_overlap": pipeline.prevent_overlap,
+                "parallel_execution_enabled": pipeline.parallel_execution_enabled,
+                "max_parallel_branches":      pipeline.max_parallel_branches,
                 "steps":           exported_steps,
                 "edges":           exported_edges,
             },
@@ -751,6 +753,8 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 scheduled_time=pipeline_data.get("scheduled_time"),
                 scheduled_day=pipeline_data.get("scheduled_day"),
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
+                parallel_execution_enabled=pipeline_data.get("parallel_execution_enabled", False),
+                max_parallel_branches=pipeline_data.get("max_parallel_branches", 4),
             )
             db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges)
             new_pipeline_id = plan.pipeline_existing_id
@@ -772,6 +776,8 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 scheduled_time=pipeline_data.get("scheduled_time"),
                 scheduled_day=pipeline_data.get("scheduled_day"),
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
+                parallel_execution_enabled=pipeline_data.get("parallel_execution_enabled", False),
+                max_parallel_branches=pipeline_data.get("max_parallel_branches", 4),
                 uuid=pipeline_uuid,
             )
             db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges)
@@ -833,6 +839,8 @@ def duplicate_pipeline(pipeline_id: int) -> ApplyResult:
             scheduled_time=new_pipeline.scheduled_time,
             scheduled_day=new_pipeline.scheduled_day,
             prevent_overlap=new_pipeline.prevent_overlap,
+            parallel_execution_enabled=new_pipeline.parallel_execution_enabled,
+            max_parallel_branches=new_pipeline.max_parallel_branches,
         )
         db.set_pipeline_active(new_pipeline.id, False)
         db.log_audit_event(

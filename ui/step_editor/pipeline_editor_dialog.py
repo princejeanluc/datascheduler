@@ -150,6 +150,37 @@ class PipelineEditorDialog(QDialog):
         )
         vl.addWidget(self.chk_prevent_overlap)
 
+        # Parallélisme intra-pipeline (chantier dédié) — choix explicite PAR pipeline, jamais une
+        # bascule globale : par défaut décoché, comportement séquentiel actuel inchangé tant que
+        # l'utilisateur ne l'active pas lui-même pour CE pipeline précis. N'a de sens que pour un
+        # pipeline en graphe (des étapes indépendantes à paralléliser) — reste sans effet, mais
+        # visible et modifiable, pour un pipeline linéaire (cohérent avec prevent_overlap
+        # ci-dessus, qui reste lui aussi affiché inconditionnellement).
+        self.chk_parallel_execution = QCheckBox("Exécuter les branches indépendantes en parallèle")
+        self.chk_parallel_execution.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_parallel_execution.setToolTip(
+            "Si activé, les étapes de ce pipeline dont toutes les dépendances sont déjà résolues "
+            "s'exécutent en même temps (jusqu'au plafond ci-dessous) au lieu de s'enchaîner une "
+            "par une — un vrai gain de temps sur un pipeline à branches indépendantes. Sans effet "
+            "sur un pipeline linéaire (aucune branche à paralléliser)."
+        )
+        self.chk_parallel_execution.toggled.connect(self._on_parallel_execution_toggled)
+        vl.addWidget(self.chk_parallel_execution)
+
+        self._w_parallel_branches = QWidget()
+        pb_row = QHBoxLayout(self._w_parallel_branches)
+        pb_row.setContentsMargins(20, 0, 0, 0); pb_row.setSpacing(8)
+        self.spin_max_parallel_branches = QSpinBox()
+        self.spin_max_parallel_branches.setRange(1, 16)
+        self.spin_max_parallel_branches.setValue(4)
+        self.spin_max_parallel_branches.setFixedWidth(70)
+        self.spin_max_parallel_branches.setStyleSheet(self._spinbox_style())
+        pb_row.addWidget(QLabel("Branches en parallèle max :"))
+        pb_row.addWidget(self.spin_max_parallel_branches)
+        pb_row.addStretch()
+        vl.addWidget(self._w_parallel_branches)
+        self._w_parallel_branches.setVisible(False)
+
         # Sélecteur fréquence
         freq_row = QHBoxLayout(); freq_row.setSpacing(14)
         self._freq_group   = QButtonGroup()
@@ -217,6 +248,9 @@ class PipelineEditorDialog(QDialog):
 
         self._on_freq_changed()
         return vl
+
+    def _on_parallel_execution_toggled(self, checked: bool):
+        self._w_parallel_branches.setVisible(checked)
 
     def _build_trigger_ui(self) -> QVBoxLayout:
         """Additif à la planification cron ci-dessus, ne la remplace jamais : un pipeline peut
@@ -575,6 +609,8 @@ class PipelineEditorDialog(QDialog):
             cron_expr  = self.inp_cron.text().strip()
 
         prevent_overlap = self.chk_prevent_overlap.isChecked()
+        parallel_execution_enabled = self.chk_parallel_execution.isChecked()
+        max_parallel_branches      = self.spin_max_parallel_branches.value()
 
         if self._pipeline:
             with db.get_session() as s:
@@ -587,6 +623,8 @@ class PipelineEditorDialog(QDialog):
                 p.scheduled_day   = sched_day
                 p.cron_expression = cron_expr
                 p.prevent_overlap = prevent_overlap
+                p.parallel_execution_enabled = parallel_execution_enabled
+                p.max_parallel_branches      = max_parallel_branches
             pipeline_id = self._pipeline.id
         else:
             p = db.create_pipeline(
@@ -594,6 +632,8 @@ class PipelineEditorDialog(QDialog):
                 frequency=freq, scheduled_time=sched_time,
                 scheduled_day=sched_day, cron_expression=cron_expr,
                 prevent_overlap=prevent_overlap,
+                parallel_execution_enabled=parallel_execution_enabled,
+                max_parallel_branches=max_parallel_branches,
             )
             pipeline_id = p.id
 
@@ -680,6 +720,8 @@ class PipelineEditorDialog(QDialog):
         self._rebuild_step_list()
 
         self.chk_prevent_overlap.setChecked(bool(p.prevent_overlap))
+        self.chk_parallel_execution.setChecked(bool(p.parallel_execution_enabled))
+        self.spin_max_parallel_branches.setValue(p.max_parallel_branches or 4)
 
         freq = str(p.frequency).replace("CronFrequency.", "") if p.frequency else "DAILY"
         if freq in self._freq_buttons:

@@ -913,6 +913,7 @@ def create_pipeline(name, description=None,
                     frequency="DAILY", cron_expression=None,
                     scheduled_time="06:00", scheduled_day=None,
                     prevent_overlap=False,
+                    parallel_execution_enabled=False, max_parallel_branches=4,
                     # Champs legacy conservés pour compatibilité migration
                     oracle_profile_id=None, sql_query_id=None, ftp_profile_id=None,
                     remote_path_tpl=None, filename_tpl=None,
@@ -935,6 +936,8 @@ def create_pipeline(name, description=None,
             scheduled_time=scheduled_time,
             scheduled_day=scheduled_day,
             prevent_overlap=prevent_overlap,
+            parallel_execution_enabled=parallel_execution_enabled,
+            max_parallel_branches=max_parallel_branches,
         )
         if uuid:
             kwargs["uuid"] = uuid
@@ -981,7 +984,8 @@ def get_pipeline_by_uuid(uuid: str) -> Pipeline | None:
 def update_pipeline(pipeline_id, name, description=None,
                      frequency="DAILY", cron_expression=None,
                      scheduled_time="06:00", scheduled_day=None,
-                     prevent_overlap=False) -> Pipeline | None:
+                     prevent_overlap=False,
+                     parallel_execution_enabled=False, max_parallel_branches=4) -> Pipeline | None:
     """Ne touche pas aux étapes — voir save_steps() pour ça (chantier 5c : écrasement à l'import)."""
     with get_session() as s:
         p = s.get(Pipeline, pipeline_id)
@@ -994,6 +998,8 @@ def update_pipeline(pipeline_id, name, description=None,
         p.scheduled_time = scheduled_time
         p.scheduled_day = scheduled_day
         p.prevent_overlap = prevent_overlap
+        p.parallel_execution_enabled = parallel_execution_enabled
+        p.max_parallel_branches = max_parallel_branches
     log_audit_event("pipeline_edited", pipeline_id=pipeline_id, pipeline_name=name,
                      detail="Nom/description/planification")
     return p

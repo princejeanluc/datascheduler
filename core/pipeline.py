@@ -1291,10 +1291,18 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
 
         # ── Exécution des étapes ──────────────────
         # Chemin DAG (chantier 6a) seulement si ce pipeline a des arêtes explicites (enregistré
-        # au moins une fois via le futur éditeur graphique) — sinon la boucle linéaire actuelle,
-        # inchangée : zéro changement de comportement pour tous les pipelines existants.
+        # au moins une fois via l'éditeur graphique) — sinon la boucle linéaire actuelle,
+        # inchangée : zéro changement de comportement pour tous les pipelines existants. Parmi
+        # les pipelines en graphe, le moteur concurrent (chantier parallélisme intra-pipeline)
+        # n'est emprunté que si l'utilisateur l'a explicitement activé pour CE pipeline — défaut
+        # False, donc _execute_graph (séquentiel, inchangé) reste le chemin de tout pipeline
+        # existant tant qu'il n'a pas fait ce choix lui-même.
         edges = db.get_edges(pipeline_id)
-        if edges:
+        if edges and pipeline.parallel_execution_enabled:
+            pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph_parallel(
+                steps, edges, ctx, progress, result, cancel_event, pipeline, skip_step_keys, active_ports_seed
+            )
+        elif edges:
             pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph(
                 steps, edges, ctx, progress, result, cancel_event, skip_step_keys, active_ports_seed
             )

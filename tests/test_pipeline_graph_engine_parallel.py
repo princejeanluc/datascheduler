@@ -14,7 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import core.steps as steps_module
-from core.pipeline import _execute_graph_parallel, PipelineResult
+from core.pipeline import _execute_graph_parallel, run_pipeline, PipelineResult
 from core.steps.base import BaseStep, StepResult
 from database import db_manager as db
 
@@ -348,3 +348,75 @@ def test_cancellation_stops_new_submissions_but_lets_in_flight_steps_finish(test
     assert not pipeline_failed
     assert "interrompue par l'utilisateur" in result.error
     assert not (tmp_path / "never_reached.txt").exists()   # jamais soumise après l'annulation
+
+
+# ──────────────────────────────────────────────
+#  Aiguillage run_pipeline() (phase 3) — bout en bout
+# ──────────────────────────────────────────────
+
+def _fan_out_pipeline(name, parallel_execution_enabled, tmp_path, delay=0.2):
+    """Un producteur rapide alimente deux branches lentes indépendantes — au moins une arête
+    présente (déclenche le chemin graphe de run_pipeline(), `if edges:`), mais les deux branches
+    en aval n'ont aucune dépendance entre elles : le cas réaliste où le parallélisme change
+    vraiment le temps total, contrairement à deux nœuds totalement hors-graphe (edges=[]), que
+    run_pipeline() traite comme un pipeline linéaire ordinaire (voir _execute_linear)."""
+    pipeline = db.create_pipeline(
+        name=name, parallel_execution_enabled=parallel_execution_enabled, max_parallel_branches=4,
+    )
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "prod", "delay": 0, "label": "prod",
+                                                 "path": str(tmp_path / "prod.txt")}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a", "delay": delay, "label": "A",
+                                                 "path": str(tmp_path / "a.txt")}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "b", "delay": delay, "label": "B",
+                                                 "path": str(tmp_path / "b.txt")}},
+    ], edges=[_edge("prod", "a"), _edge("prod", "b")])
+    return pipeline
+
+
+def test_run_pipeline_uses_parallel_engine_when_pipeline_opted_in(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeDelayedStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeDelayedStep)
+    _reset_fake_delayed_step()
+
+    pipeline = _fan_out_pipeline("dispatch-parallel-test", True, tmp_path, delay=0.25)
+
+    start = time.monotonic()
+    result = run_pipeline(pipeline.id)
+    elapsed = time.monotonic() - start
+
+    assert result.success, result.error
+    assert elapsed < 0.45   # bien moins que 0.25 + 0.25 = 0.5s si les deux branches s'enchaînaient
+
+
+def test_run_pipeline_uses_sequential_graph_engine_by_default(test_db, monkeypatch, tmp_path):
+    """parallel_execution_enabled=False (défaut) — même structure (un producteur, deux branches
+    indépendantes), mais le chemin _execute_graph (séquentiel, inchangé) reste emprunté tant que
+    l'utilisateur n'a pas explicitement activé le parallélisme pour CE pipeline."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeDelayedStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeDelayedStep)
+    _reset_fake_delayed_step()
+
+    pipeline = _fan_out_pipeline("dispatch-sequential-default-test", False, tmp_path, delay=0.2)
+
+    start = time.monotonic()
+    result = run_pipeline(pipeline.id)
+    elapsed = time.monotonic() - start
+
+    assert result.success, result.error
+    assert elapsed >= 0.4   # 0.2 + 0.2 : les deux branches se sont bien enchaînées, pas chevauchées
+
+
+def test_run_pipeline_ignores_parallel_flag_for_a_linear_pipeline_without_edges(test_db, monkeypatch, tmp_path):
+    """parallel_execution_enabled=True mais aucune arête (pipeline jamais passé par l'éditeur
+    graphique) — doit rester sur _execute_linear, inchangé ; le flag n'a de sens qu'en graphe."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+
+    pipeline = db.create_pipeline(name="dispatch-linear-flag-noop-test", parallel_execution_enabled=True)
+    db.save_steps(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(tmp_path / "a.txt"), "content": "X"}},
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error

@@ -122,6 +122,67 @@ def test_import_preserves_execution_policy_on_fresh_db(tmp_path):
         db._SessionFactory = None
 
 
+def test_import_preserves_parallel_execution_settings_on_fresh_db(tmp_path):
+    """parallel_execution_enabled/max_parallel_branches (chantier parallélisme intra-pipeline)
+    doivent survivre à un aller-retour export/import, exactement comme prevent_overlap —
+    valeurs non triviales (True/7, pas les défauts False/4) pour qu'un oubli de câblage à
+    l'import ne passe pas inaperçu."""
+    db.init_db(tmp_path / "a.db")
+    pipeline, _, _ = _make_pipeline_with_oracle_extract()
+    db.update_pipeline(
+        pipeline.id, name=pipeline.name,
+        parallel_execution_enabled=True, max_parallel_branches=7,
+    )
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    bundle = export_result.bundle
+    assert bundle["pipeline"]["parallel_execution_enabled"] is True
+    assert bundle["pipeline"]["max_parallel_branches"] == 7
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        reloaded = db.get_pipeline(result.pipeline_id)
+        assert reloaded.parallel_execution_enabled is True
+        assert reloaded.max_parallel_branches == 7
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_v1_style_bundle_without_parallel_fields_still_imports_with_safe_defaults(tmp_path):
+    """Un bundle antérieur à ce chantier (pas de parallel_execution_enabled/max_parallel_branches
+    dans le dict pipeline) doit s'importer normalement — comportement séquentiel par défaut,
+    jamais un KeyError."""
+    db.init_db(tmp_path / "a.db")
+    pipeline, _, _ = _make_pipeline_with_oracle_extract()
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    bundle = export_result.bundle
+    del bundle["pipeline"]["parallel_execution_enabled"]
+    del bundle["pipeline"]["max_parallel_branches"]
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        reloaded = db.get_pipeline(result.pipeline_id)
+        assert reloaded.parallel_execution_enabled is False
+        assert reloaded.max_parallel_branches == 4
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
 def test_wrong_password_fails_cleanly(test_db):
     pipeline, profile, query = _make_pipeline_with_oracle_extract()
     export_result = export_pipeline(pipeline.id, password="correct password")
