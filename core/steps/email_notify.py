@@ -8,7 +8,7 @@ from .base import BaseStep, StepContext, StepResult
 
 class EmailNotifyStep(BaseStep):
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
 
         try:

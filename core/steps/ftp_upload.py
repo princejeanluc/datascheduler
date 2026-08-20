@@ -11,7 +11,7 @@ from .base import BaseStep, StepContext, StepResult
 class FtpUploadStep(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
 
         try:

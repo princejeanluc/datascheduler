@@ -267,15 +267,17 @@ class SqlExporter:
         chunk_size:  int = 50_000,
         quoting:     str = "QUOTE_NONNUMERIC",
         on_progress: Callable[[int, int], None] | None = None,
+        cancel_event=None,
     ):
-        self.connector   = connector
-        self.sql         = sql
-        self.output_path = Path(output_path)
-        self.separator   = separator
-        self.encoding    = encoding
-        self.chunk_size  = chunk_size
-        self.quoting     = self._QUOTING_MAP.get(quoting, csv.QUOTE_NONNUMERIC)
-        self.on_progress = on_progress
+        self.connector    = connector
+        self.sql          = sql
+        self.output_path  = Path(output_path)
+        self.separator    = separator
+        self.encoding     = encoding
+        self.chunk_size   = chunk_size
+        self.quoting      = self._QUOTING_MAP.get(quoting, csv.QUOTE_NONNUMERIC)
+        self.on_progress  = on_progress
+        self.cancel_event = cancel_event
 
     def export(self) -> ExportResult:
         start = datetime.utcnow()
@@ -311,6 +313,18 @@ class SqlExporter:
 
                     if self.on_progress:
                         self.on_progress(rows_total, chunk_index)
+
+                    # Annulation coopérative (chantier dédié) — vérifiée entre deux chunks
+                    # seulement, jamais en cours d'écriture d'un chunk : aucun risque de fichier
+                    # à moitié écrit pour le chunk en cours.
+                    if self.cancel_event is not None and self.cancel_event.is_set():
+                        logger.info("Export annulé par l'utilisateur après %d chunk(s).", chunk_index)
+                        return ExportResult(
+                            success=False, error="Annulé par l'utilisateur.",
+                            rows_exported=rows_total,
+                            duration_s=(datetime.utcnow() - start).total_seconds(),
+                            chunks_count=chunk_index,
+                        )
 
             duration = (datetime.utcnow() - start).total_seconds()
             logger.info("Export terminé : %d lignes en %.1fs → %s",
@@ -348,15 +362,17 @@ class SqlLoader:
         chunk_size:  int = 50_000,
         truncate_before_load: bool = False,
         on_progress: Callable[[int, int], None] | None = None,
+        cancel_event=None,
     ):
-        self.connector   = connector
-        self.csv_path    = Path(csv_path)
-        self.table_name  = table_name
-        self.separator   = separator
-        self.encoding    = encoding
-        self.chunk_size  = chunk_size
+        self.connector    = connector
+        self.csv_path     = Path(csv_path)
+        self.table_name   = table_name
+        self.separator    = separator
+        self.encoding     = encoding
+        self.chunk_size   = chunk_size
         self.truncate_before_load = truncate_before_load
-        self.on_progress = on_progress
+        self.on_progress  = on_progress
+        self.cancel_event = cancel_event
 
     def load(self) -> LoadResult:
         start = datetime.utcnow()
@@ -376,6 +392,17 @@ class SqlLoader:
                 chunk_index += 1
                 if self.on_progress:
                     self.on_progress(rows_total, chunk_index)
+
+                # Annulation coopérative (chantier dédié) — entre deux chunks seulement, même
+                # raisonnement que SqlExporter.export() : aucun chunk partiellement inséré.
+                if self.cancel_event is not None and self.cancel_event.is_set():
+                    logger.info("Chargement annulé par l'utilisateur après %d chunk(s).", chunk_index)
+                    return LoadResult(
+                        success=False, error="Annulé par l'utilisateur.",
+                        rows_loaded=rows_total,
+                        duration_s=(datetime.utcnow() - start).total_seconds(),
+                        chunks_count=chunk_index,
+                    )
 
             duration = (datetime.utcnow() - start).total_seconds()
             logger.info("Chargement terminé : %d lignes en %.1fs → %s",

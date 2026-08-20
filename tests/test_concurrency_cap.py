@@ -16,7 +16,7 @@ from database import db_manager as db
 
 
 class _FakeStep(BaseStep):
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         return StepResult(success=True)
 
 

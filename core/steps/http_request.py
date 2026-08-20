@@ -20,7 +20,7 @@ def _parse_headers(raw: str) -> dict:
 
 class HttpRequestStep(BaseStep):
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
 
         try:

@@ -72,7 +72,7 @@ def test_explicit_targeting_becomes_warning_when_run_always():
 class _FakeProducerStep(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         path = Path(self.config["path"])
         path.write_text(self.config["content"])
@@ -84,7 +84,7 @@ class _FakeProducerStep(BaseStep):
 class _FakeConsumerStep(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         sink = Path(self.config["sink_path"])
         sink.write_text(ctx.output_file.read_text() if ctx.output_file else "")

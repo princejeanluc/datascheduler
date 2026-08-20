@@ -17,7 +17,7 @@ from .base import BaseStep, StepContext, StepResult
 
 class SqoopExportStep(BaseStep):
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
 
         try:
@@ -88,6 +88,7 @@ class SqoopExportStep(BaseStep):
                 ssh_cfg, krb_cfg, oracle_cfg,
                 hcatalog_database, hcatalog_table, oracle_table, sqoop_conf,
                 elevation_cfg=elevation_cfg, on_progress=on_progress,
+                cancel_event=cancel_event,
             )
 
             if not sqoop_result.success:

@@ -12,7 +12,7 @@ from .base import BaseStep, StepContext, StepResult
 class DbLoadStep(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         connector = None
 
@@ -66,6 +66,7 @@ class DbLoadStep(BaseStep):
                 chunk_size=self.config.get("csv_chunk_size", 50000),
                 truncate_before_load=self.config.get("truncate_before_load", False),
                 on_progress=load_progress,
+                cancel_event=cancel_event,
             )
             load_result = loader.load()
 

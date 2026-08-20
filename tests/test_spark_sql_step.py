@@ -34,7 +34,7 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         captured["fetch_result"] = fetch_result
         captured["raw_output_path"] = local_output_path
         # Sortie brute simulée de spark-sql : tabulée, sans guillemets.
@@ -75,7 +75,7 @@ def test_run_passes_on_progress_through_to_run_spark_sql(test_db, monkeypatch, t
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         captured["on_progress"] = on_progress
         if on_progress:
             on_progress("Exécution de la requête sur le cluster…", 40)
@@ -103,7 +103,7 @@ def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkey
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=True, local_output_path=None)
 
@@ -130,7 +130,7 @@ def test_resolves_tokens_in_spark_conf_and_query(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         captured["spark_conf"] = spark_conf
         captured["query"] = query
         return _FakeSparkSqlResult(success=True)
@@ -197,7 +197,7 @@ def test_failure_cleans_up_local_temp_file(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=False, error="spark-sql a échoué")
 

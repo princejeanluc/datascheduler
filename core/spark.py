@@ -20,7 +20,7 @@ from core.hadoop_edge import (  # noqa: F401 — ré-export, voir docstring ci-d
     SshExecConfig, KerberosConfig, ConnectionTestResult,
     config_from_profile, kerberos_config_from_profile,
     _connect, _close_all, _kinit, test_ssh_connection, test_kerberos_auth,
-    read_remote_file as _read_remote_file,
+    read_remote_file as _read_remote_file, watch_cancel,
 )
 
 
@@ -38,7 +38,7 @@ class SparkSqlResult:
 
 def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: str, query: str,
                    fetch_result: bool, local_output_path: Path | None = None,
-                   timeout: int = 3600, on_progress=None) -> SparkSqlResult:
+                   timeout: int = 3600, on_progress=None, cancel_event=None) -> SparkSqlResult:
     """
     SSH → kinit → dépose la requête dans un fichier .sql temporaire distant (SFTP — évite tout
     problème d'échappement shell d'une requête inline) → exécute spark-sql non-interactivement,
@@ -69,7 +69,7 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
 
         if on_progress:
             on_progress("Authentification Kerberos…", 15)
-        ok, message = _kinit(client, krb_cfg)
+        ok, message = _kinit(client, krb_cfg, cancel_event=cancel_event)
         if not ok:
             return SparkSqlResult(
                 success=False, error=f"Authentification Kerberos : {message}",
@@ -100,7 +100,12 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
         if on_progress:
             on_progress("Exécution de la requête sur le cluster…", 40)
         _stdin, stdout, _stderr = client.exec_command(cmd, timeout=timeout + 30)
-        exit_status = stdout.channel.recv_exit_status()
+        with watch_cancel(stdout.channel, cancel_event):
+            exit_status = stdout.channel.recv_exit_status()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return SparkSqlResult(success=False, error="Annulé par l'utilisateur.",
+                                   duration_s=time.monotonic() - start)
 
         if exit_status != 0:
             err_text = _read_remote_file(client, remote_err)

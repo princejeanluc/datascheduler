@@ -204,11 +204,13 @@ def validate_step_sequence(steps: list[dict]) -> tuple[list[str], list[str]]:
 #  EXÉCUTION D'UNE ÉTAPE — timeout + relance (partagé linéaire/graphe)
 # ──────────────────────────────────────────────
 
-def _run_step_with_policy(executor, ctx, step, step_progress, result):
+def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event=None):
     """
     Exécute une étape avec sa politique de délai (timeout_s) et de relance (retry_count).
     Un timeout est traité comme n'importe quel échec par la boucle de relance qui suit
-    (retenter a du sens pour un blocage réseau transitoire).
+    (retenter a du sens pour un blocage réseau transitoire) — une annulation utilisateur, elle,
+    ne l'est jamais (voir plus bas) : retenter une étape que l'utilisateur vient d'interrompre
+    serait activement contraire à sa demande.
 
     CPython ne peut pas tuer un thread de force : un appel réellement bloqué (socket SSH/
     FTP/HTTP sans timeout propre) continue en arrière-plan au-delà de timeout_s — le
@@ -220,17 +222,21 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result):
     jusqu'à la fin de l'appel bloquant (annulant l'effet du timeout), et ses threads sont
     suivis par un joiner atexit qui empêcherait la fermeture de l'app tant qu'un appel
     resterait bloqué — un thread daemon simple n'a ni l'un ni l'autre défaut.
+
+    `cancel_event` (chantier annulation coopérative) : transmis tel quel à l'étape, qui peut
+    choisir de le consulter pour s'interrompre plus tôt qu'un simple timeout (voir
+    core/steps/base.py::BaseStep.run). Ne change rien pour un type d'étape qui l'ignore.
     """
     retry_count = step.retry_count or 0
     timeout_s   = step.timeout_s or 0
     attempt     = 0
     while True:
         if not timeout_s:
-            step_result = executor.run(ctx, on_progress=step_progress)
+            step_result = executor.run(ctx, cancel_event=cancel_event, on_progress=step_progress)
         else:
             box = {}
             def _runner():
-                box["result"] = executor.run(ctx, on_progress=step_progress)
+                box["result"] = executor.run(ctx, cancel_event=cancel_event, on_progress=step_progress)
             t = threading.Thread(target=_runner, daemon=True, name="step_timeout")
             t.start()
             t.join(timeout_s)
@@ -243,7 +249,8 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result):
             result.log_lines.append(line)
         ctx.log_lines.clear()
 
-        if step_result.success or attempt >= retry_count:
+        cancelled = cancel_event is not None and cancel_event.is_set()
+        if step_result.success or cancelled or attempt >= retry_count:
             return step_result
         attempt += 1
         result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
@@ -384,7 +391,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
 
         if step_result.success:
             # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
@@ -413,6 +420,14 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                 completed_step_keys.add(step_key)
 
         if not step_result.success:
+            # Une étape qui a coopéré à l'annulation (chantier annulation coopérative) renvoie
+            # un échec ordinaire (StepResult(success=False, ...)) — la distinguer d'un vrai échec
+            # ici, au même titre que l'annulation détectée entre deux étapes ci-dessus, plutôt
+            # que de la faire remonter comme un échec de pipeline.
+            if cancel_event.is_set():
+                pipeline_cancelled = True
+                result.fail("Exécution interrompue par l'utilisateur.")
+                break
             if not pipeline_failed:
                 ctx.extra["failed_step_label"] = step_label
                 ctx.extra["error_message"]     = step_result.error
@@ -583,7 +598,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result)
+        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
 
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
@@ -603,6 +618,16 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 # n'est jamais marquée "complétée" pour une future reprise.
                 if not (pipeline_failed and step.run_always):
                     completed_step_keys.add(step_key)
+        elif cancel_event.is_set():
+            # Une étape qui a coopéré à l'annulation (chantier annulation coopérative) renvoie un
+            # échec ordinaire — la distinguer d'un vrai échec ici, au même titre que l'annulation
+            # détectée entre deux étapes en tête de boucle, plutôt que de la faire remonter comme
+            # un échec de pipeline (voir _execute_linear pour la même logique).
+            if step_key:
+                step_status[step_key] = "failed"
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
         else:
             if step_key:
                 step_status[step_key] = "failed"

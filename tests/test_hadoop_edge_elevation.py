@@ -9,6 +9,7 @@ du mot de passe dans la valeur de retour en cas d'échec.
 """
 
 import re
+import threading
 
 import core.hadoop_edge as hadoop_edge
 from tests._fake_ssh import FakeSSHClient, ssh_cfg, krb_cfg, elevation_cfg, install_fake_client
@@ -209,6 +210,41 @@ def test_test_elevation_auth_reports_success(monkeypatch):
 
     assert result.success is True
     assert "nifi" in result.message
+
+
+def test_run_command_with_elevation_returns_cancelled_message_instead_of_timeout(monkeypatch):
+    """sudo su/whoami se résolvent normalement (script scripté pour y répondre), mais la
+    commande réelle ne produit jamais son marqueur sentinelle — simule une commande distante
+    toujours en cours au moment où l'utilisateur annule. cancel_event est positionné par un
+    timer, une fois l'élévation déjà passée, pour vérifier que c'est bien l'attente de la
+    commande (la phase la plus longue) qui est interrompue, pas une étape antérieure."""
+    def stuck_after_login_script(sent: str) -> str:
+        out = "user@edge03:~$ "
+        su_cmd = "sudo su nifi\n"
+        if su_cmd not in sent:
+            return out
+        out += su_cmd + "[sudo] password for user: "
+        after_su = sent.split(su_cmd, 1)[-1]
+        if "\n" not in after_su:
+            return out
+        out += "\nnifi@edge03:~$ "
+        if "whoami" not in sent:
+            return out
+        out += "whoami\nnifi\nnifi@edge03:~$ "
+        return out   # jamais de marqueur sentinelle, quoi qu'il soit envoyé ensuite
+
+    client = FakeSSHClient(shell_script_fn=stuck_after_login_script)
+    install_fake_client(monkeypatch, client)
+    cancel_event = threading.Event()
+    threading.Timer(0.05, cancel_event.set).start()
+
+    ok, output = hadoop_edge.run_command_with_elevation(
+        ssh_cfg(), "sqoop export ...", timeout=3600, elevation_cfg=elevation_cfg(),
+        cancel_event=cancel_event,
+    )
+
+    assert not ok
+    assert "Annulé" in output
 
 
 def test_test_elevation_auth_reports_failure_without_raising(monkeypatch):

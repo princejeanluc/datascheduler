@@ -121,12 +121,12 @@ def test_pipeline_with_no_children_is_a_silent_noop(test_db, monkeypatch):
 # ──────────────────────────────────────────────
 
 class _SucceedingStep(BaseStep):
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         return StepResult(success=True)
 
 
 class _FailingStep(BaseStep):
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         return StepResult(success=False, error="échec simulé")
 
 

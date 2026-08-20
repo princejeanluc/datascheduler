@@ -13,7 +13,7 @@ from .base import BaseStep, StepContext, StepResult
 class DbExtractStep(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         connector = None
         tmp_path: Path | None = None
@@ -67,6 +67,7 @@ class DbExtractStep(BaseStep):
                 chunk_size=self.config.get("csv_chunk_size", 50000),
                 quoting=self.config.get("csv_quoting",      "QUOTE_NONNUMERIC"),
                 on_progress=export_progress,
+                cancel_event=cancel_event,
             )
             export_result = exporter.export()
 

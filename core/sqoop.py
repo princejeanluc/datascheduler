@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from core.hadoop_edge import (
     SshExecConfig, KerberosConfig, ElevationConfig,
-    _connect, _close_all, _kinit, read_remote_file, run_command_with_elevation,
+    _connect, _close_all, _kinit, read_remote_file, run_command_with_elevation, watch_cancel,
 )
 from core.sql_db import SqlDbConfig
 
@@ -71,7 +71,8 @@ def build_sqoop_export_command(connect_url: str, username: str, password: str,
 def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, oracle_cfg: SqlDbConfig,
                       hcatalog_database: str, hcatalog_table: str, oracle_table: str,
                       sqoop_conf: str, timeout: int = 3600,
-                      elevation_cfg: ElevationConfig | None = None, on_progress=None) -> SqoopExportResult:
+                      elevation_cfg: ElevationConfig | None = None, on_progress=None,
+                      cancel_event=None) -> SqoopExportResult:
     """
     Deux chemins distincts, choisis selon `elevation_cfg` :
 
@@ -102,7 +103,7 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         try:
             ok, output = run_command_with_elevation(
                 ssh_cfg, real_cmd, timeout, elevation_cfg=elevation_cfg, krb_cfg=krb_cfg,
-                on_progress=on_progress,
+                on_progress=on_progress, cancel_event=cancel_event,
             )
             if not ok:
                 return SqoopExportResult(
@@ -126,7 +127,7 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         if krb_cfg:
             if on_progress:
                 on_progress("Authentification Kerberos…", 25)
-            ok, message = _kinit(client, krb_cfg)
+            ok, message = _kinit(client, krb_cfg, cancel_event=cancel_event)
             if not ok:
                 return SqoopExportResult(
                     success=False, error=f"Authentification Kerberos : {message}",
@@ -138,7 +139,12 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         if on_progress:
             on_progress("Export Sqoop en cours…", 40)
         _stdin, stdout, _stderr = client.exec_command(full_cmd, timeout=timeout + 30)
-        exit_status = stdout.channel.recv_exit_status()
+        with watch_cancel(stdout.channel, cancel_event):
+            exit_status = stdout.channel.recv_exit_status()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return SqoopExportResult(success=False, error="Annulé par l'utilisateur.",
+                                      duration_s=time.monotonic() - start)
 
         if exit_status != 0:
             err_text = read_remote_file(client, remote_err)

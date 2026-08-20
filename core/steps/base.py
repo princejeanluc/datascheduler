@@ -94,5 +94,13 @@ class BaseStep:
     def __init__(self, config: dict):
         self.config = config
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
+        """
+        `cancel_event` (threading.Event | None, chantier annulation coopérative) : positionné
+        quand l'utilisateur demande l'arrêt d'un run en cours (voir core.pipeline.request_cancel).
+        Optionnel — un type d'étape n'est pas obligé de le consulter (comportement historique
+        inchangé, appel bloquant unique jusqu'à son terme) ; ceux qui ont un vrai point
+        d'interruption sûr (boucle de chunks, sous-processus, sondage réseau) sont encouragés à
+        vérifier cancel_event.is_set() et à retourner StepResult(success=False, ...) au plus tôt.
+        """
         raise NotImplementedError

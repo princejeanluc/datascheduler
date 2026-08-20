@@ -6,11 +6,13 @@ formée, court-circuit propre sur échec Kerberos, échec propre sur code de sor
 masquage du mot de passe pour la journalisation, nettoyage/fermeture systématiques.
 """
 
+import threading
+
 import core.sqoop as sqoop_module
 from core.sql_db import SqlDbConfig
 from core.sqoop import build_sqoop_export_command, run_sqoop_export
 from tests._fake_ssh import (
-    FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
+    FakeBlockingChannel, FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
     ssh_cfg, krb_cfg, elevation_cfg, install_fake_client,
 )
 
@@ -174,7 +176,7 @@ def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatc
     captured = {}
 
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None):
         captured["command"] = command
         captured["elevation_cfg"] = elevation_cfg
         captured["krb_cfg"] = krb_cfg
@@ -200,7 +202,7 @@ def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatc
 
 def test_run_sqoop_export_elevation_path_reports_failure(monkeypatch):
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None):
         return False, "sudo su : délai dépassé en attendant l'invite de mot de passe."
 
     monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
@@ -212,3 +214,49 @@ def test_run_sqoop_export_elevation_path_reports_failure(monkeypatch):
 
     assert not result.success
     assert "délai dépassé" in result.error
+
+
+def test_run_sqoop_export_forwards_cancel_event_to_elevation_path(monkeypatch):
+    captured = {}
+
+    def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
+                                         krb_cfg=None, on_progress=None, cancel_event=None):
+        captured["cancel_event"] = cancel_event
+        return True, "ok"
+
+    monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
+
+    sentinel_event = threading.Event()
+    run_sqoop_export(
+        ssh_cfg(), None, _oracle_cfg(), "DD", "T", "xxx.t", "",
+        elevation_cfg=elevation_cfg(), cancel_event=sentinel_event,
+    )
+
+    assert captured["cancel_event"] is sentinel_event
+
+
+def test_run_sqoop_export_unblocks_and_reports_cancelled_on_historical_path(monkeypatch):
+    """Chemin sans élévation : l'authentification Kerberos réussit, la commande sqoop reste
+    indéfiniment "en cours" (canal bloquant) — cancel_event positionné une fois l'attente
+    réellement démarrée, vérifie que le thread sentinelle (core.hadoop_edge.watch_cancel) ferme
+    le canal et débloque l'appel plutôt que d'attendre le timeout distant."""
+    blocking_channel = FakeBlockingChannel()
+
+    def exec_fn(cmd, get_pty=False, timeout=None):
+        if get_pty:
+            return _kinit_ok_exec_fn(cmd, get_pty=get_pty, timeout=timeout)
+        return FakeStdin(), FakeStdout(blocking_channel), FakeStderr()
+
+    client = FakeSSHClient(exec_fn)
+    install_fake_client(monkeypatch, client)
+    cancel_event = threading.Event()
+    threading.Timer(0.1, cancel_event.set).start()
+
+    result = run_sqoop_export(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "DD", "T", "xxx.t", "",
+        timeout=3600, cancel_event=cancel_event,
+    )
+
+    assert not result.success
+    assert "Annulé" in result.error
+    assert blocking_channel.closed is True

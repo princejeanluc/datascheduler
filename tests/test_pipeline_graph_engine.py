@@ -17,7 +17,7 @@ from database import db_manager as db
 class _FakeProducerStep(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         path = Path(self.config["path"])
         path.write_text(self.config.get("content", ""))
         ctx.output_file = path
@@ -27,7 +27,7 @@ class _FakeProducerStep(BaseStep):
 class _FakeFailingStep(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         return StepResult(success=False, error="échec simulé")
 
 
@@ -37,7 +37,7 @@ class _FakeConsumerStep(BaseStep):
     balayé par le nettoyage des temporaires en fin de run_pipeline (voir core/pipeline.py)."""
     REQUIRES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         sink = Path(self.config["sink_path"])
         sink.write_text(ctx.output_file.read_text() if ctx.output_file else "")
         return StepResult(success=True)

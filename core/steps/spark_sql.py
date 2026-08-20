@@ -64,7 +64,7 @@ class SparkSqlStep(BaseStep):
     # raisonnement déjà appliqué à PythonScriptStep.PRODUCES (voir docs/COOKBOOK.md).
     # REQUIRES vide : l'étape est autonome, pilotée par ses 3 références, pas par ctx.output_file.
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         raw_path: Path | None = None
         csv_path: Path | None = None
@@ -112,6 +112,7 @@ class SparkSqlStep(BaseStep):
             spark_result = run_spark_sql(
                 ssh_cfg, kerberos_cfg, spark_conf, query, fetch_result,
                 local_output_path=raw_path, timeout=timeout, on_progress=on_progress,
+                cancel_event=cancel_event,
             )
 
             if not spark_result.success:

@@ -102,7 +102,7 @@ def test_output_names_plural_participates_in_collision_check():
 class _FakeProducer(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         path = Path(self.config["path"])
         path.write_text(self.config.get("content", "DATA"))
         ctx.output_file = path
@@ -112,7 +112,7 @@ class _FakeProducer(BaseStep):
 class _FakeSink(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         Path(self.config["sink_path"]).write_text(ctx.output_file.read_text() if ctx.output_file else "")
         return StepResult(success=True)
 

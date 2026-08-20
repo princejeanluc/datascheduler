@@ -72,7 +72,7 @@ class ConditionStep(BaseStep):
     PRODUCES: set[str] = set()
     OUTPUT_PORTS = ("true", "false")
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         expression = self.config.get("expression", "")
         try:
             active = _evaluate(expression, ctx)
