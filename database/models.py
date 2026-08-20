@@ -345,6 +345,14 @@ class Pipeline(Base):
     last_run_at       = Column(DateTime, nullable=True)
     next_run_at       = Column(DateTime, nullable=True)
 
+    # Parallélisme intra-pipeline (chantier dédié) — bascule explicite PAR pipeline, jamais
+    # globale : défaut False préserve le comportement séquentiel actuel pour tout pipeline
+    # existant tant que l'utilisateur ne l'active pas lui-même. max_parallel_branches n'a
+    # d'effet que si parallel_execution_enabled est vrai (borne le ThreadPoolExecutor du moteur
+    # concurrent — voir core/pipeline.py::_execute_graph_parallel).
+    parallel_execution_enabled = Column(Boolean, default=False, nullable=False)
+    max_parallel_branches      = Column(Integer, default=4, nullable=False)
+
     # Déclenchement conditionnel après un autre pipeline (chantier P) — additif, coexiste avec
     # la planification cron ci-dessus, ne la remplace jamais. Volontairement pas transporté par
     # l'export/import (database/export_import.py) : référence un autre pipeline de premier
@@ -452,6 +460,13 @@ class PipelineRun(Base):
     # pendant une exécution (chantier identité visuelle, traçage lumineux). NULL une fois le run
     # terminé, comme current_step_label.
     current_step_key = Column(String(255), nullable=True)
+    # Étapes actuellement en cours en mode parallèle (chantier dédié) — JSON {step_key: {"label":
+    # str, "pct": int}}, écrit UNIQUEMENT par le moteur concurrent (core/pipeline.py::
+    # _execute_graph_parallel). current_step_label/current_step_key ci-dessus restent la seule
+    # source de vérité pour tout run linéaire/graphe séquentiel, inchangés — additif, pas un
+    # remplacement. NULL une fois le run terminé, ou pour tout run qui n'a jamais emprunté le
+    # moteur concurrent.
+    active_steps_json = Column(Text, nullable=True)
 
     # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
     # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté

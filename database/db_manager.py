@@ -330,6 +330,29 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Parallélisme intra-pipeline (chantier dédié) — bascule + plafond de branches ajoutés à
+        # pipelines, table déjà existante pour toute base antérieure à ce chantier.
+        pipeline_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipelines)")).fetchall()}
+        if "parallel_execution_enabled" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN parallel_execution_enabled BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+        if "max_parallel_branches" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN max_parallel_branches INTEGER NOT NULL DEFAULT 4"
+            ))
+            conn.commit()
+
+        # Progression multi-étapes du moteur concurrent (chantier parallélisme) — colonne
+        # ajoutée à pipeline_runs, table déjà existante pour toute base antérieure à ce chantier.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "active_steps_json" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN active_steps_json TEXT"
+            ))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -1128,6 +1151,45 @@ def get_running_step_keys() -> dict[int, str]:
     for r in rows:
         if r.current_step_key:
             result.setdefault(r.pipeline_id, r.current_step_key)
+    return result
+
+
+def update_run_active_steps(run_id: int, active_steps: dict) -> None:
+    """Écrit l'ensemble des étapes actuellement en cours (chantier parallélisme intra-pipeline) —
+    UNIQUEMENT appelé par core/pipeline.py::_execute_graph_parallel, jamais par les moteurs
+    linéaire/graphe séquentiel qui continuent de ne piloter que current_step_label/
+    current_step_key (update_run_progress ci-dessus, inchangé). `active_steps` :
+    {step_key: {"label": str, "pct": int}}."""
+    import json
+    with get_session() as s:
+        run = s.get(PipelineRun, run_id)
+        if run:
+            run.active_steps_json = json.dumps(active_steps)
+
+
+def get_running_step_keys_multi() -> dict[int, set[str]]:
+    """pipeline_id -> ensemble des step_keys actuellement actifs (chantier parallélisme) — lu
+    depuis active_steps_json, coexiste avec get_running_step_keys() ci-dessus (qui reste la
+    source pour tout run n'ayant jamais emprunté le moteur concurrent, active_steps_json alors
+    NULL). Utilisée par l'éditeur graphique pour surligner plusieurs nœuds à la fois."""
+    import json
+    with get_session() as s:
+        rows = (
+            s.query(PipelineRun)
+            .filter(PipelineRun.status == PipelineStatus.RUNNING,
+                     PipelineRun.active_steps_json.isnot(None))
+            .order_by(PipelineRun.started_at.desc())
+            .all()
+        )
+    result: dict[int, set[str]] = {}
+    for r in rows:
+        if r.pipeline_id in result:
+            continue   # run le plus récent déjà pris pour ce pipeline
+        try:
+            active = json.loads(r.active_steps_json)
+        except (ValueError, TypeError):
+            continue
+        result[r.pipeline_id] = set(active.keys())
     return result
 
 

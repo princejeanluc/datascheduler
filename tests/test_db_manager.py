@@ -454,6 +454,31 @@ def test_migrate_adds_current_step_label_to_a_pre_existing_pipeline_runs_table(t
     db._SessionFactory = None
 
 
+def test_migrate_adds_active_steps_json_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Chantier parallélisme intra-pipeline — même patron que current_step_label/
+    current_step_key ci-dessus, pour la colonne active_steps_json."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs_active_steps.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "active_steps_json" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 # ──────────────────────────────────────────────
 #  GRAPHE DE PIPELINE (chantier 6a)
 # ──────────────────────────────────────────────
@@ -533,9 +558,10 @@ def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
         """))
         conn.execute(text(
             "INSERT INTO pipelines (uuid, name, csv_separator, csv_encoding, csv_chunk_size, "
-            "csv_quoting, frequency, is_active, prevent_overlap) "
+            "csv_quoting, frequency, is_active, prevent_overlap, parallel_execution_enabled, "
+            "max_parallel_branches) "
             "VALUES ('11111111-1111-1111-1111-111111111111', 'LEGACY', ';', 'utf-8', 50000, "
-            "'QUOTE_NONNUMERIC', 'DAILY', 1, 0)"
+            "'QUOTE_NONNUMERIC', 'DAILY', 1, 0, 0, 4)"
         ))
         conn.execute(text(
             "INSERT INTO pipeline_steps (pipeline_id, step_order, step_type, config_json) "
@@ -692,3 +718,58 @@ def test_get_latest_resource_sample_returns_most_recent(test_db):
 
     latest = db.get_latest_resource_sample()
     assert latest.cpu_percent == 9.0
+
+
+# ──────────────────────────────────────────────
+#  PARALLÉLISME INTRA-PIPELINE (chantier dédié)
+# ──────────────────────────────────────────────
+
+def test_create_pipeline_defaults_parallel_execution_disabled(test_db):
+    """Défaut False/4 pour tout pipeline — le parallélisme reste un choix explicite, jamais le
+    comportement par défaut, même pour un pipeline tout juste créé."""
+    p = db.create_pipeline(name="parallel-default-test")
+    assert p.parallel_execution_enabled is False
+    assert p.max_parallel_branches == 4
+
+
+def test_update_run_active_steps_and_get_running_step_keys_multi_round_trip(test_db):
+    pipeline = db.create_pipeline(name="active-steps-test")
+    run = db.create_run(pipeline.id)
+
+    assert db.get_running_step_keys_multi() == {}
+
+    db.update_run_active_steps(run.id, {
+        "a": {"label": "Étape A", "pct": 40},
+        "b": {"label": "Étape B", "pct": 10},
+    })
+
+    result = db.get_running_step_keys_multi()
+    assert result == {pipeline.id: {"a", "b"}}
+
+
+def test_get_running_step_keys_multi_ignores_runs_without_active_steps(test_db):
+    """Un run RUNNING dont active_steps_json est NULL (moteur linéaire/graphe séquentiel,
+    jamais concurrent) ne doit jamais apparaître ici — get_running_step_keys() (singulier)
+    reste la source pour ce cas."""
+    pipeline = db.create_pipeline(name="active-steps-null-test")
+    db.create_run(pipeline.id)
+
+    assert db.get_running_step_keys_multi() == {}
+
+
+def test_get_running_step_keys_multi_uses_most_recent_run_per_pipeline(test_db):
+    from datetime import datetime, timedelta
+
+    pipeline = db.create_pipeline(name="active-steps-multi-run-test")
+    older = db.create_run(pipeline.id)
+    db.update_run_active_steps(older.id, {"old": {"label": "Vieille étape", "pct": 50}})
+    newer = db.create_run(pipeline.id)
+    db.update_run_active_steps(newer.id, {"new": {"label": "Nouvelle étape", "pct": 20}})
+
+    with db.get_session() as s:
+        from database.models import PipelineRun
+        s.get(PipelineRun, older.id).started_at = datetime.utcnow() - timedelta(minutes=5)
+        s.get(PipelineRun, newer.id).started_at = datetime.utcnow()
+
+    result = db.get_running_step_keys_multi()
+    assert result == {pipeline.id: {"new"}}
