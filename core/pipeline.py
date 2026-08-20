@@ -6,6 +6,7 @@ Exécuteur de pipeline : itère sur les PipelineStep dans l'ordre et passe le co
 import hashlib
 import json
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
@@ -637,6 +638,279 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 ctx.extra["failed_step_label"] = step_label
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+
+    return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
+
+
+# ──────────────────────────────────────────────
+#  EXÉCUTION EN GRAPHE — MOTEUR CONCURRENT (chantier parallélisme intra-pipeline)
+# ──────────────────────────────────────────────
+
+def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, pipeline,
+                             skip_step_keys: frozenset = frozenset(),
+                             active_ports_seed: dict | None = None) -> tuple:
+    """
+    Variante concurrente de _execute_graph() — empruntée uniquement quand
+    pipeline.parallel_execution_enabled est vrai (voir l'aiguillage dans run_pipeline()). Même
+    contrat de retour, même sémantique métier (l'échec d'une étape ne bloque que ses dépendants,
+    routage ConditionStep via active_port, run_always, reprise skip_step_keys) — seule la
+    MÉCANIQUE change : les étapes dont toutes les dépendances sont résolues en même temps
+    tournent réellement en parallèle, bornées par pipeline.max_parallel_branches threads.
+
+    Isolation (chantier phase 1, StepContext.fork()) : chaque étape tourne contre sa PROPRE copie
+    de `ctx`, jamais contre le `ctx` partagé — seul CE coordinateur (jamais un thread worker) lit
+    ou écrit `ctx`, donc aucun verrou n'est nécessaire dessus. Threads daemon simples plutôt que
+    concurrent.futures.ThreadPoolExecutor — même raison que _run_step_with_policy (voir sa
+    docstring) : son shutdown(wait=True)/joiner atexit bloquerait la fermeture de l'app tant
+    qu'un appel resterait bloqué sans timeout configuré, ce qui PEUT arriver ici comme ailleurs.
+    """
+    # Détection de cycle — réutilise _topological_order() telle quelle (même algorithme de Kahn
+    # déjà testé par _execute_graph) plutôt que de la redupliquer : son retour None est le seul
+    # signal utilisé ici, l'ordre linéaire lui-même ne sert pas à ce moteur.
+    if _topological_order(steps, edges) is None:
+        result.fail("Le graphe de ce pipeline contient un cycle — exécution impossible.")
+        return True, False, set(), {}
+
+    active_ports_seed = active_ports_seed or {}
+    configs = {id(s): json.loads(s.config_json or "{}") for s in steps}
+    by_key: dict = {}
+    key_order: dict = {}
+    for s in steps:
+        key = configs[id(s)].get("_step_key")
+        if key:
+            by_key[key] = s
+            key_order[key] = s.step_order
+
+    incoming_by_key: dict = {}          # to_step_key -> [Edge]
+    outgoing_keys: dict = {k: [] for k in by_key}   # from_step_key -> [to_step_key]
+    for e in edges:
+        if e.from_step_key in by_key and e.to_step_key in by_key:
+            incoming_by_key.setdefault(e.to_step_key, []).append(e)
+            outgoing_keys[e.from_step_key].append(e.to_step_key)
+
+    in_degree = {k: len(incoming_by_key.get(k, [])) for k in by_key}
+
+    keyless = sorted(
+        (s for s in steps if not configs[id(s)].get("_step_key")),
+        key=lambda s: s.step_order,
+    )
+    total = len(by_key) + len(keyless)
+    if total == 0:
+        return False, False, set(), {}
+
+    step_status: dict = {}     # step_key -> "success" | "failed" | "skipped"
+    active_port: dict = {}     # step_key -> port actif
+    completed_step_keys: set = set(skip_step_keys)
+    pipeline_failed    = False
+    pipeline_cancelled = False
+    done_count = 0
+
+    # Réamorçage (chantier J.2) : cascade immédiate, contrairement à _execute_graph qui le fait
+    # paresseusement "en atteignant leur tour" dans un ordre linéaire — ici il n'y a plus d'ordre
+    # fixe, donc tout est résolu d'un coup avant même de démarrer la boucle principale.
+    ready: list[str] = []
+    for key in skip_step_keys:
+        if key not in by_key:
+            continue
+        step_status[key] = "success"
+        done_count += 1
+        if key in active_ports_seed:
+            active_port[key] = active_ports_seed[key]
+        for nxt in outgoing_keys.get(key, []):
+            in_degree[nxt] -= 1
+    for key in by_key:
+        if key not in step_status and in_degree[key] == 0:
+            ready.append(key)
+
+    active_steps: dict = {}
+    active_steps_lock = threading.Lock()
+    results_queue: "queue.Queue" = queue.Queue()
+    in_flight = 0
+    # Étapes soumises à un thread réel, pas encore résolues (résultat pas encore dépilé de
+    # results_queue) — distinct de step_status (qui ne se remplit qu'à la résolution). Sans ce
+    # suivi, une étape déjà en vol mais dont le in_degree est resté à 0 depuis le début (donc
+    # jamais décrémenté par la complétion d'une AUTRE étape) était incorrectement rajoutée à
+    # `ready` et soumise une seconde fois pendant qu'elle tournait encore — bug réel trouvé en
+    # écrivant le test de chevauchement temporel (deux étapes indépendantes, l'une soumise deux
+    # fois de suite).
+    in_flight_keys: set = set()
+    max_workers = max(1, pipeline.max_parallel_branches or 1)
+
+    def _persist_active_steps():
+        try:
+            db.update_run_active_steps(result.run_id, dict(active_steps))
+        except Exception:
+            logger.warning("Échec de la mise à jour de la progression multi-étapes (ignoré).")
+
+    def _worker(step_key, step, step_type, step_label, config, step_ctx, before_output_file, base_pct, next_pct):
+        def step_progress(msg: str, pct: int):
+            scaled = base_pct + int(pct * (next_pct - base_pct) / 100)
+            with active_steps_lock:
+                active_steps[step_key] = {"label": msg, "pct": pct}
+                _persist_active_steps()
+            progress(msg, scaled, step_key)
+
+        executor_step = get_step(step_type, config)
+        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
+        results_queue.put((step_key, step, step_label, config, step_ctx, before_output_file, step_result))
+
+    def _resolve_skip(step_key, step_label, unavailable):
+        step_status[step_key] = "skipped"
+        failed_upstream = any(
+            step_status.get(e.from_step_key) in ("failed", "skipped") for e in unavailable
+        )
+        reason = "dépendance en échec" if failed_upstream else "branche non sélectionnée"
+        result.log(f"--- {step_label} ignorée ({reason}) ---")
+        for nxt in outgoing_keys.get(step_key, []):
+            in_degree[nxt] -= 1
+
+    def _submit(step_key):
+        nonlocal in_flight, done_count
+        step = by_key[step_key]
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = configs[id(step)]
+
+        incoming    = incoming_by_key.get(step_key, [])
+        unavailable = []
+        for e in incoming:
+            src_status = step_status.get(e.from_step_key)
+            if src_status in ("failed", "skipped"):
+                unavailable.append(e)
+                continue
+            src_active_port = active_port.get(e.from_step_key)
+            if src_active_port is not None and e.from_port != src_active_port:
+                unavailable.append(e)
+
+        should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
+        if should_skip:
+            _resolve_skip(step_key, step_label, unavailable)
+            done_count += 1
+            progress(f"{step_label} (ignorée)", int(done_count * 90 / total), step_key)
+            return
+
+        data_incoming = [e for e in incoming if e not in unavailable]
+        step_ctx = ctx.fork()
+        if len(data_incoming) == 1:
+            step_ctx.output_file = ctx.artifacts.get(data_incoming[0].from_step_key)
+        before_output_file = step_ctx.output_file
+
+        base_pct = int(done_count * 90 / total)
+        next_pct = int((done_count + 1) * 90 / total)
+        with active_steps_lock:
+            active_steps[step_key] = {"label": step_label, "pct": 0}
+            _persist_active_steps()
+        result.log(f"--- {step_label} ({step_type}) — démarrage (parallèle) ---")
+
+        t = threading.Thread(
+            target=_worker,
+            args=(step_key, step, step_type, step_label, config, step_ctx, before_output_file, base_pct, next_pct),
+            daemon=True, name=f"parallel_step_{step_key}",
+        )
+        in_flight += 1
+        in_flight_keys.add(step_key)
+        t.start()
+
+    # ── Boucle principale ─────────────────────
+    while ready or in_flight > 0:
+        while ready and in_flight < max_workers and not cancel_event.is_set():
+            ready.sort(key=lambda k: key_order.get(k, 0))
+            _submit(ready.pop(0))
+
+        if in_flight == 0:
+            break   # plus rien à soumettre (annulé) et plus rien en vol
+
+        step_key, step, step_label, config, step_ctx, before_output_file, step_result = results_queue.get()
+        in_flight -= 1
+        in_flight_keys.discard(step_key)
+        done_count += 1
+        with active_steps_lock:
+            active_steps.pop(step_key, None)
+            _persist_active_steps()
+
+        if step_result.success:
+            # Détection par comparaison avec le snapshot pris avant l'exécution — même logique
+            # que _execute_graph/_execute_linear, appliquée à la copie isolée de cette étape.
+            if step_ctx.output_file != before_output_file:
+                ctx.artifacts[step_key] = step_ctx.output_file
+            output_name = config.get("output_name")
+            if output_name:
+                ctx.artifacts[output_name] = step_ctx.output_file
+            step_status[step_key] = "success"
+            if step_result.active_port:
+                active_port[step_key] = step_result.active_port
+            if not (pipeline_failed and step.run_always):
+                completed_step_keys.add(step_key)
+            for nxt in outgoing_keys.get(step_key, []):
+                in_degree[nxt] -= 1
+            progress(f"{step_label} — terminé", int(done_count * 90 / total), step_key)
+        elif cancel_event.is_set():
+            step_status[step_key] = "failed"
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+        else:
+            step_status[step_key] = "failed"
+            pipeline_failed = True
+            result.log(f"Étape {step_label} en échec : {step_result.error}")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"{step_label} : {step_result.error}")
+            for nxt in outgoing_keys.get(step_key, []):
+                in_degree[nxt] -= 1
+
+        if not pipeline_cancelled:
+            for k in by_key:
+                if (k not in step_status and k not in ready and k not in in_flight_keys
+                        and in_degree[k] == 0):
+                    ready.append(k)
+
+    if cancel_event.is_set() and not pipeline_cancelled:
+        pipeline_cancelled = True
+        result.fail("Exécution interrompue par l'utilisateur.")
+
+    # Étapes keyless (résiduelles, sans arête possible — voir _topological_order) : exécutées en
+    # dernier, séquentiellement, exactement comme leur ordre d'origine — cas marginal qui ne
+    # bénéficie de toute façon d'aucun parallélisme réel (aucune arête pour les distinguer).
+    for step in keyless:
+        if cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = configs[id(step)]
+        step_ctx   = ctx.fork()
+        base_pct   = int(done_count * 90 / total)
+        next_pct   = int((done_count + 1) * 90 / total)
+
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+            scaled = _bp + int(pct * (_np - _bp) / 100)
+            progress(msg, scaled, None)
+
+        result.log(f"--- {step_label} ({step_type}) ---")
+        executor_step = get_step(step_type, config)
+        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
+        done_count += 1
+        if step_result.success:
+            if step_ctx.output_file is not None:
+                ctx.artifacts["output_file"] = step_ctx.output_file
+        elif cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+        else:
+            pipeline_failed = True
+            result.log(f"Étape {step_label} en échec : {step_result.error}")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"{step_label} : {step_result.error}")
+
+    with active_steps_lock:
+        if active_steps:
+            active_steps.clear()
+            _persist_active_steps()
 
     return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
 
