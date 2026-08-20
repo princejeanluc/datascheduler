@@ -133,7 +133,7 @@ def test_zip_file_is_cleaned_up_on_failure(tmp_path, monkeypatch):
 class _FakeProducerStep(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         path = Path(self.config["path"])
         path.write_text(self.config["content"])

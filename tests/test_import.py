@@ -340,7 +340,7 @@ def test_graph_pipeline_reexecutes_via_dag_path_after_reimport(tmp_path, monkeyp
     class _FakeProducer(BaseStep):
         PRODUCES = {"output_file"}
 
-        def run(self, ctx, on_progress=None):
+        def run(self, ctx, cancel_event=None, on_progress=None):
             path = Path(self.config["path"])
             path.write_text("DATA")
             ctx.output_file = path
@@ -349,7 +349,7 @@ def test_graph_pipeline_reexecutes_via_dag_path_after_reimport(tmp_path, monkeyp
     class _FakeSink(BaseStep):
         REQUIRES = {"output_file"}
 
-        def run(self, ctx, on_progress=None):
+        def run(self, ctx, cancel_event=None, on_progress=None):
             Path(self.config["sink_path"]).write_text("ran")
             return StepResult(success=True)
 

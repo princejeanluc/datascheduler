@@ -17,7 +17,7 @@ _captured: dict = {}
 
 
 class _FakeStepA(BaseStep):
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         return StepResult(success=True)
 
 
@@ -25,7 +25,7 @@ class _FakeStepBReadsBackMidRun(BaseStep):
     """Au moment où CETTE étape s'exécute, l'étape précédente (A) a déjà terminé — le run doit
     déjà porter la trace de sa progression en base, avant même que le pipeline ne se termine."""
 
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         run = db.get_runs(_captured["pipeline_id"])[0]
         _captured["mid_run_current_step_label"] = run.current_step_label
         _captured["mid_run_log_text"] = run.log_text
@@ -78,7 +78,7 @@ class _FakeStepAReadsBackMidRunKey(BaseStep):
     current_step_key doit déjà refléter SA _step_key — c'est ce que l'éditeur graphique
     interroge en continu pour savoir quel nœud surligner."""
 
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         run = db.get_runs(_captured["pipeline_id"])[0]
         _captured["mid_run_current_step_key"] = run.current_step_key
         return StepResult(success=True)

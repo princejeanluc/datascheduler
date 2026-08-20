@@ -21,7 +21,7 @@ class CompressStep(BaseStep):
     REQUIRES = {"output_file"}
     PRODUCES = {"output_file"}
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         zip_path: Path | None = None
 

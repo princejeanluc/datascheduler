@@ -107,7 +107,7 @@ def test_step_applies_configured_separator_and_quoting(test_db, monkeypatch):
     q = db.create_sql_query(name="Q1", sql_text="SELECT 1")
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         local_output_path.write_text("a\tb\n1\t2\n")
         return _FakeSparkSqlResult(success=True, local_output_path=local_output_path)
 
@@ -132,7 +132,7 @@ def test_step_defaults_match_db_extract_style_defaults(test_db, monkeypatch):
     q = db.create_sql_query(name="Q1", sql_text="SELECT 1")
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
         local_output_path.write_text("a\tb\n1\t2\n")
         return _FakeSparkSqlResult(success=True, local_output_path=local_output_path)
 

@@ -38,7 +38,7 @@ class _FakeDynamicProducerStep(BaseStep):
     quand self.config['produce'] est vrai — exactement le même genre de production conditionnelle
     à la config que fetch_result."""
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         if self.config.get("produce", True):
             path = Path(self.config["path"])
             path.write_text(self.config.get("content", ""))

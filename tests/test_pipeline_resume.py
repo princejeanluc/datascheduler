@@ -24,7 +24,7 @@ _calls: list[str] = []
 class _FakeProducerStep(BaseStep):
     PRODUCES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         _calls.append(self.config.get("label", "producer"))
         path = Path(self.config["path"])
         path.write_text(self.config.get("content", "x"))
@@ -35,7 +35,7 @@ class _FakeProducerStep(BaseStep):
 class _FakeFailingStep(BaseStep):
     REQUIRES = {"output_file"}
 
-    def run(self, ctx, on_progress=None) -> StepResult:
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
         _calls.append(self.config.get("label", "failing"))
         return StepResult(success=False, error=self.config.get("error", "échec simulé"))
 
@@ -74,7 +74,7 @@ def test_resume_skips_completed_step_and_replays_failed_one(test_db, monkeypatch
         REQUIRES = {"output_file"}
         attempt = 0
 
-        def run(self, ctx, on_progress=None):
+        def run(self, ctx, cancel_event=None, on_progress=None):
             _calls.append("fail")
             _SucceedsOnSecondCall.attempt += 1
             if _SucceedsOnSecondCall.attempt < 2:
@@ -110,7 +110,7 @@ def test_successful_resume_clears_resumable_state(test_db, monkeypatch, tmp_path
         REQUIRES = {"output_file"}
         attempt = 0
 
-        def run(self, ctx, on_progress=None):
+        def run(self, ctx, cancel_event=None, on_progress=None):
             _SucceedsOnSecondCall.attempt += 1
             if _SucceedsOnSecondCall.attempt < 2:
                 return StepResult(success=False, error="échec simulé")

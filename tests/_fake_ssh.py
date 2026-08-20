@@ -4,7 +4,27 @@ Fausses classes paramiko (SSHClient/canal) partagées par tests/test_hadoop_edge
 tests/test_spark.py — pas de préfixe test_ : non collecté par pytest, simple module utilitaire.
 """
 
+import threading
+
 from core.hadoop_edge import SshExecConfig, KerberosConfig, ElevationConfig
+
+
+class FakeBlockingChannel:
+    """Canal dont recv_exit_status() bloque réellement jusqu'à close() — simule une commande
+    distante toujours en cours, pour tester core.hadoop_edge.watch_cancel() (chantier annulation
+    coopérative) : un thread sentinelle doit pouvoir débloquer cet appel en fermant le canal."""
+
+    def __init__(self):
+        self._done = threading.Event()
+        self.closed = False
+
+    def recv_exit_status(self):
+        self._done.wait()
+        return 0
+
+    def close(self):
+        self.closed = True
+        self._done.set()
 
 
 class FakeChannel:

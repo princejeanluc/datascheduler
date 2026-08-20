@@ -11,10 +11,11 @@ ont déménagé dans tests/test_hadoop_edge.py, avec le code qu'ils testent.
 """
 
 import re
+import threading
 
 import core.spark as spark
 from tests._fake_ssh import (
-    FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
+    FakeBlockingChannel, FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
     ssh_cfg, krb_cfg, install_fake_client,
 )
 
@@ -195,3 +196,32 @@ def test_run_spark_sql_closes_connection_even_on_unexpected_exception(monkeypatc
     assert result.success is False
     assert "panne réseau" in result.error
     assert client.closed is True
+
+
+def test_run_spark_sql_unblocks_and_reports_cancelled_when_query_still_running(monkeypatch, tmp_path):
+    """L'authentification Kerberos réussit normalement ; la requête elle-même reste
+    indéfiniment "en cours" (canal bloquant, jamais de code de sortie) — cancel_event est
+    positionné une fois l'attente de la requête réellement démarrée, pour vérifier que le
+    thread sentinelle (core.hadoop_edge.watch_cancel) ferme bien le canal et débloque l'appel,
+    plutôt que d'attendre le timeout distant."""
+    blocking_channel = FakeBlockingChannel()
+
+    def exec_fn(cmd, get_pty=False, timeout=None):
+        if get_pty:
+            return _kinit_ok_exec_fn(cmd)
+        return FakeStdin(), FakeStdout(blocking_channel), FakeStderr()
+
+    client = FakeSSHClient(exec_fn)
+    install_fake_client(monkeypatch, client)
+    cancel_event = threading.Event()
+    threading.Timer(0.1, cancel_event.set).start()
+
+    result = spark.run_spark_sql(
+        ssh_cfg(), krb_cfg(), spark_conf="", query="SELECT 1",
+        fetch_result=False, local_output_path=tmp_path / "x.csv",
+        timeout=3600, cancel_event=cancel_event,
+    )
+
+    assert result.success is False
+    assert "Annulé" in result.error
+    assert blocking_channel.closed is True

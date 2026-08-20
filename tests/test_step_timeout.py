@@ -23,7 +23,7 @@ class _SleepyStep(BaseStep):
         super().__init__(config)
         self.calls = 0
 
-    def run(self, ctx, on_progress=None):
+    def run(self, ctx, cancel_event=None, on_progress=None):
         self.calls += 1
         time.sleep(self.config.get("sleep_s", 0))
         return StepResult(success=True)

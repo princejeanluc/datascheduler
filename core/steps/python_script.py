@@ -22,6 +22,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from .base import BaseStep, StepContext, StepResult
@@ -36,7 +37,7 @@ def _same_executable(a: str, b: str) -> bool:
 
 class PythonScriptStep(BaseStep):
 
-    def run(self, ctx: StepContext, on_progress=None) -> StepResult:
+    def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
         ctx_in_path: Path | None = None
         ctx_out_path: Path | None = None
@@ -92,25 +93,51 @@ class PythonScriptStep(BaseStep):
             if on_progress:
                 on_progress("Exécution du script Python…", 50)
 
-            proc = subprocess.run(
-                cmd,
-                cwd=working_dir,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+            # subprocess.Popen + sondage (au lieu de subprocess.run(timeout=...)) — un
+            # sous-processus, contrairement à un thread Python, PEUT être tué de force par l'OS ;
+            # c'est le seul type d'étape de ce chantier où l'annulation coopérative se traduit par
+            # une vraie interruption immédiate plutôt qu'un abandon (voir core/pipeline.py::
+            # _run_step_with_policy pour le cas général, threads orphelins compris).
+            proc = subprocess.Popen(
+                cmd, cwd=working_dir,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
             )
+            start = time.monotonic()
+            cancelled = False
+            while True:
+                try:
+                    stdout, stderr = proc.communicate(timeout=0.2)
+                    break
+                except subprocess.TimeoutExpired:
+                    if cancel_event is not None and cancel_event.is_set():
+                        cancelled = True
+                        proc.terminate()
+                        try:
+                            stdout, stderr = proc.communicate(timeout=5)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            stdout, stderr = proc.communicate()
+                        break
+                    if time.monotonic() - start > timeout:
+                        proc.kill()
+                        proc.communicate()
+                        raise subprocess.TimeoutExpired(cmd, timeout)
 
-            for line in (proc.stdout or "").strip().splitlines():
+            for line in (stdout or "").strip().splitlines():
                 ctx.log(f"  stdout: {line}")
-            for line in (proc.stderr or "").strip().splitlines():
+            for line in (stderr or "").strip().splitlines():
                 ctx.log(f"  stderr: {line}")
+
+            if cancelled:
+                result.error = "Annulé par l'utilisateur."
+                return result
 
             if proc.returncode != 0:
                 # La dernière ligne non vide de stderr est en général la plus utile (le message
                 # d'exception d'un traceback Python) — le log complet, ligne par ligne, reste
                 # disponible ci-dessus (ctx.log), mais un nouvel utilisateur qui débogue son
                 # propre script mérite un premier indice sans avoir à l'ouvrir.
-                stderr_lines = [l for l in (proc.stderr or "").strip().splitlines() if l.strip()]
+                stderr_lines = [l for l in (stderr or "").strip().splitlines() if l.strip()]
                 result.error = f"Script terminé avec le code {proc.returncode}"
                 if stderr_lines:
                     result.error += f" — {stderr_lines[-1]}"

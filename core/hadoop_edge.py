@@ -12,8 +12,10 @@ déjà établie dans ce projet, pas une régression.
 """
 
 import logging
+import threading
 import time
 import uuid as _uuid_module
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -160,6 +162,46 @@ def _close_all(client) -> None:
             _close_all(bastion)
 
 
+@contextmanager
+def watch_cancel(channel, cancel_event, poll_interval: float = 0.5):
+    """
+    Annulation coopérative (chantier dédié) pour un appel bloquant type
+    `stdout.channel.recv_exit_status()` — le seul point d'interruption possible pour un canal
+    paramiko qui n'a pas de boucle de sondage propre (contrairement à _kinit/_read_until
+    ci-dessus) est de fermer le canal depuis un autre thread pendant que le thread appelant est
+    bloqué dessus, ce qui débloque l'appel en cours. Le process distant, lui, reste borné par son
+    propre `timeout {n}s` shell (inchangé) — ce mécanisme ne fait qu'éviter d'attendre côté
+    client jusqu'à cette échéance distante si l'utilisateur a déjà demandé l'arrêt.
+
+    Usage : `with watch_cancel(stdout.channel, cancel_event): exit_status =
+    stdout.channel.recv_exit_status()` — le thread sentinelle est arrêté/joint automatiquement à
+    la sortie du bloc, qu'il ait ou non déclenché la fermeture.
+    """
+    if cancel_event is None:
+        yield
+        return
+
+    stop = threading.Event()
+
+    def _watch():
+        while not stop.is_set():
+            if cancel_event.is_set():
+                try:
+                    channel.close()
+                except Exception:
+                    pass
+                return
+            stop.wait(poll_interval)
+
+    t = threading.Thread(target=_watch, daemon=True, name="ssh_cancel_watcher")
+    t.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=1)
+
+
 def test_ssh_connection(cfg: SshExecConfig) -> ConnectionTestResult:
     """Connexion SSH puis déconnexion immédiate. Ne lève jamais."""
     client = None
@@ -177,12 +219,16 @@ def test_ssh_connection(cfg: SshExecConfig) -> ConnectionTestResult:
 #  KERBEROS (kinit via pseudo-terminal)
 # ──────────────────────────────────────────────
 
-def _kinit(client, krb_cfg: KerberosConfig) -> tuple[bool, str]:
+def _kinit(client, krb_cfg: KerberosConfig, cancel_event=None) -> tuple[bool, str]:
     """
     Automatise le prompt interactif de `kinit` via un pseudo-terminal (get_pty=True) — kinit
     lit le mot de passe depuis le terminal contrôlant, pas depuis stdin brut (mesure
     anti-script délibérée de Kerberos), donc `echo motdepasse | kinit ...` ne fonctionne pas ;
     un PTY fait croire à kinit qu'il parle à un vrai terminal. Ne lève jamais.
+
+    `cancel_event` (chantier annulation coopérative) : vérifié à chaque tick de la boucle
+    d'attente de l'invite — seul vrai point d'interruption sûr de cette fonction (l'appel
+    bloquant qui suit, une fois le mot de passe envoyé, est bref par nature).
     """
     stdin, stdout, stderr = client.exec_command(
         f"kinit {krb_cfg.principal}", get_pty=True, timeout=30,
@@ -196,6 +242,8 @@ def _kinit(client, krb_cfg: KerberosConfig) -> tuple[bool, str]:
             continue
         if channel.exit_status_ready():
             break
+        if cancel_event is not None and cancel_event.is_set():
+            return False, "Annulé par l'utilisateur."
         if time.monotonic() - start > _KINIT_PROMPT_TIMEOUT_S:
             return False, "kinit : délai dépassé en attendant l'invite de mot de passe."
         time.sleep(0.1)
@@ -244,10 +292,15 @@ def test_kerberos_auth(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig) -> Conne
 # haut/plus bas dans ce fichier) reste inchangé pour tout le reste — aucun risque de régression
 # pour les pipelines qui n'ont pas besoin d'élévation.
 
-def _read_until(channel, markers: list[str], timeout: float) -> tuple[str, str | None]:
+def _read_until(channel, markers: list[str], timeout: float, cancel_event=None) -> tuple[str, str | None]:
     """Lit channel (canal interactif, invoke_shell) jusqu'à ce qu'un des marqueurs apparaisse
     dans le flux cumulé, ou que le délai soit dépassé. Retourne (texte lu, marqueur trouvé ou
-    None si délai dépassé). Ne lève jamais."""
+    None si délai dépassé/annulé). Ne lève jamais.
+
+    `cancel_event` (chantier annulation coopérative) : vérifié à chaque tick — c'est cette même
+    boucle qui attend la fin de la commande réelle dans run_command_with_elevation() (le marqueur
+    sentinelle), donc câbler l'annulation ici couvre gratuitement la phase la plus longue en plus
+    des invites de mot de passe."""
     buffer = ""
     start = time.monotonic()
     while True:
@@ -256,6 +309,8 @@ def _read_until(channel, markers: list[str], timeout: float) -> tuple[str, str |
             for m in markers:
                 if m in buffer:
                     return buffer, m
+        if cancel_event is not None and cancel_event.is_set():
+            return buffer, None
         if time.monotonic() - start > timeout:
             return buffer, None
         time.sleep(0.1)
@@ -264,7 +319,7 @@ def _read_until(channel, markers: list[str], timeout: float) -> tuple[str, str |
 def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: int,
                                 elevation_cfg: ElevationConfig,
                                 krb_cfg: KerberosConfig | None = None,
-                                on_progress=None) -> tuple[bool, str]:
+                                on_progress=None, cancel_event=None) -> tuple[bool, str]:
     """
     Ouvre UN canal shell interactif (invoke_shell) et y enchaîne, dans l'ordre : `sudo su
     <target_user>` (mot de passe automatisé, même principe que _kinit), une vérification
@@ -299,13 +354,15 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
         if on_progress:
             on_progress(f"Élévation vers « {elevation_cfg.target_user} »…", 25)
         channel.send(f"sudo su {elevation_cfg.target_user}\n")
-        _buf, marker = _read_until(channel, markers=["assword"], timeout=_SHELL_READ_TIMEOUT_S)
+        _buf, marker = _read_until(channel, markers=["assword"], timeout=_SHELL_READ_TIMEOUT_S,
+                                    cancel_event=cancel_event)
         if marker is None:
             return False, "sudo su : délai dépassé en attendant l'invite de mot de passe."
         channel.send(elevation_cfg.password + "\n")
 
         channel.send("whoami\n")
-        _buf, marker = _read_until(channel, markers=[elevation_cfg.target_user], timeout=_WHOAMI_CONFIRM_TIMEOUT_S)
+        _buf, marker = _read_until(channel, markers=[elevation_cfg.target_user], timeout=_WHOAMI_CONFIRM_TIMEOUT_S,
+                                    cancel_event=cancel_event)
         if marker is None:
             return False, f"sudo su {elevation_cfg.target_user} : échec (identité non confirmée)."
 
@@ -313,7 +370,8 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
             if on_progress:
                 on_progress("Authentification Kerberos…", 45)
             channel.send(f"kinit {krb_cfg.principal}\n")
-            _buf, marker = _read_until(channel, markers=["assword"], timeout=_KINIT_PROMPT_TIMEOUT_S)
+            _buf, marker = _read_until(channel, markers=["assword"], timeout=_KINIT_PROMPT_TIMEOUT_S,
+                                        cancel_event=cancel_event)
             if marker is None:
                 return False, "kinit : délai dépassé en attendant l'invite de mot de passe."
             channel.send(krb_cfg.password + "\n")
@@ -322,8 +380,11 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
             on_progress("Exécution de la commande…", 60)
         sentinel = f"__DS_DONE_{_uuid_module.uuid4().hex}__"
         channel.send(f"{command} ; echo {sentinel}:$?\n")
-        buf, marker = _read_until(channel, markers=[sentinel], timeout=timeout)
+        buf, marker = _read_until(channel, markers=[sentinel], timeout=timeout,
+                                   cancel_event=cancel_event)
         if marker is None:
+            if cancel_event is not None and cancel_event.is_set():
+                return False, "Annulé par l'utilisateur."
             return False, f"Délai dépassé ({timeout}s) en attendant la fin de la commande."
         try:
             exit_code = int(buf.split(f"{sentinel}:")[-1].strip().splitlines()[0])

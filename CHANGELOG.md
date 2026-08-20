@@ -29,6 +29,29 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.30.0] - 2026-08-20
+
+### Ajouté
+- Annulation coopérative des étapes — jusqu'ici, une demande d'interruption n'était vérifiée
+  qu'entre deux étapes ; une étape déjà en cours devait toujours se terminer d'elle-même
+  (CPython ne peut pas tuer un thread de force), même après un délai dépassé. `BaseStep.run()`
+  reçoit désormais un jeton d'annulation optionnel, consulté par les types d'étape qui ont un
+  vrai point d'interruption sûr :
+  - **Script Python** : le sous-processus est désormais réellement tué (`terminate()` puis
+    `kill()` si nécessaire) dès la demande d'arrêt, au lieu de continuer en arrière-plan.
+  - **DB_EXTRACT / DB_LOAD** : l'export/chargement par chunks s'arrête entre deux chunks
+    (jamais en cours d'écriture — aucun fichier/table partiellement écrit pour le chunk en cours).
+  - **SPARK_SQL / SQOOP_EXPORT** : l'attente d'une requête/commande en cours sur le cluster est
+    interrompue côté client (le canal SSH est fermé) sans attendre la fin naturelle de la
+    commande distante ; l'authentification Kerberos (kinit) et l'élévation de privilèges
+    (`sudo su`) réagissent également plus tôt si l'arrêt est demandé pendant cette phase.
+  - Les autres types d'étape (copie locale, compression, FTP, requête HTTP, email, condition,
+    exécution SQL) gardent leur comportement actuel — appel unique, pas de point d'interruption
+    sûr sans refonte plus large.
+  - Une étape interrompue de cette façon n'est plus jamais retentée (le réglage "Tentatives" de
+    l'étape ne s'applique qu'à un vrai échec), et le run est correctement marqué "Interrompu",
+    pas "Échec".
+
 ## [0.29.1] - 2026-08-19
 
 ### Corrigé
