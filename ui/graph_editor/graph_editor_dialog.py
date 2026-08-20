@@ -53,8 +53,17 @@ class PipelineGraphEditorDialog(QDialog):
         if not self._pipeline:
             return
         from database import db_manager as db
+        # Priorité au suivi multi-étapes (chantier parallélisme intra-pipeline) — non vide
+        # uniquement pour un run ayant réellement emprunté le moteur concurrent
+        # (PipelineRun.active_steps_json) ; sinon repli sur le suivi historique à une seule
+        # étape (get_running_step_keys()), utilisé par tout run linéaire/graphe séquentiel,
+        # inchangé.
+        multi = db.get_running_step_keys_multi().get(self._pipeline.id)
+        if multi:
+            self._scene.set_executing_step_keys(multi)
+            return
         step_key = db.get_running_step_keys().get(self._pipeline.id)
-        self._scene.set_executing_step_key(step_key)
+        self._scene.set_executing_step_keys({step_key} if step_key else set())
 
     # ── Données ──────────────────────────────
 

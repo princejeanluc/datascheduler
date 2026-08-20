@@ -24,7 +24,7 @@ class PipelineGraphScene(QGraphicsScene):
         self.edges: list[EdgeItem] = []
         self._pending_edge: TempEdgeItem | None = None
         self._pending_source: tuple[str, str] | None = None   # (step_key, port_name)
-        self._executing_step_key: str | None = None
+        self._executing_step_keys: set[str] = set()
 
     # ── Construction du graphe ────────────────
 
@@ -71,27 +71,35 @@ class PipelineGraphScene(QGraphicsScene):
             if e.from_node is node or e.to_node is node:
                 e.update_path()
 
-    def set_executing_step_key(self, step_key: str | None) -> None:
-        """Traçage lumineux (chantier identité visuelle) : surligne l'étape en cours d'une
-        exécution réelle (nœud + ses arêtes entrantes), retire le surlignage précédent le cas
-        échéant. Appelé en continu par le QTimer de polling du dialogue — no-op si l'étape en
-        cours n'a pas changé depuis le dernier appel."""
-        if step_key == self._executing_step_key:
+    def set_executing_step_keys(self, step_keys: set[str] | None) -> None:
+        """Traçage lumineux (chantier identité visuelle, étendu au parallélisme intra-pipeline) :
+        surligne TOUTES les étapes actuellement en cours d'une exécution réelle (nœud + ses
+        arêtes entrantes, chacune) — un ensemble plutôt qu'une clé unique, pour qu'un run en
+        mode parallèle puisse surligner plusieurs nœuds à la fois ; un run classique (une seule
+        étape à la fois) n'y voit aucune différence, l'ensemble ne contient jamais qu'un élément.
+        Appelé en continu par le QTimer de polling du dialogue — ne retouche que les nœuds dont
+        l'état a réellement changé depuis le dernier appel."""
+        step_keys = step_keys or set()
+        if step_keys == self._executing_step_keys:
             return
-        old_node = self.nodes.get(self._executing_step_key) if self._executing_step_key else None
-        if old_node:
-            old_node.set_executing(False)
-            for e in self.edges:
-                if e.to_node is old_node:
-                    e.set_executing(False)
 
-        self._executing_step_key = step_key
-        new_node = self.nodes.get(step_key) if step_key else None
-        if new_node:
-            new_node.set_executing(True)
-            for e in self.edges:
-                if e.to_node is new_node:
-                    e.set_executing(True)
+        for key in self._executing_step_keys - step_keys:
+            old_node = self.nodes.get(key)
+            if old_node:
+                old_node.set_executing(False)
+                for e in self.edges:
+                    if e.to_node is old_node:
+                        e.set_executing(False)
+
+        for key in step_keys - self._executing_step_keys:
+            new_node = self.nodes.get(key)
+            if new_node:
+                new_node.set_executing(True)
+                for e in self.edges:
+                    if e.to_node is new_node:
+                        e.set_executing(True)
+
+        self._executing_step_keys = step_keys
 
     # ── Hit-test des ports ────────────────────
 
