@@ -13,7 +13,10 @@ from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
-from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext, StepResult
+from core.steps import (
+    get_step, get_step_requirements, get_step_output_ports, step_produces_output_file,
+    StepContext, StepResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -552,16 +555,25 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
             continue
 
+        # Disponibilité d'une arête entrante (chantier port d'erreur générique) : une source
+        # "skipped" (jamais exécutée) rend TOUJOURS ses arêtes indisponibles, quel que soit le
+        # port — rien ne s'est produit, ni succès ni échec. Une source "failed" ou "success",
+        # elle, est jugée UNIQUEMENT par correspondance de port (active_port, backfillé plus bas
+        # à "error" sur échec, au port normal sur succès) — c'est ce qui permet à une arête
+        # dessinée depuis le port "error" de devenir disponible précisément quand la source
+        # échoue, alors qu'une arête normale depuis cette même source reste indisponible
+        # (comportement identique à avant pour tout pipeline qui ne dessine jamais d'arête
+        # "error" : son from_port ne matche jamais "error", donc reste indisponible sur échec).
         incoming    = incoming_by_key.get(step_key, []) if step_key else []
         unavailable = []
         for e in incoming:
             src_status = step_status.get(e.from_step_key)
-            if src_status in ("failed", "skipped"):
+            if src_status == "skipped":
                 unavailable.append(e)
                 continue
             src_active_port = active_port.get(e.from_step_key)
             if src_active_port is not None and e.from_port != src_active_port:
-                unavailable.append(e)   # branche non sélectionnée par un nœud Condition en amont
+                unavailable.append(e)   # port/branche non actif (Condition, ou échec routé ailleurs)
 
         base_pct = int(i * 90 / total)
         next_pct = int((i + 1) * 90 / total)
@@ -601,6 +613,16 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         executor    = get_step(step_type, config)
         step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
 
+        # Port actif par défaut (chantier port d'erreur générique) — ne jamais écraser un choix
+        # explicite déjà fait par l'étape elle-même (ex : ConditionStep sur succès). Une étape
+        # qui ne sait rien des ports (les 12 autres types) obtient son port normal sur succès, ou
+        # "error" sur échec — c'est CE backfill qui alimente active_port pour la boucle de
+        # disponibilité ci-dessus, y compris pour une étape en échec (voir plus bas).
+        if step_result.active_port is None:
+            step_result.active_port = (
+                get_step_output_ports(step_type)[0] if step_result.success else "error"
+            )
+
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
             # PRODUCES statique de la classe (voir _execute_linear pour la même logique et son
@@ -612,8 +634,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 ctx.artifacts[output_name] = ctx.output_file
             if step_key:
                 step_status[step_key] = "success"
-                if step_result.active_port:
-                    active_port[step_key] = step_result.active_port
+                active_port[step_key] = step_result.active_port
                 # Règle de sécurité (chantier J.2) : voir le commentaire équivalent dans
                 # _execute_linear — une étape run_always exécutée après un échec déjà survenu
                 # n'est jamais marquée "complétée" pour une future reprise.
@@ -626,12 +647,14 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             # un échec de pipeline (voir _execute_linear pour la même logique).
             if step_key:
                 step_status[step_key] = "failed"
+                active_port[step_key] = step_result.active_port
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
             break
         else:
             if step_key:
                 step_status[step_key] = "failed"
+                active_port[step_key] = step_result.active_port
             pipeline_failed = True
             result.log(f"Étape {i + 1} ({step_label}) en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
@@ -771,11 +794,15 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         step_label = step.label or step_type
         config     = configs[id(step)]
 
+        # Disponibilité d'une arête entrante (chantier port d'erreur générique) : même logique
+        # que _execute_graph — voir son commentaire complet. "skipped" reste indisponible en
+        # bloc, "failed"/"success" sont jugés par correspondance de port (active_port, backfillé
+        # ci-dessous à "error" sur échec, au port normal sur succès).
         incoming    = incoming_by_key.get(step_key, [])
         unavailable = []
         for e in incoming:
             src_status = step_status.get(e.from_step_key)
-            if src_status in ("failed", "skipped"):
+            if src_status == "skipped":
                 unavailable.append(e)
                 continue
             src_active_port = active_port.get(e.from_step_key)
@@ -828,6 +855,14 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             active_steps.pop(step_key, None)
             _persist_active_steps()
 
+        # Port actif par défaut (chantier port d'erreur générique) — même règle que
+        # _execute_graph : jamais écraser un choix explicite déjà fait par l'étape elle-même.
+        if step_result.active_port is None:
+            step_result.active_port = (
+                get_step_output_ports(str(step.step_type).replace("StepType.", ""))[0]
+                if step_result.success else "error"
+            )
+
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — même logique
             # que _execute_graph/_execute_linear, appliquée à la copie isolée de cette étape.
@@ -837,8 +872,7 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             if output_name:
                 ctx.artifacts[output_name] = step_ctx.output_file
             step_status[step_key] = "success"
-            if step_result.active_port:
-                active_port[step_key] = step_result.active_port
+            active_port[step_key] = step_result.active_port
             if not (pipeline_failed and step.run_always):
                 completed_step_keys.add(step_key)
             for nxt in outgoing_keys.get(step_key, []):
@@ -846,10 +880,12 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             progress(f"{step_label} — terminé", int(done_count * 90 / total), step_key)
         elif cancel_event.is_set():
             step_status[step_key] = "failed"
+            active_port[step_key] = step_result.active_port
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
         else:
             step_status[step_key] = "failed"
+            active_port[step_key] = step_result.active_port
             pipeline_failed = True
             result.log(f"Étape {step_label} en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
