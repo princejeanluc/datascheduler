@@ -13,6 +13,7 @@ l'utilisateur pour cette raison précise).
 """
 
 import logging
+import os
 import subprocess
 import sys
 
@@ -24,10 +25,13 @@ TASK_NAME = "DataSchedulerWorker"
 def _worker_command_line() -> str:
     """Chemin de l'exécutable courant + l'indicateur --worker — fonctionne aussi bien pour
     l'exe gelé (sys.executable = DataScheduler.exe) que pour un lancement depuis les sources
-    (sys.executable = python.exe, dans quel cas main.py doit être passé explicitement)."""
+    (sys.executable = python.exe, dans quel cas main.py doit être passé explicitement).
+    Chemins toujours ABSOLUS (`os.path.abspath`) : le Planificateur de tâches Windows n'hérite
+    pas forcément du répertoire de travail courant au déclenchement — un chemin relatif comme
+    "main.py" ne serait alors résolu nulle part."""
     if getattr(sys, "frozen", False):
-        return f'"{sys.executable}" --worker'
-    return f'"{sys.executable}" "{sys.argv[0]}" --worker'
+        return f'"{os.path.abspath(sys.executable)}" --worker'
+    return f'"{os.path.abspath(sys.executable)}" "{os.path.abspath(sys.argv[0])}" --worker'
 
 
 def register_logon_task() -> bool:
@@ -47,6 +51,16 @@ def register_logon_task() -> bool:
         )
         logger.info("Tâche planifiée '%s' enregistrée.", TASK_NAME)
         return True
+    except subprocess.CalledProcessError as e:
+        # str(e) seul ("returned non-zero exit status 1") ne dit jamais POURQUOI — le message
+        # réel de schtasks.exe (ex : refus d'accès, syntaxe /tr invalide) n'est que dans
+        # stdout/stderr, capturés par capture_output=True mais jamais journalisés jusqu'ici.
+        detail = (e.stderr or e.stdout or "").strip()
+        logger.error(
+            "Échec de l'enregistrement de la tâche planifiée '%s' (code %s) : %s",
+            TASK_NAME, e.returncode, detail or "(aucune sortie schtasks capturée)",
+        )
+        return False
     except Exception as e:
         logger.error("Échec de l'enregistrement de la tâche planifiée '%s' : %s", TASK_NAME, e)
         return False

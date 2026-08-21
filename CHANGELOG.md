@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.30.1] - 2026-08-21
+
+### Corrigé
+- Exécution en arrière-plan : l'échec d'enregistrement de la tâche planifiée `DataSchedulerWorker`
+  (`schtasks /create`) n'était journalisé que comme "returned non-zero exit status 1" — jamais le
+  vrai message de `schtasks.exe` (ex : refus d'accès), qui n'était pourtant pas perdu, juste jamais
+  affiché. La sortie réelle (stderr, ou stdout à défaut) est désormais incluse dans le log
+  d'erreur.
+- Même enregistrement : la commande construite pour un lancement depuis les sources (pas l'exe
+  gelé) utilisait `sys.argv[0]` tel quel — souvent un chemin **relatif** (`"main.py"`). Le
+  Planificateur de tâches Windows n'hérite pas forcément du même répertoire de travail au
+  déclenchement ultérieur de la tâche, donc ce chemin relatif pouvait ne mener nulle part.
+  Corrigé : chemins systématiquement résolus en absolu (`os.path.abspath`) avant construction de
+  la ligne de commande. Sans effet sur l'exe gelé, où `sys.executable` est déjà un chemin absolu.
+
 ## [0.30.0] - 2026-08-20
 
 ### Ajouté
