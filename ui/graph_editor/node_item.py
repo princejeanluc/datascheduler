@@ -15,6 +15,26 @@ from core.steps import get_step_output_ports
 
 PORT_RADIUS = 6
 
+# Port_name -> (clé de couleur COLORS, étiquette courte) — chantier port d'erreur générique.
+# "error" utilise "warning" (ambre), jamais "danger" (déjà pris par "false" sur ConditionStep :
+# les réutiliser toutes les deux rendrait 2 points adjacents sur un même nœud indiscernables
+# sauf par position). Tout port inconnu (le port normal "output_file", ou tout futur port
+# "normal" d'un type d'étape à venir) retombe sur le traitement neutre d'aujourd'hui : pas
+# d'étiquette, couleur atténuée — c'est ce qui empêche le port normal d'une étape classique de
+# s'afficher par erreur en rouge dès qu'elle gagne un 2e port (le port "error").
+_PORT_STYLE = {
+    "true":  ("success", "V"),
+    "false": ("danger",  "F"),
+    "error": ("warning", "!"),
+}
+_DEFAULT_PORT_STYLE = ("text_dim", "")
+
+
+def _port_visual(port: str) -> tuple[str, str]:
+    """Couleur (clé COLORS) + étiquette courte pour un port de sortie nommé — factoré hors de
+    paint() pour être testable sans contexte Qt (même philosophie que EdgeItem._arrow_points())."""
+    return _PORT_STYLE.get(port, _DEFAULT_PORT_STYLE)
+
 
 class StepNodeItem(QGraphicsObject):
     """
@@ -119,16 +139,15 @@ class StepNodeItem(QGraphicsObject):
         for i, port in enumerate(ports):
             if len(ports) <= 1:
                 y = self.HEIGHT / 2
-                color = COLORS["text_dim"]
             else:
                 step = self.HEIGHT / (len(ports) + 1)
                 y = step * (i + 1)
-                color = COLORS["success"] if port == "true" else COLORS["danger"]
+            color_key, label = _port_visual(port)
+            color = COLORS[color_key]
             painter.setBrush(QBrush(QColor(color)))
             painter.drawEllipse(QPointF(self.WIDTH, y), PORT_RADIUS, PORT_RADIUS)
-            if len(ports) > 1:
+            if label:
                 painter.setPen(QColor(color))
-                label = "V" if port == "true" else "F"
                 painter.drawText(QRectF(self.WIDTH - 22, y - 9, 16, 18),
                                   Qt.AlignRight | Qt.AlignVCenter, label)
 

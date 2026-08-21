@@ -27,6 +27,26 @@ def qapp():
     yield app
 
 
+# ──────────────────────────────────────────────
+#  Rendu des ports (chantier port d'erreur générique) — fonction pure, pas besoin de qapp
+# ──────────────────────────────────────────────
+
+def test_port_visual_true_false_and_error_have_distinct_colors():
+    from ui.graph_editor.node_item import _port_visual
+    true_color, true_label   = _port_visual("true")
+    false_color, false_label = _port_visual("false")
+    error_color, error_label = _port_visual("error")
+    assert len({true_color, false_color, error_color}) == 3
+    assert (true_label, false_label, error_label) == ("V", "F", "!")
+
+
+def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
+    from ui.graph_editor.node_item import _port_visual
+    color, label = _port_visual("output_file")
+    assert label == ""
+    assert color == "text_dim"
+
+
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
     """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
     le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de
@@ -75,7 +95,7 @@ def test_dialog_loads_existing_graph(qapp, test_db):
         assert isinstance(edge, EdgeItem)
 
     condition_node = dlg._scene.nodes["b"]
-    assert condition_node.output_ports == ("true", "false")
+    assert condition_node.output_ports == ("true", "false", "error")
 
 
 def test_add_node_cascades_position_and_saves(qapp, test_db):

@@ -72,6 +72,11 @@ def step_produces_output_file(step_type: str, config: dict) -> bool:
 def get_step_output_ports(step_type: str) -> tuple[str, ...]:
     """Retourne les ports de sortie nommés d'un type d'étape (chantier 6a) — un seul port
     implicite ("output_file") pour tous les steps existants ; plusieurs pour un nœud comme
-    ConditionStep ("true", "false")."""
+    ConditionStep ("true", "false"). Un port "error" est TOUJOURS ajouté en plus, pour tous les
+    types (chantier port d'erreur générique, analogue BPMN "événement-frontière d'erreur") —
+    seul point d'ancrage, jamais déclaré par chaque classe individuellement (BaseStep.
+    OUTPUT_PORTS ne liste que les ports "normaux/succès"), pour qu'un futur type d'étape en
+    hérite automatiquement sans y penser."""
     cls = _REGISTRY.get(step_type)
-    return cls.OUTPUT_PORTS if cls is not None else ("output_file",)
+    base = cls.OUTPUT_PORTS if cls is not None else ("output_file",)
+    return base + ("error",)
