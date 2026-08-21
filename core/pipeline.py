@@ -1011,7 +1011,13 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
         # aucune arête entrante n'est alors nécessaire pour "output_file".
         if config.get("explicit_path"):
             requires = requires - {"output_file"}
-        if requires and not incoming.get(key):
+        # Une arête depuis le port "error" (chantier port d'erreur générique) ne compte JAMAIS
+        # comme satisfaisant un REQUIRES de données — un gestionnaire d'erreur ne reçoit
+        # généralement aucune donnée réelle de l'étape en échec qui l'a déclenché. La détection
+        # de cycle ci-dessus, elle, continue d'utiliser `incoming` non filtré : un cycle formé
+        # uniquement via des arêtes "error" doit rester détecté.
+        data_incoming = [e for e in incoming.get(key, []) if e.get("from_port") != "error"]
+        if requires and not data_incoming:
             msg = f"Étape « {label} » : nécessite {', '.join(sorted(requires))}, aucune arête entrante."
             (warnings if run_always else errors).append(msg)
 

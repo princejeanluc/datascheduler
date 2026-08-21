@@ -88,6 +88,50 @@ def test_validate_detects_cycle():
 
 
 # ──────────────────────────────────────────────
+#  validate_pipeline_graph — port d'erreur générique
+# ──────────────────────────────────────────────
+
+def test_validate_error_port_edge_alone_does_not_satisfy_requires():
+    """Un gestionnaire d'erreur alimenté SEULEMENT par le port "error" d'une étape amont ne
+    reçoit généralement aucune donnée réelle — ça ne doit pas satisfaire son REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "aucune arête entrante" in errors[0]
+
+
+def test_validate_error_port_edge_alongside_a_normal_edge_still_satisfies_requires():
+    """La même étape, alimentée EN PLUS par une arête normale, reste valide — l'arête "error"
+    ne retire rien, elle ne compte simplement pas comme suffisante à elle seule."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a2"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b"), _edge("a2", "b", from_port="error")]
+    errors, warnings = validate_pipeline_graph(steps, edges)
+    assert errors == []
+    assert warnings == []
+
+
+def test_validate_detects_cycle_formed_purely_via_error_port_edges():
+    """La détection de cycle utilise les arêtes NON filtrées — un cycle formé uniquement via
+    des arêtes "error" doit rester détecté, l'exclusion ne s'applique qu'au test REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error"), _edge("b", "a", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "cycle" in errors[0]
+
+
+# ──────────────────────────────────────────────
 #  Exécuteur de bout en bout — steps factices substitués dans le registre
 # ──────────────────────────────────────────────
 
