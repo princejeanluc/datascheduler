@@ -55,6 +55,27 @@ def test_schedule_pipeline_uses_app_settings_misfire_and_coalesce(test_db):
         sched.stop()
 
 
+def test_schedule_pipeline_before_scheduler_started_does_not_raise(test_db):
+    """add_job() sur un scheduler pas encore démarré réussit quand même (APScheduler journalise
+    "Adding job tentatively...") mais ne calcule pas next_run_time tout de suite — Job utilise
+    __slots__, donc lire cet attribut avant qu'il soit assigné lève AttributeError, pas None.
+    Un vrai bug de terrain : le job était correctement enregistré, mais _schedule_pipeline()
+    plantait quand même en tentant de relire next_run_time — ce qui, via load_all_pipelines(),
+    faisait compter le pipeline comme "non planifié" (count jamais incrémenté) et empêchait la
+    mise à jour de next_run_at en base, alors que le job était en réalité bien enregistré.
+    Appel direct à _schedule_pipeline() (pas schedule_pipeline()) : le wrapper public avale déjà
+    l'exception dans son propre try/except, ce qui masquerait la régression."""
+    p = db.create_pipeline(name="not-yet-started-test")
+    sched = PipelineScheduler()
+    try:
+        sched._schedule_pipeline(p)   # jamais sched.start() avant — ne doit pas lever
+
+        job = sched._scheduler.get_job(sched._job_id(p.id))
+        assert job is not None   # le job est bien enregistré malgré l'absence de next_run_time
+    finally:
+        sched.stop()
+
+
 def test_apply_settings_reschedules_all_active_jobs_with_new_values(test_db):
     p1 = db.create_pipeline(name="wiring-test-1")
     p2 = db.create_pipeline(name="wiring-test-2")
