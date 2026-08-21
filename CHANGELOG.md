@@ -31,6 +31,21 @@ bas pour son introduction).
 
 ## [0.30.1] - 2026-08-21
 
+### Ajouté
+- Exécution en arrière-plan : la tâche planifiée `DataSchedulerWorker` gagne un second
+  déclencheur "watchdog" (répétition toutes les 5 minutes, en plus du déclenchement à la
+  connexion existant) qui relance le worker s'il n'est plus actif — crash, ou simplement app
+  fermée puis rouverte sans déconnexion Windows entre les deux (cas déjà rencontré en test réel,
+  où `onlogon` seul ne redéclenche rien). `MultipleInstancesPolicy=IgnoreNew` garantit qu'une
+  instance déjà active n'est jamais dupliquée : le déclencheur périodique n'a d'effet que si le
+  worker est réellement arrêté. Nécessite une définition de tâche XML complète (`schtasks
+  /create /xml`) plutôt que le `/sc onlogon` précédent — un seul déclencheur par appel n'aurait
+  pas suffi à combiner les deux sur la même tâche. `ExecutionTimeLimit` explicitement illimité
+  (la limite par défaut d'une tâche XML est 3 jours, ce qui aurait sinon tué le worker en continu
+  au bout de 3 jours). Comportement fixe, non configurable — la plupart des types de
+  déclencheur schtasks (quotidien, hebdomadaire, au repos…) sont pensés pour des tâches
+  ponctuelles, pas pour un daemon persistant, et n'auraient ajouté que de la complexité.
+
 ### Corrigé
 - Exécution en arrière-plan : l'échec d'enregistrement de la tâche planifiée `DataSchedulerWorker`
   (`schtasks /create`) n'était journalisé que comme "returned non-zero exit status 1" — jamais le
