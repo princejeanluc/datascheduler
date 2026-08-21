@@ -29,9 +29,22 @@ bas pour son introduction).
 
 ## [Non publié]
 
-## [0.31.0] - 2026-08-20
+## [0.31.0] - 2026-08-21
 
 ### Ajouté
+- Exécution en arrière-plan : la tâche planifiée `DataSchedulerWorker` gagne un second
+  déclencheur "watchdog" (répétition toutes les 5 minutes, en plus du déclenchement à la
+  connexion existant) qui relance le worker s'il n'est plus actif — crash, ou simplement app
+  fermée puis rouverte sans déconnexion Windows entre les deux (cas déjà rencontré en test réel,
+  où `onlogon` seul ne redéclenche rien). `MultipleInstancesPolicy=IgnoreNew` garantit qu'une
+  instance déjà active n'est jamais dupliquée : le déclencheur périodique n'a d'effet que si le
+  worker est réellement arrêté. Nécessite une définition de tâche XML complète (`schtasks
+  /create /xml`) plutôt que le `/sc onlogon` précédent — un seul déclencheur par appel n'aurait
+  pas suffi à combiner les deux sur la même tâche. `ExecutionTimeLimit` explicitement illimité
+  (la limite par défaut d'une tâche XML est 3 jours, ce qui aurait sinon tué le worker en continu
+  au bout de 3 jours). Comportement fixe, non configurable — la plupart des types de
+  déclencheur schtasks (quotidien, hebdomadaire, au repos…) sont pensés pour des tâches
+  ponctuelles, pas pour un daemon persistant, et n'auraient ajouté que de la complexité.
 - Parallélisme intra-pipeline : deux branches indépendantes d'un pipeline en graphe peuvent
   désormais tourner réellement en même temps au lieu de s'exécuter l'une après l'autre — un
   choix explicite par pipeline (case "Exécuter les branches indépendantes en parallèle" +
@@ -65,6 +78,17 @@ bas pour son introduction).
   GIL au moment précis où le thread se termine). `_on_finished()` attend désormais explicitement
   la fin effective du thread (`QThread.wait()`, quasi instantané à ce stade) avant de relâcher sa
   dernière référence Python.
+- Exécution en arrière-plan : l'échec d'enregistrement de la tâche planifiée `DataSchedulerWorker`
+  (`schtasks /create`) n'était journalisé que comme "returned non-zero exit status 1" — jamais le
+  vrai message de `schtasks.exe` (ex : refus d'accès), qui n'était pourtant pas perdu, juste jamais
+  affiché. La sortie réelle (stderr, ou stdout à défaut) est désormais incluse dans le log
+  d'erreur.
+- Même enregistrement : la commande construite pour un lancement depuis les sources (pas l'exe
+  gelé) utilisait `sys.argv[0]` tel quel — souvent un chemin **relatif** (`"main.py"`). Le
+  Planificateur de tâches Windows n'hérite pas forcément du même répertoire de travail au
+  déclenchement ultérieur de la tâche, donc ce chemin relatif pouvait ne mener nulle part.
+  Corrigé : chemins systématiquement résolus en absolu (`os.path.abspath`) avant construction de
+  la ligne de commande. Sans effet sur l'exe gelé, où `sys.executable` est déjà un chemin absolu.
 
 ## [0.30.0] - 2026-08-20
 
