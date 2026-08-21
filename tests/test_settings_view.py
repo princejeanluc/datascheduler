@@ -14,6 +14,7 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from database import db_manager as db
+from ui.styles import COLORS
 
 
 @pytest.fixture(scope="module")
@@ -193,7 +194,10 @@ def test_on_save_persists_execution_mode(qapp, test_db, monkeypatch):
 
 def test_on_save_switching_to_background_registers_logon_task(qapp, test_db, monkeypatch):
     calls = []
-    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: calls.append(True))
+    def _fake_register():
+        calls.append(True)
+        return True
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", _fake_register)
 
     from ui.main_window.settings_view import SettingsView
     view = SettingsView()
@@ -202,6 +206,39 @@ def test_on_save_switching_to_background_registers_logon_task(qapp, test_db, mon
     view._on_save()
 
     assert calls == [True]
+    assert db.get_app_settings().execution_mode == "BACKGROUND"
+
+
+def test_on_save_reverts_to_in_app_when_background_registration_fails(qapp, test_db, monkeypatch):
+    """Bug de terrain (poste entreprise, tâche planifiée refusée par une politique IT) :
+    AppSettings.execution_mode restait à BACKGROUND même si register_logon_task() échouait — le
+    worker ne démarrait jamais (aucune tâche enregistrée) ET l'appli desktop cessait d'exécuter
+    ses propres pipelines (comportement du mode BACKGROUND) : plus aucun pipeline planifié ne
+    tournait, silencieusement. _on_save() doit revenir explicitement à IN_APP dans ce cas."""
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert db.get_app_settings().execution_mode == "IN_APP"
+    assert "échec" in view._save_status_lbl.text().lower()
+    assert COLORS["danger"] in view._save_status_lbl.styleSheet()
+
+
+def test_on_save_shows_success_style_when_background_registration_succeeds(qapp, test_db, monkeypatch):
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: True)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert "Enregistré" in view._save_status_lbl.text()
+    assert COLORS["success"] in view._save_status_lbl.styleSheet()
 
 
 def test_on_save_switching_to_in_app_unregisters_task_and_enqueues_shutdown(qapp, test_db, monkeypatch):
