@@ -288,6 +288,108 @@ def test_cycle_prevents_any_execution(test_db, monkeypatch, tmp_path):
     assert not marker.exists()
 
 
+# ──────────────────────────────────────────────
+#  Port d'erreur générique (analogue BPMN "événement-frontière d'erreur") — parité avec
+#  test_pipeline_graph_engine.py
+# ──────────────────────────────────────────────
+
+def test_step_failure_routes_via_its_error_port_while_normal_port_is_skipped(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src         = tmp_path / "src.txt"
+    normal_sink = tmp_path / "never.txt"
+    error_sink  = tmp_path / "handled.txt"
+
+    pipeline = db.create_pipeline(name="parallel-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(normal_sink), "_step_key": "downstream"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(error_sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "downstream"),
+        _edge("fails", "handler", from_port="error"),
+    ])
+
+    (pipeline_failed, _, _, _), _, result = _run_parallel(pipeline.id)
+
+    assert pipeline_failed
+    assert not normal_sink.exists()
+    assert error_sink.exists()
+
+
+def test_run_always_step_executes_even_when_only_edge_is_an_unfired_error_port(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src, sink = tmp_path / "src.txt", tmp_path / "notify.txt"
+    pipeline = db.create_pipeline(name="parallel-run-always-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "notify"},
+         "run_always": True},
+    ], edges=[_edge("prod", "notify", from_port="error")])
+
+    (pipeline_failed, _, _, _), _, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed
+    assert sink.exists()
+
+
+def test_condition_step_failure_routes_via_error_port(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src, sink = tmp_path / "src.txt", tmp_path / "on_error.txt"
+    pipeline = db.create_pipeline(name="parallel-condition-error")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "CONDITION", "config": {"expression": "n'importe quoi d'invalide", "_step_key": "cond"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "cond"),
+        _edge("cond", "handler", from_port="error"),
+    ])
+
+    (pipeline_failed, _, _, _), _, result = _run_parallel(pipeline.id)
+
+    assert pipeline_failed
+    assert sink.exists()
+
+
+def test_downstream_of_error_handler_routes_from_handlers_own_success_port(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src          = tmp_path / "src.txt"
+    handled_sink = tmp_path / "handled.txt"
+    after_sink   = tmp_path / "after_handler.txt"
+
+    pipeline = db.create_pipeline(name="parallel-error-one-hop")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(handled_sink), "_step_key": "handler"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(after_sink), "_step_key": "after"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "handler", from_port="error"),
+        _edge("handler", "after"),
+    ])
+
+    (pipeline_failed, _, _, _), _, result = _run_parallel(pipeline.id)
+
+    assert pipeline_failed   # "fails" a vraiment échoué, le pipeline reste en échec
+    assert handled_sink.exists()
+    assert after_sink.exists()   # la propagation d'erreur ne va pas plus loin qu'un saut
+
+
 def test_resume_skips_already_completed_steps(test_db, monkeypatch, tmp_path):
     monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
     monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)

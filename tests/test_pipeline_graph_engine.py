@@ -88,6 +88,50 @@ def test_validate_detects_cycle():
 
 
 # ──────────────────────────────────────────────
+#  validate_pipeline_graph — port d'erreur générique
+# ──────────────────────────────────────────────
+
+def test_validate_error_port_edge_alone_does_not_satisfy_requires():
+    """Un gestionnaire d'erreur alimenté SEULEMENT par le port "error" d'une étape amont ne
+    reçoit généralement aucune donnée réelle — ça ne doit pas satisfaire son REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "aucune arête entrante" in errors[0]
+
+
+def test_validate_error_port_edge_alongside_a_normal_edge_still_satisfies_requires():
+    """La même étape, alimentée EN PLUS par une arête normale, reste valide — l'arête "error"
+    ne retire rien, elle ne compte simplement pas comme suffisante à elle seule."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a2"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b"), _edge("a2", "b", from_port="error")]
+    errors, warnings = validate_pipeline_graph(steps, edges)
+    assert errors == []
+    assert warnings == []
+
+
+def test_validate_detects_cycle_formed_purely_via_error_port_edges():
+    """La détection de cycle utilise les arêtes NON filtrées — un cycle formé uniquement via
+    des arêtes "error" doit rester détecté, l'exclusion ne s'applique qu'au test REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error"), _edge("b", "a", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "cycle" in errors[0]
+
+
+# ──────────────────────────────────────────────
 #  Exécuteur de bout en bout — steps factices substitués dans le registre
 # ──────────────────────────────────────────────
 
@@ -227,3 +271,118 @@ def test_cycle_prevents_any_execution(test_db, monkeypatch, tmp_path):
     assert not result.success
     assert "cycle" in result.error
     assert not marker.exists()
+
+
+# ──────────────────────────────────────────────
+#  Port d'erreur générique (analogue BPMN "événement-frontière d'erreur")
+# ──────────────────────────────────────────────
+
+def test_step_failure_routes_via_its_error_port_while_normal_port_is_skipped(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src         = tmp_path / "src.txt"
+    normal_sink = tmp_path / "never.txt"
+    error_sink  = tmp_path / "handled.txt"
+
+    pipeline = db.create_pipeline(name="graph-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(normal_sink), "_step_key": "downstream"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(error_sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "downstream"),                    # port normal — ignorée sur échec
+        _edge("fails", "handler", from_port="error"),     # port erreur — s'exécute sur échec
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert not normal_sink.exists()
+    assert error_sink.exists()
+
+
+def test_run_always_step_executes_even_when_only_edge_is_an_unfired_error_port(test_db, monkeypatch, tmp_path):
+    """run_always et le port d'erreur sont deux mécanismes indépendants : un step run_always
+    s'exécute même si sa SEULE arête entrante est un port "error" jamais déclenché (source
+    réussie, donc ce port reste indisponible) — run_always ignore la disponibilité des arêtes,
+    un point déjà vrai avant ce chantier, toujours vrai après."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "notify.txt"
+
+    pipeline = db.create_pipeline(name="graph-run-always-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "notify"},
+         "run_always": True},
+    ], edges=[_edge("prod", "notify", from_port="error")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.exists()
+
+
+def test_condition_step_failure_routes_via_error_port(test_db, monkeypatch, tmp_path):
+    """ConditionStep laisse active_port=None sur échec (expression invalide) — le backfill
+    générique du moteur le comble à "error", exactement comme pour n'importe quel autre type
+    d'étape en échec."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "on_error.txt"
+
+    pipeline = db.create_pipeline(name="graph-condition-error")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "CONDITION", "config": {"expression": "n'importe quoi d'invalide", "_step_key": "cond"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "cond"),
+        _edge("cond", "handler", from_port="error"),
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert sink.exists()
+
+
+def test_downstream_of_error_handler_routes_from_handlers_own_success_port(test_db, monkeypatch, tmp_path):
+    """Le port d'erreur ne se propage pas au-delà d'un saut : une étape en aval d'un
+    gestionnaire d'erreur route normalement depuis le port de succès de CE gestionnaire, sans
+    lien avec l'échec d'origine plus haut dans le graphe."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src          = tmp_path / "src.txt"
+    handled_sink = tmp_path / "handled.txt"
+    after_sink   = tmp_path / "after_handler.txt"
+
+    pipeline = db.create_pipeline(name="graph-error-one-hop")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(handled_sink), "_step_key": "handler"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(after_sink), "_step_key": "after"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "handler", from_port="error"),
+        _edge("handler", "after"),   # port normal depuis "handler", qui a réussi
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success   # le pipeline reste en échec (fails a vraiment échoué)
+    assert handled_sink.exists()
+    assert after_sink.exists()  # la propagation d'erreur ne va pas plus loin qu'un saut
