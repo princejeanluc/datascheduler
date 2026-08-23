@@ -20,6 +20,7 @@ from .graph_scene import PipelineGraphScene
 from .graph_view import PipelineGraphView
 from .node_item import StepNodeItem
 from .edge_item import EdgeItem
+from .minimap_widget import GraphMinimapWidget
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -165,6 +166,13 @@ class PipelineGraphEditorDialog(QDialog):
         self._btn_undo_layout.clicked.connect(self._on_undo_layout)
         toolbar.addWidget(self._btn_undo_layout)
 
+        btn_toggle_minimap = QPushButton("  Mini-carte")
+        btn_toggle_minimap.setObjectName("secondary")
+        btn_toggle_minimap.setFixedHeight(32)
+        btn_toggle_minimap.setToolTip("Afficher/masquer la mini-carte de navigation.")
+        btn_toggle_minimap.clicked.connect(self._on_toggle_minimap)
+        toolbar.addWidget(btn_toggle_minimap)
+
         hint = QLabel(
             "Glisser depuis un point de sortie (droite) vers un point d'entrée (gauche) pour "
             "connecter deux étapes.  Suppr/Retour arrière pour supprimer la sélection."
@@ -191,6 +199,18 @@ class PipelineGraphEditorDialog(QDialog):
         self._scene.node_double_clicked.connect(self._on_node_double_clicked)
         self._view = PipelineGraphView(self._scene)
         root.addWidget(self._view, stretch=1)
+
+        # Mini-carte de navigation (chantier UX éditeur, Lot 2, A3) — parentée au viewport, pas
+        # à la vue elle-même, pour éviter tout décalage de coordonnées dû au cadre par défaut de
+        # QGraphicsView (jamais retiré ici). Visible par défaut.
+        self._minimap = GraphMinimapWidget(self._scene, self._view, parent=self._view.viewport())
+        self._view._minimap = self._minimap
+        self._minimap.reposition()
+        self._scene.changed.connect(lambda *_: self._minimap.request_repaint())
+        self._view.horizontalScrollBar().valueChanged.connect(
+            lambda *_: self._minimap.request_repaint())
+        self._view.verticalScrollBar().valueChanged.connect(
+            lambda *_: self._minimap.request_repaint())
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
@@ -316,6 +336,14 @@ class PipelineGraphEditorDialog(QDialog):
                 node.setPos(pos)
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
+
+    # ── Mini-carte (chantier UX éditeur, Lot 2, A3) ────
+
+    def _on_toggle_minimap(self):
+        # isHidden() plutôt que isVisible() : ce dernier dépend aussi de la visibilité des
+        # parents (donc toujours False tant que le dialogue n'a jamais été réellement affiché),
+        # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
+        self._minimap.setVisible(self._minimap.isHidden())
 
     # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
 
