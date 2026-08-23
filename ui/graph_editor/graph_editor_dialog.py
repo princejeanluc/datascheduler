@@ -6,13 +6,14 @@ PipelineEditorDialog ("Modifier"), inchangé — les deux dialogues restent inte
 même pipeline (voir docs/ARCHITECTURE.md).
 """
 
-from PySide6.QtCore import QPointF, QTimer
+from PySide6.QtCore import QPointF, QSize, QTimer
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox, QInputDialog,
 )
 
 from ui.styles import COLORS, DIALOG_STYLE
 from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+from ui.step_editor.common import _icon
 from ui.main_window.widgets import _make_search_input
 from core.pipeline import validate_pipeline_graph, topological_ranks
 
@@ -22,11 +23,18 @@ from .node_item import StepNodeItem
 from .edge_item import EdgeItem
 from .zone_item import ZoneItem
 from .minimap_widget import GraphMinimapWidget
+from .tool_rail import EditorToolRail
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
 _ROWS_PER_COLUMN = 3
-_START_X, _START_Y = 60, 60
+# Décalage de départ (chantier chrome de l'éditeur) — dégage le rail d'icônes flottant ancré en
+# haut à gauche du canevas (tool_rail.py), qui recouvrirait sinon tout nœud placé par défaut à
+# 60,60 (pipeline neuf ou legacy jamais repositionné). Heuristique, pas une garantie parfaite (la
+# correspondance scène↔écran dépend du zoom/défilement courants), mais dégage le cas courant à
+# zoom par défaut sans changer _NODE_SPACING_X/_ROW_HEIGHT/_ROWS_PER_COLUMN (espacement entre
+# nœuds, pas décalage de départ).
+_START_X, _START_Y = 110, 90
 
 
 class PipelineGraphEditorDialog(QDialog):
@@ -123,74 +131,21 @@ class PipelineGraphEditorDialog(QDialog):
         )
         root.addWidget(hdr)
 
+        # Barre de contexte (chantier chrome de l'éditeur) — ne garde que ce qui n'est pas de
+        # l'édition du graphe : les 6 actions du canevas (ajouter/supprimer/ranger/zones/
+        # mini-carte) vivent désormais dans le rail d'icônes flottant (tool_rail.py), pas ici.
+        # C'est ce qui débordait/se tronquait dans l'ancienne barre unique (capture utilisateur).
         toolbar = QHBoxLayout()
         toolbar.setContentsMargins(16, 8, 16, 8)
         toolbar.setSpacing(8)
 
-        btn_add = QPushButton("  + Ajouter une étape")
-        btn_add.setObjectName("secondary")
-        btn_add.setFixedHeight(32)
-        btn_add.clicked.connect(self._on_add_step)
-        toolbar.addWidget(btn_add)
-
-        btn_delete = QPushButton("  Supprimer la sélection")
-        btn_delete.setObjectName("secondary")
-        btn_delete.setFixedHeight(32)
-        btn_delete.clicked.connect(self._on_delete_selected)
-        toolbar.addWidget(btn_delete)
-
-        btn_schedule = QPushButton("  Planification & déclenchement…")
-        btn_schedule.setObjectName("secondary")
-        btn_schedule.setFixedHeight(32)
-        btn_schedule.setToolTip(
-            "Ouvre l'éditeur classique pour le nom, la planification et le déclenchement "
-            "conditionnel — enregistrez d'abord vos modifications du graphe si besoin, les deux "
-            "éditeurs ne partagent pas leurs changements non enregistrés."
-        )
-        btn_schedule.clicked.connect(self._on_open_schedule_dialog)
-        toolbar.addWidget(btn_schedule)
-
-        btn_auto_layout = QPushButton("  Ranger automatiquement")
-        btn_auto_layout.setObjectName("secondary")
-        btn_auto_layout.setFixedHeight(32)
-        btn_auto_layout.setToolTip(
-            "Repositionne toutes les étapes par rang (colonnes de gauche à droite selon "
-            "l'ordre du graphe), sans changer les connexions."
-        )
-        btn_auto_layout.clicked.connect(self._on_auto_layout)
-        toolbar.addWidget(btn_auto_layout)
-
-        self._btn_undo_layout = QPushButton("  Annuler le rangement")
-        self._btn_undo_layout.setObjectName("secondary")
-        self._btn_undo_layout.setFixedHeight(32)
-        self._btn_undo_layout.setEnabled(False)
-        self._btn_undo_layout.clicked.connect(self._on_undo_layout)
-        toolbar.addWidget(self._btn_undo_layout)
-
-        btn_add_zone = QPushButton("  + Ajouter une zone")
-        btn_add_zone.setObjectName("secondary")
-        btn_add_zone.setFixedHeight(32)
-        btn_add_zone.setToolTip(
-            "Dessine un rectangle nommé pour regrouper visuellement des étapes — purement "
-            "décoratif, sans effet sur l'exécution. Glisser l'en-tête pour déplacer, le coin "
-            "bas-droit pour redimensionner, double-clic pour renommer."
-        )
-        btn_add_zone.clicked.connect(self._on_add_zone)
-        toolbar.addWidget(btn_add_zone)
-
-        btn_toggle_minimap = QPushButton("  Mini-carte")
-        btn_toggle_minimap.setObjectName("secondary")
-        btn_toggle_minimap.setFixedHeight(32)
-        btn_toggle_minimap.setToolTip("Afficher/masquer la mini-carte de navigation.")
-        btn_toggle_minimap.clicked.connect(self._on_toggle_minimap)
-        toolbar.addWidget(btn_toggle_minimap)
-
         hint = QLabel(
-            "Glisser depuis un point de sortie (droite) vers un point d'entrée (gauche) pour "
-            "connecter deux étapes.  Suppr/Retour arrière pour supprimer la sélection."
+            "Glisser depuis un point de sortie vers un point d'entrée pour connecter deux "
+            "étapes."
         )
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
-        toolbar.addWidget(hint, stretch=1)
+        toolbar.addWidget(hint)
+        toolbar.addStretch(1)
 
         self.inp_search = _make_search_input("Rechercher un nœud…")
         self.inp_search.setToolTip(
@@ -200,6 +155,19 @@ class PipelineGraphEditorDialog(QDialog):
         self.inp_search.textChanged.connect(self._on_search_changed)
         self.inp_search.returnPressed.connect(self._on_search_jump)
         toolbar.addWidget(self.inp_search)
+
+        btn_schedule = QPushButton("  Planification & déclenchement…")
+        btn_schedule.setObjectName("secondary")
+        btn_schedule.setFixedHeight(32)
+        btn_schedule.setIcon(_icon("fa5s.clock", COLORS["text_main"]))
+        btn_schedule.setIconSize(QSize(14, 14))
+        btn_schedule.setToolTip(
+            "Ouvre l'éditeur classique pour le nom, la planification et le déclenchement "
+            "conditionnel — enregistrez d'abord vos modifications du graphe si besoin, les deux "
+            "éditeurs ne partagent pas leurs changements non enregistrés."
+        )
+        btn_schedule.clicked.connect(self._on_open_schedule_dialog)
+        toolbar.addWidget(btn_schedule)
 
         root.addLayout(toolbar)
 
@@ -224,6 +192,14 @@ class PipelineGraphEditorDialog(QDialog):
             lambda *_: self._minimap.request_repaint())
         self._view.verticalScrollBar().valueChanged.connect(
             lambda *_: self._minimap.request_repaint())
+
+        # Rail d'icônes flottant (chantier chrome de l'éditeur) — mêmes parenté/mécanique que la
+        # mini-carte ci-dessus, ancré près du bord opposé (haut-gauche) du canevas.
+        self._rail = EditorToolRail(self, parent=self._view.viewport())
+        self._view._rail = self._rail
+        self._rail.reposition()
+        self._btn_undo_layout = self._rail.btn_undo_layout
+        self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
@@ -375,6 +351,7 @@ class PipelineGraphEditorDialog(QDialog):
         # parents (donc toujours False tant que le dialogue n'a jamais été réellement affiché),
         # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
         self._minimap.setVisible(self._minimap.isHidden())
+        self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
 
     # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
 
