@@ -105,7 +105,10 @@ class HistoryView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.table.setColumnWidth(4, 130)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
-        self.table.setColumnWidth(6, 60)
+        # 60px suffisait pour le seul bouton "Voir le log complet" — élargi pour accueillir le
+        # second bouton "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) sans chevauchement
+        # ni débordement hors du tableau (2×26px + espacement + marges).
+        self.table.setColumnWidth(6, 96)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
@@ -291,6 +294,7 @@ class HistoryView(QWidget):
                                    tooltip="Voir le log complet", size=(26, 26))
             btn_view.clicked.connect(lambda _, i=r_idx: self._open_log(i))
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4)
+            hl.setSpacing(4)
             hl.addWidget(btn_view)
 
             # "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) — pas seulement st ==
