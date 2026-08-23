@@ -401,6 +401,34 @@ class PipelinesView(QWidget):
                 )
             return
 
+        # Validation structurelle avant tout lancement (chantier UX éditeur, Lot 1) — nœuds
+        # orphelins, ports requis non connectés, cycles, références de profil disparues.
+        # test_connections=False : jamais de test réseau réel ici, cette phase reste rapide et
+        # synchrone (0 accès réseau, quelques lectures DB) — les tests de connexion réels restent
+        # le domaine exclusif de "Valider (à blanc)" (menu "⋯"), plus lent, jamais déclenché
+        # automatiquement. Validé à CHAQUE clic, pas seulement le premier : dry_run_pipeline sans
+        # test_connections est trop rapide pour justifier un cache invalidé sur chaque point
+        # d'édition (un chemin d'édition oublié réutiliserait silencieusement une passe périmée).
+        from core.pipeline import dry_run_pipeline
+        dry_run = dry_run_pipeline(pipeline_id, test_connections=False)
+        if dry_run.errors:
+            QMessageBox.warning(
+                self, "Pipeline invalide",
+                f"« {p.name} » ne peut pas s'exécuter tel quel :\n\n"
+                + "\n".join(f"• {e}" for e in dry_run.errors),
+            )
+            return
+        if dry_run.warnings:
+            reply = QMessageBox.question(
+                self, "Avertissement",
+                f"« {p.name} » pourrait tourner sans les données attendues :\n\n"
+                + "\n".join(f"• {w}" for w in dry_run.warnings)
+                + "\n\nContinuer quand même ?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         if request_run_now(pipeline_id):
             from .remote_run_dialog import open_remote_run_dialog
             open_remote_run_dialog(self, pipeline_id, p.name)
