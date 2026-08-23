@@ -74,8 +74,9 @@ class StepNodeItem(QGraphicsObject):
     def __init__(self, step: dict):
         super().__init__()
         self.step = step
-        self._is_executing = False
-        self._is_failed    = False
+        self._is_executing  = False
+        self._is_failed     = False
+        self._is_search_hit = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -99,6 +100,35 @@ class StepNodeItem(QGraphicsObject):
         if failed != self._is_failed:
             self._is_failed = failed
             self.update()
+
+    def set_search_hit(self, hit: bool) -> None:
+        """Surlignage "résultat de recherche" (chantier UX éditeur, Lot 2, B3). État JUMEAU de
+        set_executing()/set_failed(), jamais une réutilisation : couleur dédiée
+        COLORS["signal_pale"], priorité la plus basse dans paint() — un nœud en cours
+        d'exécution ou en échec garde toujours la priorité visuelle sur un simple résultat de
+        recherche."""
+        if hit != self._is_search_hit:
+            self._is_search_hit = hit
+            self.update()
+
+    def search_text(self) -> str:
+        """Texte de correspondance pour B3 — exactement les deux libellés déjà peints par
+        paint() (type + libellé utilisateur), pour que "ce qu'on voit" soit "ce qui se
+        cherche"."""
+        meta = STEP_META.get(self.step.get("step_type", ""), {"label": self.step.get("step_type", "")})
+        return f"{meta['label']} {self.step.get('label') or ''}".lower()
+
+    @property
+    def is_executing(self) -> bool:
+        return self._is_executing
+
+    @property
+    def is_failed(self) -> bool:
+        return self._is_failed
+
+    @property
+    def is_search_hit(self) -> bool:
+        return self._is_search_hit
 
     # ── Identité ──────────────────────────────
 
@@ -164,9 +194,12 @@ class StepNodeItem(QGraphicsObject):
             border_color = QColor(COLORS["danger"])
         elif self._is_executing:
             border_color = QColor(COLORS["signal"])
+        elif self._is_search_hit:
+            border_color = QColor(COLORS["signal_pale"])
         else:
             border_color = QColor(meta["color"])
-        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing or self._is_failed) else 1.5)
+        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing or self._is_failed
+                                        or self._is_search_hit) else 1.5)
         painter.setPen(pen)
         painter.drawPath(path)
 

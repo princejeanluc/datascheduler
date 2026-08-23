@@ -71,3 +71,23 @@ def test_duplicate_missing_pipeline_fails_cleanly(test_db):
     result = duplicate_pipeline(999)
     assert not result.success
     assert result.error
+
+
+def test_duplicate_preserves_zones(test_db):
+    """Non-régression du bug identifié en revue de plan (chantier UX éditeur, Lot 2, A4) :
+    duplicate_pipeline() enchaîne export_pipeline()→plan_import()→apply_import() — si
+    apply_import() oublie de transmettre zones=... à save_pipeline_graph(), toutes les zones
+    d'un pipeline dupliqué disparaissent silencieusement."""
+    p = db.create_pipeline(name="pipeline-with-zone")
+    db.save_pipeline_graph(p.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[], zones=[
+        {"name": "Extraction", "pos_x": 10, "pos_y": 20, "width": 300, "height": 200},
+    ])
+
+    result = duplicate_pipeline(p.id)
+    assert result.success, result.error
+
+    zones = db.get_zones(result.pipeline_id)
+    assert len(zones) == 1
+    assert zones[0].name == "Extraction"

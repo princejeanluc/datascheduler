@@ -8,17 +8,20 @@ même pipeline (voir docs/ARCHITECTURE.md).
 
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox, QInputDialog,
 )
 
 from ui.styles import COLORS, DIALOG_STYLE
 from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+from ui.main_window.widgets import _make_search_input
 from core.pipeline import validate_pipeline_graph, topological_ranks
 
 from .graph_scene import PipelineGraphScene
 from .graph_view import PipelineGraphView
 from .node_item import StepNodeItem
 from .edge_item import EdgeItem
+from .zone_item import ZoneItem
+from .minimap_widget import GraphMinimapWidget
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -37,6 +40,10 @@ class PipelineGraphEditorDialog(QDialog):
         # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
         # précédent à chaque nouveau rangement, effacé par _on_undo_layout().
         self._layout_snapshot: dict[str, QPointF] | None = None
+        # Résultats de la recherche textuelle courante (chantier UX éditeur, Lot 2, B3) —
+        # reconstruits à chaque frappe dans _on_search_changed(), cyclés par _on_search_jump().
+        self._search_matches: list[StepNodeItem] = []
+        self._search_match_idx: int = -1
         self._load_profiles()
 
         self.setWindowTitle(f"Éditeur graphique — {pipeline.name}" if pipeline else "Éditeur graphique")
@@ -160,12 +167,39 @@ class PipelineGraphEditorDialog(QDialog):
         self._btn_undo_layout.clicked.connect(self._on_undo_layout)
         toolbar.addWidget(self._btn_undo_layout)
 
+        btn_add_zone = QPushButton("  + Ajouter une zone")
+        btn_add_zone.setObjectName("secondary")
+        btn_add_zone.setFixedHeight(32)
+        btn_add_zone.setToolTip(
+            "Dessine un rectangle nommé pour regrouper visuellement des étapes — purement "
+            "décoratif, sans effet sur l'exécution. Glisser l'en-tête pour déplacer, le coin "
+            "bas-droit pour redimensionner, double-clic pour renommer."
+        )
+        btn_add_zone.clicked.connect(self._on_add_zone)
+        toolbar.addWidget(btn_add_zone)
+
+        btn_toggle_minimap = QPushButton("  Mini-carte")
+        btn_toggle_minimap.setObjectName("secondary")
+        btn_toggle_minimap.setFixedHeight(32)
+        btn_toggle_minimap.setToolTip("Afficher/masquer la mini-carte de navigation.")
+        btn_toggle_minimap.clicked.connect(self._on_toggle_minimap)
+        toolbar.addWidget(btn_toggle_minimap)
+
         hint = QLabel(
             "Glisser depuis un point de sortie (droite) vers un point d'entrée (gauche) pour "
             "connecter deux étapes.  Suppr/Retour arrière pour supprimer la sélection."
         )
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
         toolbar.addWidget(hint, stretch=1)
+
+        self.inp_search = _make_search_input("Rechercher un nœud…")
+        self.inp_search.setToolTip(
+            "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le résultat "
+            "suivant."
+        )
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        self.inp_search.returnPressed.connect(self._on_search_jump)
+        toolbar.addWidget(self.inp_search)
 
         root.addLayout(toolbar)
 
@@ -175,8 +209,21 @@ class PipelineGraphEditorDialog(QDialog):
 
         self._scene = PipelineGraphScene()
         self._scene.node_double_clicked.connect(self._on_node_double_clicked)
+        self._scene.zone_double_clicked.connect(self._on_zone_double_clicked)
         self._view = PipelineGraphView(self._scene)
         root.addWidget(self._view, stretch=1)
+
+        # Mini-carte de navigation (chantier UX éditeur, Lot 2, A3) — parentée au viewport, pas
+        # à la vue elle-même, pour éviter tout décalage de coordonnées dû au cadre par défaut de
+        # QGraphicsView (jamais retiré ici). Visible par défaut.
+        self._minimap = GraphMinimapWidget(self._scene, self._view, parent=self._view.viewport())
+        self._view._minimap = self._minimap
+        self._minimap.reposition()
+        self._scene.changed.connect(lambda *_: self._minimap.request_repaint())
+        self._view.horizontalScrollBar().valueChanged.connect(
+            lambda *_: self._minimap.request_repaint())
+        self._view.verticalScrollBar().valueChanged.connect(
+            lambda *_: self._minimap.request_repaint())
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
@@ -225,6 +272,9 @@ class PipelineGraphEditorDialog(QDialog):
         for e in edges:
             self._scene.add_edge(e.from_step_key, e.from_port, e.to_step_key)
 
+        for z in db.get_zones(self._pipeline.id):
+            self._scene.add_zone(z.name, QPointF(z.pos_x, z.pos_y), z.width, z.height)
+
     # ── Ajout / édition / suppression ─────────
 
     def _next_new_node_pos(self) -> QPointF:
@@ -243,7 +293,7 @@ class PipelineGraphEditorDialog(QDialog):
         (minimise les croisements d'arêtes grossiers — un simple rang→colonne sans ce tri
         laisserait un pipeline à plusieurs branches enchevêtré même "rangé"). Retourne None si
         le graphe contient un cycle (rangement impossible)."""
-        _, edges = self._collect_graph()
+        _, edges, _ = self._collect_graph()
         ranks = topological_ranks(self._scene.nodes.keys(), edges)
         if ranks is None:
             return None
@@ -303,6 +353,57 @@ class PipelineGraphEditorDialog(QDialog):
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
 
+    # ── Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) ────
+
+    def _on_add_zone(self):
+        pos = self._view.mapToScene(self._view.viewport().rect().center())
+        self._scene.add_zone("Nouvelle zone", pos)
+
+    def _on_zone_double_clicked(self, zone: ZoneItem):
+        new_name, ok = QInputDialog.getText(
+            self, "Renommer la zone", "Nom :", text=zone.name,
+        )
+        new_name = new_name.strip()
+        if ok and new_name:
+            zone.name = new_name
+            zone.update()
+
+    # ── Mini-carte (chantier UX éditeur, Lot 2, A3) ────
+
+    def _on_toggle_minimap(self):
+        # isHidden() plutôt que isVisible() : ce dernier dépend aussi de la visibilité des
+        # parents (donc toujours False tant que le dialogue n'a jamais été réellement affiché),
+        # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
+        self._minimap.setVisible(self._minimap.isHidden())
+
+    # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
+
+    def _on_search_changed(self, text: str):
+        needle = text.strip().lower()
+        matches = []
+        for node in self._scene.nodes.values():
+            matched = bool(needle) and needle in node.search_text()
+            node.set_search_hit(matched)
+            if matched:
+                matches.append(node)
+            protected = node.is_executing or node.is_failed
+            node.setOpacity(1.0 if (not needle or matched or protected) else 0.35)
+
+        for edge in self._scene.edges:
+            protected = edge.from_node.is_executing or edge.from_node.is_failed \
+                or edge.to_node.is_executing or edge.to_node.is_failed
+            relevant = edge.from_node.is_search_hit or edge.to_node.is_search_hit
+            edge.setOpacity(1.0 if (not needle or relevant or protected) else 0.35)
+
+        self._search_matches = matches
+        self._search_match_idx = -1
+
+    def _on_search_jump(self):
+        if not self._search_matches:
+            return
+        self._search_match_idx = (self._search_match_idx + 1) % len(self._search_matches)
+        self._view.centerOn(self._search_matches[self._search_match_idx])
+
     def _incoming_prior_steps(self, node: StepNodeItem) -> list:
         """Étapes amont réellement connectées à `node` par une arête — ce que le sélecteur
         "Source"/bouton "+ Artefact" (chantier 3, ui/step_editor/base_config_dialog.py) doivent
@@ -354,6 +455,8 @@ class PipelineGraphEditorDialog(QDialog):
                 self._scene.remove_node(item)
             elif isinstance(item, EdgeItem):
                 self._scene.remove_edge(item)
+            elif isinstance(item, ZoneItem):
+                self._scene.remove_zone(item)
 
     def _on_open_schedule_dialog(self):
         """Raccourci vers l'éditeur classique pour le nom/planification/déclenchement
@@ -387,10 +490,21 @@ class PipelineGraphEditorDialog(QDialog):
             }
             for e in self._scene.edges
         ]
-        return steps, edges
+
+        zones = [
+            {
+                "name":   z.name,
+                "pos_x":  int(z.pos().x()),
+                "pos_y":  int(z.pos().y()),
+                "width":  int(z._width),
+                "height": int(z._height),
+            }
+            for z in self._scene.zones
+        ]
+        return steps, edges, zones
 
     def _on_save(self):
-        steps, edges = self._collect_graph()
+        steps, edges, zones = self._collect_graph()
 
         if not steps:
             QMessageBox.warning(
@@ -419,5 +533,5 @@ class PipelineGraphEditorDialog(QDialog):
                 return
 
         from database import db_manager as db
-        db.save_pipeline_graph(self._pipeline.id, steps, edges)
+        db.save_pipeline_graph(self._pipeline.id, steps, edges, zones=zones)
         self.accept()

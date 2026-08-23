@@ -376,6 +376,8 @@ class Pipeline(Base):
                                   order_by="PipelineStep.step_order")
     edges          = relationship("PipelineEdge",  back_populates="pipeline",
                                   cascade="all, delete-orphan")
+    zones          = relationship("PipelineZone",  back_populates="pipeline",
+                                  cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Pipeline name={self.name} active={self.is_active}>"
@@ -432,6 +434,35 @@ class PipelineEdge(Base):
 
     def __repr__(self):
         return f"<PipelineEdge {self.from_step_key}:{self.from_port} -> {self.to_step_key}:{self.to_port}>"
+
+
+# ──────────────────────────────────────────────
+#  ZONE DE REGROUPEMENT VISUEL (chantier UX éditeur, Lot 2, A4)
+# ──────────────────────────────────────────────
+
+class PipelineZone(Base):
+    """
+    Rectangle nommé dessiné sur le canevas de l'éditeur graphique pour regrouper visuellement un
+    ensemble d'étapes (type "sous-processus" Dataiku DSS / "frame" Miro-Figma) — purement
+    décoratif, ne référence aucune étape, aucun impact sur l'exécution (core/pipeline.py).
+    Table entièrement neuve : aucune migration ALTER TABLE nécessaire, créée automatiquement par
+    Base.metadata.create_all() (voir db_manager.py::init_db()), même mécanisme que
+    resource_samples.
+    """
+    __tablename__ = "pipeline_zones"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    name        = Column(String(100), nullable=False, default="Nouvelle zone")
+    pos_x       = Column(Integer, nullable=False, default=0)
+    pos_y       = Column(Integer, nullable=False, default=0)
+    width       = Column(Integer, nullable=False, default=240)
+    height      = Column(Integer, nullable=False, default=160)
+
+    pipeline = relationship("Pipeline", back_populates="zones")
+
+    def __repr__(self):
+        return f"<PipelineZone name={self.name} pipeline_id={self.pipeline_id}>"
 
 
 # ──────────────────────────────────────────────

@@ -12,6 +12,54 @@ from database import db_manager as db
 from database.export_import import export_pipeline, plan_import, apply_import, CURRENT_SCHEMA_VERSION
 
 
+def test_v2_style_bundle_without_zones_key_still_imports(tmp_path):
+    """Un bundle fabriqué sans la clé "zones" (forme v2, avant le chantier UX éditeur Lot 2, A4)
+    doit toujours s'importer proprement — pipeline sans zone, comportement v2 historique."""
+    db.init_db(tmp_path / "only.db")
+    try:
+        pipeline = db.create_pipeline(name="v2-style")
+        db.save_pipeline_graph(pipeline.id, steps=[
+            {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        ], edges=[])
+        export_result = export_pipeline(pipeline.id)
+        assert export_result.success
+        bundle = export_result.bundle
+        bundle["schema_version"] = 2
+        del bundle["pipeline"]["zones"]
+
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+        assert db.get_zones(result.pipeline_id) == []
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_export_then_import_preserves_zones(test_db):
+    pipeline = db.create_pipeline(name="zones-round-trip")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[], zones=[
+        {"name": "Extraction", "pos_x": 10, "pos_y": 20, "width": 300, "height": 200},
+    ])
+
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    assert export_result.bundle["pipeline"]["zones"] == [
+        {"name": "Extraction", "pos_x": 10, "pos_y": 20, "width": 300, "height": 200},
+    ]
+
+    plan = plan_import(export_result.bundle)
+    result = apply_import(plan)
+    assert result.success, result.error
+
+    zones = db.get_zones(result.pipeline_id)
+    assert len(zones) == 1
+    assert zones[0].name == "Extraction"
+    assert (zones[0].pos_x, zones[0].pos_y, zones[0].width, zones[0].height) == (10, 20, 300, 200)
+
+
 def _make_pipeline_with_oracle_extract():
     profile = db.create_oracle_profile(
         name="ORACLE_PROD", host="10.0.0.1", port=1521,
