@@ -224,6 +224,66 @@ def test_remove_node_removes_connected_edges_before_save(qapp, test_db):
     assert len(db.get_edges(pipeline.id)) == 0
 
 
+# ──────────────────────────────────────────────
+#  Surlignage "échec" post-mortem (chantier UX éditeur, Lot 1, B1)
+# ──────────────────────────────────────────────
+
+def test_highlight_step_key_marks_node_and_incoming_edge_as_failed(qapp, test_db):
+    pipeline = db.create_pipeline(name="highlight-failed-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="b")
+
+    assert dlg._scene.nodes["b"]._is_failed
+    assert not dlg._scene.nodes["a"]._is_failed
+    edge_ab = next(e for e in dlg._scene.edges if e.to_node is dlg._scene.nodes["b"])
+    assert edge_ab._is_failed
+
+
+def test_highlight_step_key_skips_the_live_polling_timer(qapp, test_db):
+    """get_running_step_keys_multi()/get_running_step_keys() ne trouvent structurellement
+    jamais un run FAILED (filtrés sur RUNNING) — lancer le sondage serait du travail perdu."""
+    pipeline = db.create_pipeline(name="highlight-no-timer-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="a")
+
+    assert not hasattr(dlg, "_executing_timer")
+
+
+def test_highlight_step_key_unknown_key_is_a_no_op(qapp, test_db):
+    """Le nœud fautif a pu être supprimé du graphe depuis — ne doit pas planter."""
+    pipeline = db.create_pipeline(name="highlight-unknown-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="does-not-exist")
+
+    assert not dlg._scene.nodes["a"]._is_failed
+
+
+def test_without_highlight_step_key_the_live_timer_still_starts(qapp, test_db):
+    """Non-régression : le comportement par défaut (aucun highlight_step_key) garde le sondage
+    live existant, inchangé."""
+    pipeline = db.create_pipeline(name="no-highlight-default-timer-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert hasattr(dlg, "_executing_timer")
+    assert dlg._executing_timer.isActive()
+
+
 def test_set_executing_step_keys_highlights_node_and_incoming_edges(qapp, test_db):
     """Traçage lumineux (chantier identité, vague 4, idée 14b) : surligne le nœud en cours
     d'exécution + ses arêtes entrantes, retire le surlignage précédent au changement d'étape."""

@@ -75,6 +75,7 @@ class StepNodeItem(QGraphicsObject):
         super().__init__()
         self.step = step
         self._is_executing = False
+        self._is_failed    = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -88,6 +89,15 @@ class StepNodeItem(QGraphicsObject):
         distincte de la sélection (même épaisseur, couleur différente)."""
         if executing != self._is_executing:
             self._is_executing = executing
+            self.update()
+
+    def set_failed(self, failed: bool) -> None:
+        """Surlignage "échec" (chantier UX éditeur, Lot 1, B1 — lien "Voir dans le graphe" depuis
+        une ligne d'historique en échec). État JUMEAU de set_executing(), jamais une
+        réutilisation : celui-ci peint en rouge (COLORS["danger"]), pas en bleu "signal" — un
+        nœud surligné ainsi est terminé/en échec, pas en train de tourner."""
+        if failed != self._is_failed:
+            self._is_failed = failed
             self.update()
 
     # ── Identité ──────────────────────────────
@@ -150,8 +160,13 @@ class StepNodeItem(QGraphicsObject):
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
-        border_color = QColor(COLORS["signal"]) if self._is_executing else QColor(meta["color"])
-        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing) else 1.5)
+        if self._is_failed:
+            border_color = QColor(COLORS["danger"])
+        elif self._is_executing:
+            border_color = QColor(COLORS["signal"])
+        else:
+            border_color = QColor(meta["color"])
+        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing or self._is_failed) else 1.5)
         painter.setPen(pen)
         painter.drawPath(path)
 

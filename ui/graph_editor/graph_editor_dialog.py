@@ -29,7 +29,7 @@ _START_X, _START_Y = 60, 60
 class PipelineGraphEditorDialog(QDialog):
     """Éditeur graphique des étapes d'un pipeline déjà existant."""
 
-    def __init__(self, parent=None, pipeline=None):
+    def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None):
         super().__init__(parent)
         self._pipeline = pipeline
         # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
@@ -45,6 +45,16 @@ class PipelineGraphEditorDialog(QDialog):
         self._build_ui()
         self._load_graph()
 
+        if highlight_step_key:
+            # Lien "Voir dans le graphe" depuis une ligne d'historique en échec (chantier UX
+            # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture, jamais le sondage live
+            # ci-dessous : get_running_step_keys_multi()/get_running_step_keys() ne trouvent
+            # structurellement jamais un run FAILED (filtrés sur RUNNING), le lancer serait donc
+            # pur travail perdu. Limite acceptée et documentée : un run concurrent réellement en
+            # cours sur ce même pipeline, dans une autre fenêtre, n'est pas pris en compte ici.
+            self._highlight_failed_step(highlight_step_key)
+            return
+
         # Traçage lumineux (chantier identité visuelle) : actif en permanence dès l'ouverture,
         # pas de bascule de mode — éditer un pipeline qui se trouve être en cours d'exécution
         # ailleurs affiche simplement le surlignage par-dessus, sans bloquer l'édition.
@@ -53,6 +63,16 @@ class PipelineGraphEditorDialog(QDialog):
         self._executing_timer.setInterval(db.get_app_settings().trace_glow_refresh_s * 1000)
         self._executing_timer.timeout.connect(self._poll_executing_step)
         self._executing_timer.start()
+
+    def _highlight_failed_step(self, step_key: str) -> None:
+        node = self._scene.nodes.get(step_key)
+        if not node:
+            return
+        node.set_failed(True)
+        for e in self._scene.edges:
+            if e.to_node is node:
+                e.set_failed(True)
+        self._view.centerOn(node)
 
     def _poll_executing_step(self):
         if not self._pipeline:
