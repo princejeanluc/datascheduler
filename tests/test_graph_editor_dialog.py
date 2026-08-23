@@ -598,3 +598,119 @@ def test_undo_layout_button_disabled_by_default(qapp, test_db):
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
 
     assert not dlg._btn_undo_layout.isEnabled()
+
+
+# ──────────────────────────────────────────────
+#  Recherche textuelle (chantier UX éditeur, Lot 2, B3)
+# ──────────────────────────────────────────────
+
+def test_search_text_matches_type_label_and_user_label():
+    node = StepNodeItem({
+        "step_type": "DB_EXTRACT", "label": "Ventes Q3",
+        "config": {"_step_key": "a"},
+    })
+    text = node.search_text()
+    assert "ventes q3" in text
+    # Le libellé de type peint (STEP_META) doit aussi apparaître, pas seulement le libellé
+    # utilisateur — une recherche sur le type doit fonctionner même sans libellé personnalisé.
+    from ui.step_editor import STEP_META
+    assert STEP_META["DB_EXTRACT"]["label"].lower() in text
+
+
+def test_search_text_tolerates_missing_user_label():
+    node = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "a"}})
+    assert node.search_text()   # ne plante pas, jamais None
+
+
+def test_on_search_changed_marks_matching_nodes_and_dims_the_rest(qapp, test_db):
+    pipeline = db.create_pipeline(name="search-dim-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "label": "Ventes", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "label": "Archive", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_search_changed("ventes")
+
+    node_a, node_b = dlg._scene.nodes["a"], dlg._scene.nodes["b"]
+    assert node_a.is_search_hit and node_a.opacity() == 1.0
+    assert not node_b.is_search_hit and node_b.opacity() < 1.0
+    # L'arête touche un nœud correspondant ("a") — reste pleinement visible pour donner du
+    # contexte autour du résultat, seul le nœud non correspondant est atténué.
+    assert dlg._scene.edges[0].opacity() == 1.0
+    assert dlg._search_matches == [node_a]
+
+
+def test_on_search_changed_empty_needle_restores_full_opacity(qapp, test_db):
+    pipeline = db.create_pipeline(name="search-clear-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "label": "Ventes", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "label": "Archive", "config": {"_step_key": "b"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_search_changed("ventes")
+    dlg._on_search_changed("")
+
+    for node in dlg._scene.nodes.values():
+        assert not node.is_search_hit
+        assert node.opacity() == 1.0
+    assert dlg._search_matches == []
+
+
+def test_on_search_changed_never_dims_an_executing_or_failed_node(qapp, test_db):
+    """Une recherche sans rapport avec le nœud en cours/en échec ne doit jamais l'enterrer
+    visuellement — l'état d'exécution/échec reste toujours la priorité la plus haute."""
+    pipeline = db.create_pipeline(name="search-protects-state-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "label": "Ventes", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "label": "Archive", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    dlg._scene.nodes["b"].set_executing(True)
+
+    dlg._on_search_changed("ne correspond à rien")
+
+    assert dlg._scene.nodes["b"].opacity() == 1.0
+    assert dlg._scene.nodes["a"].opacity() < 1.0
+
+
+def test_on_search_jump_cycles_through_matches_and_centers_view(qapp, test_db, monkeypatch):
+    pipeline = db.create_pipeline(name="search-jump-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "label": "Extraction A", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "label": "Extraction B", "config": {"_step_key": "b"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    centered = []
+    monkeypatch.setattr(dlg._view, "centerOn", lambda item: centered.append(item))
+
+    dlg._on_search_changed("extraction")
+    assert len(dlg._search_matches) == 2
+
+    dlg._on_search_jump()
+    dlg._on_search_jump()
+    dlg._on_search_jump()
+
+    assert centered == [dlg._search_matches[0], dlg._search_matches[1], dlg._search_matches[0]]
+
+
+def test_on_search_jump_with_no_matches_is_a_no_op(qapp, test_db, monkeypatch):
+    pipeline = db.create_pipeline(name="search-jump-empty-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    centered = []
+    monkeypatch.setattr(dlg._view, "centerOn", lambda item: centered.append(item))
+
+    dlg._on_search_changed("introuvable")
+    dlg._on_search_jump()
+
+    assert centered == []

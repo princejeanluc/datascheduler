@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 
 from ui.styles import COLORS, DIALOG_STYLE
 from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+from ui.main_window.widgets import _make_search_input
 from core.pipeline import validate_pipeline_graph, topological_ranks
 
 from .graph_scene import PipelineGraphScene
@@ -37,6 +38,10 @@ class PipelineGraphEditorDialog(QDialog):
         # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
         # précédent à chaque nouveau rangement, effacé par _on_undo_layout().
         self._layout_snapshot: dict[str, QPointF] | None = None
+        # Résultats de la recherche textuelle courante (chantier UX éditeur, Lot 2, B3) —
+        # reconstruits à chaque frappe dans _on_search_changed(), cyclés par _on_search_jump().
+        self._search_matches: list[StepNodeItem] = []
+        self._search_match_idx: int = -1
         self._load_profiles()
 
         self.setWindowTitle(f"Éditeur graphique — {pipeline.name}" if pipeline else "Éditeur graphique")
@@ -166,6 +171,15 @@ class PipelineGraphEditorDialog(QDialog):
         )
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
         toolbar.addWidget(hint, stretch=1)
+
+        self.inp_search = _make_search_input("Rechercher un nœud…")
+        self.inp_search.setToolTip(
+            "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le résultat "
+            "suivant."
+        )
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        self.inp_search.returnPressed.connect(self._on_search_jump)
+        toolbar.addWidget(self.inp_search)
 
         root.addLayout(toolbar)
 
@@ -302,6 +316,34 @@ class PipelineGraphEditorDialog(QDialog):
                 node.setPos(pos)
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
+
+    # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
+
+    def _on_search_changed(self, text: str):
+        needle = text.strip().lower()
+        matches = []
+        for node in self._scene.nodes.values():
+            matched = bool(needle) and needle in node.search_text()
+            node.set_search_hit(matched)
+            if matched:
+                matches.append(node)
+            protected = node.is_executing or node.is_failed
+            node.setOpacity(1.0 if (not needle or matched or protected) else 0.35)
+
+        for edge in self._scene.edges:
+            protected = edge.from_node.is_executing or edge.from_node.is_failed \
+                or edge.to_node.is_executing or edge.to_node.is_failed
+            relevant = edge.from_node.is_search_hit or edge.to_node.is_search_hit
+            edge.setOpacity(1.0 if (not needle or relevant or protected) else 0.35)
+
+        self._search_matches = matches
+        self._search_match_idx = -1
+
+    def _on_search_jump(self):
+        if not self._search_matches:
+            return
+        self._search_match_idx = (self._search_match_idx + 1) % len(self._search_matches)
+        self._view.centerOn(self._search_matches[self._search_match_idx])
 
     def _incoming_prior_steps(self, node: StepNodeItem) -> list:
         """Étapes amont réellement connectées à `node` par une arête — ce que le sélecteur
