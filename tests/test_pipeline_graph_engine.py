@@ -213,6 +213,34 @@ def test_fan_out_failure_blocks_only_its_own_dependent(test_db, monkeypatch, tmp
 
 
 # ──────────────────────────────────────────────
+#  GATEWAY_PARALLEL (chantier Gateway) — fork explicite, chaque branche doit recevoir
+#  l'artefact amont (non-régression directe du Bug 1 trouvé en recherche : un run() no-op
+#  laisserait chaque branche recevoir None).
+# ──────────────────────────────────────────────
+
+def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    sink_a, sink_b = tmp_path / "sink_a.txt", tmp_path / "sink_b.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-parallel")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(sink_a), "_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink_b), "_step_key": "b"}},
+    ], edges=[_edge("prod", "gw"), _edge("gw", "a"), _edge("gw", "b")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink_a.read_text() == "DATA"
+    assert sink_b.read_text() == "DATA"
+
+
+# ──────────────────────────────────────────────
 #  failed_step_key (chantier UX éditeur, Lot 1, B1) — survit après la fin du run, contrairement
 #  à current_step_key, pour un lien "Voir dans le graphe" depuis l'historique.
 # ──────────────────────────────────────────────

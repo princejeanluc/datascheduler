@@ -12,6 +12,7 @@ from .condition      import ConditionStep
 from .spark_sql      import SparkSqlStep
 from .compress       import CompressStep
 from .sqoop_export   import SqoopExportStep
+from .gateway_parallel import GatewayParallelStep
 
 _REGISTRY: dict[str, type[BaseStep]] = {
     "FTP_UPLOAD":     FtpUploadStep,
@@ -27,6 +28,7 @@ _REGISTRY: dict[str, type[BaseStep]] = {
     "SPARK_SQL":      SparkSqlStep,
     "COMPRESS":       CompressStep,
     "SQOOP_EXPORT":   SqoopExportStep,
+    "GATEWAY_PARALLEL": GatewayParallelStep,
 }
 
 

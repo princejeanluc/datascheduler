@@ -115,6 +115,33 @@ def _reset_fake_delayed_step():
 
 
 # ──────────────────────────────────────────────
+#  GATEWAY_PARALLEL (chantier Gateway) — fork explicite, chaque branche doit recevoir
+#  l'artefact amont (non-régression directe du Bug 1 trouvé en recherche).
+# ──────────────────────────────────────────────
+
+def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    sink_a, sink_b = tmp_path / "sink_a.txt", tmp_path / "sink_b.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-parallel")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(sink_a), "_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink_b), "_step_key": "b"}},
+    ], edges=[_edge("prod", "gw"), _edge("gw", "a"), _edge("gw", "b")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+    assert sink_a.read_text() == "DATA"
+    assert sink_b.read_text() == "DATA"
+
+
+# ──────────────────────────────────────────────
 #  Chevauchement temporel réel
 # ──────────────────────────────────────────────
 

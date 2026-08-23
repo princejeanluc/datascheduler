@@ -38,6 +38,8 @@ _DESCRIPTIONS = {
     "HTTP_REQUEST":   "Appel d'une API REST / webhook, avec le fichier produit en option.",
     "CONDITION":      "Évalue une expression sur le contexte et route vers l'une de ses deux "
                       "sorties (Vrai/Faux) — à connecter dans le canevas.",
+    "GATEWAY_PARALLEL": "Marque explicitement un embranchement parallèle — le flux se divise en "
+                      "plusieurs branches actives simultanément.",
 }
 
 

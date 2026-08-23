@@ -630,8 +630,15 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
             # PRODUCES statique de la classe (voir _execute_linear pour la même logique et son
-            # commentaire complet).
-            if ctx.output_file != before_output_file and step_key:
+            # commentaire complet) — SAUF pour un type dont PRODUCES déclare "output_file" de
+            # façon inconditionnelle (chantier Gateway) : contrairement à SPARK_SQL/PYTHON_SCRIPT
+            # (PRODUCES vide car conditionnel à la config), ce type-là garantit TOUJOURS produire
+            # sur succès — un passe-plat comme GatewayParallelStep peut donc légitimement laisser
+            # ctx.output_file inchangé (il reçoit déjà la bonne valeur, réorientée avant cet
+            # appel) tout en ayant besoin d'être republié sous sa propre clé pour ses branches
+            # avales.
+            _, produces = get_step_requirements(step_type)
+            if step_key and (ctx.output_file != before_output_file or "output_file" in produces):
                 ctx.artifacts[step_key] = ctx.output_file
             output_name = config.get("output_name")
             if output_name:
@@ -886,8 +893,11 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
 
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — même logique
-            # que _execute_graph/_execute_linear, appliquée à la copie isolée de cette étape.
-            if step_ctx.output_file != before_output_file:
+            # que _execute_graph/_execute_linear (voir son commentaire complet pour le cas
+            # PRODUCES inconditionnel, chantier Gateway), appliquée à la copie isolée de cette
+            # étape.
+            _, produces = get_step_requirements(str(step.step_type).replace("StepType.", ""))
+            if step_ctx.output_file != before_output_file or "output_file" in produces:
                 ctx.artifacts[step_key] = step_ctx.output_file
             output_name = config.get("output_name")
             if output_name:
