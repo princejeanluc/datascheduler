@@ -33,6 +33,9 @@ class PipelineResult:
         self.rows_exported = 0
         self.remote_path   = None
         self.error         = None
+        # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — None si le pipeline
+        # n'a pas échoué, ou si l'échec est survenu hors de la boucle d'étapes.
+        self.failed_step_key = None
         self.log_lines     = []
         self.started_at    = datetime.utcnow()
         self.finished_at   = None
@@ -434,6 +437,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                 break
             if not pipeline_failed:
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
                 pipeline_failed = True
@@ -659,6 +663,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             result.log(f"Étape {i + 1} ({step_label}) en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
 
@@ -890,6 +895,7 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             result.log(f"Étape {step_label} en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
             for nxt in outgoing_keys.get(step_key, []):
@@ -940,6 +946,9 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             result.log(f"Étape {step_label} en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                # Étape "keyless" (sans _step_key, par construction — voir _topological_order) :
+                # aucun nœud correspondant dans l'éditeur graphique, rien à surligner.
+                ctx.extra["failed_step_key"]   = None
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
 
@@ -1431,6 +1440,9 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             return result
 
         if pipeline_failed:
+            # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — même patron que
+            # result.remote_path côté succès juste plus bas : absent jusqu'ici côté échec.
+            result.failed_step_key = ctx.extra.get("failed_step_key")
             _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
             _trigger_downstream_pipelines(pipeline_id, "FAILED")
@@ -1481,6 +1493,7 @@ def _update_run(run_id: int, status: str, result: PipelineResult,
         log_text=result.log_text,
         resumable_state_json=resumable_state_json,
         resumed_from_run_id=resumed_from_run_id,
+        failed_step_key=result.failed_step_key,
     )
 
 

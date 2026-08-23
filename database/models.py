@@ -468,6 +468,15 @@ class PipelineRun(Base):
     # moteur concurrent.
     active_steps_json = Column(Text, nullable=True)
 
+    # _step_key de l'étape qui a causé l'échec (chantier UX éditeur, Lot 1, B1) — contrairement à
+    # current_step_key ci-dessus, N'EST JAMAIS remis à NULL à la fin du run : c'est justement la
+    # donnée qui doit survivre après coup, pour qu'un lien "Voir dans le graphe" depuis
+    # l'historique puisse surligner le bon nœud sur un run déjà terminé. NULL pour un run réussi,
+    # annulé, ou dont l'échec est survenu hors de la boucle d'étapes (pipeline introuvable,
+    # plafond de concurrence, reprise invalide, exception générique) — pas de garantie qu'un run
+    # FAILED ait toujours cette colonne renseignée.
+    failed_step_key = Column(String(255), nullable=True)
+
     # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
     # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté
     # uniquement quand ce run échoue/est annulé ET qu'au moins une étape a réussi avant l'échec.

@@ -353,6 +353,15 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — colonne ajoutée à
+        # pipeline_runs, table déjà existante pour toute base antérieure à ce chantier.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "failed_step_key" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN failed_step_key VARCHAR(255)"
+            ))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -1087,7 +1096,8 @@ def create_run(pipeline_id: int) -> PipelineRun:
 
 def finish_run(run_id: int, status: str, rows_exported=None,
                remote_path=None, error_message=None, log_text=None,
-               resumable_state_json=None, resumed_from_run_id=None) -> bool:
+               resumable_state_json=None, resumed_from_run_id=None,
+               failed_step_key=None) -> bool:
     from datetime import datetime
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
@@ -1101,6 +1111,10 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.log_text      = log_text
         run.current_step_label   = None   # run terminé — plus d'étape "en cours" à afficher
         run.current_step_key     = None
+        # failed_step_key (chantier UX éditeur, Lot 1, B1) — contrairement à current_step_key
+        # ci-dessus, JAMAIS remis à None ici : c'est justement la donnée qui doit survivre après
+        # la fin du run, pour un lien "Voir dans le graphe" depuis l'historique.
+        run.failed_step_key      = failed_step_key
         run.resumable_state_json = resumable_state_json
         run.resumed_from_run_id  = resumed_from_run_id
         return True
