@@ -792,6 +792,20 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         for nxt in outgoing_keys.get(step_key, []):
             in_degree[nxt] -= 1
 
+    def _scan_ready():
+        """Ajoute à `ready` tout nœud dont le in_degree vient d'atteindre 0 — appelée après
+        CHAQUE résolution, pas seulement après un résultat de thread réel (voir plus bas dans la
+        boucle principale). Bug trouvé pendant le chantier Gateway : `_resolve_skip()` (appelé
+        depuis `_submit()`) décrémente déjà `in_degree` sans jamais passer par la queue/un thread
+        — sans ce rescan après CHAQUE `_submit()`, une chaîne de 2+ nœuds résolus ainsi de suite
+        (aucun jamais mis en vol) laissait `in_flight` à 0, faisant sortir la boucle principale
+        via `if in_flight == 0: break` avant que leurs dépendants n'aient jamais été ajoutés à
+        `ready` — disparus silencieusement, jamais journalisés, jamais marqués "ignorée"."""
+        for k in by_key:
+            if (k not in step_status and k not in ready and k not in in_flight_keys
+                    and in_degree[k] == 0):
+                ready.append(k)
+
     def _submit(step_key):
         nonlocal in_flight, done_count
         step = by_key[step_key]
@@ -848,6 +862,8 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         while ready and in_flight < max_workers and not cancel_event.is_set():
             ready.sort(key=lambda k: key_order.get(k, 0))
             _submit(ready.pop(0))
+            if not cancel_event.is_set():
+                _scan_ready()
 
         if in_flight == 0:
             break   # plus rien à soumettre (annulé) et plus rien en vol
@@ -902,10 +918,7 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
                 in_degree[nxt] -= 1
 
         if not pipeline_cancelled:
-            for k in by_key:
-                if (k not in step_status and k not in ready and k not in in_flight_keys
-                        and in_degree[k] == 0):
-                    ready.append(k)
+            _scan_ready()
 
     if cancel_event.is_set() and not pipeline_cancelled:
         pipeline_cancelled = True

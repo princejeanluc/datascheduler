@@ -224,6 +224,38 @@ def test_dependent_of_failed_step_is_skipped_not_failed_again(test_db, monkeypat
     assert any("ignorée" in line for line in result.log_lines)
 
 
+def test_skip_cascade_does_not_silently_drop_downstream_nodes(test_db, monkeypatch, tmp_path):
+    """Non-régression (bug trouvé pendant le chantier Gateway, `_execute_graph_parallel`) : une
+    chaîne de 2+ nœuds résolus SYNCHRONEMENT dans _submit() (via _resolve_skip(), jamais de
+    thread réel) pouvait disparaître silencieusement — jamais journalisée, jamais marquée
+    "ignorée" — si `in_flight` restait à 0 pendant toute la chaîne, la boucle principale sortant
+    via `if in_flight == 0: break` avant que le rescan de `ready` (alors uniquement fait après un
+    vrai résultat de thread) n'ait eu lieu. A réussit (thread réel) → B (arête tirée du port
+    "error" de A, donc structurellement toujours ignorée sur le chemin de succès, résolue en
+    synchrone) → C (dépend uniquement de B, résolu en synchrone lui aussi, juste après B, sans
+    qu'aucun thread n'ait jamais démarré entre les deux)."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(name="parallel-skip-cascade")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "a"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(tmp_path / "never_b.txt"), "_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(tmp_path / "never_c.txt"), "_step_key": "c"}},
+    ], edges=[_edge("a", "b", from_port="error"), _edge("b", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed   # a réussit, b/c sont ignorées, pas en échec
+    assert not (tmp_path / "never_b.txt").exists()
+    assert not (tmp_path / "never_c.txt").exists()
+    # Avant le correctif : ni "b" ni "c" n'étaient journalisées (disparues en silence, la boucle
+    # principale sortait avant même d'atteindre leur résolution synchrone).
+    assert sum(1 for line in result.log_lines if "ignorée" in line) == 2
+
+
 def test_run_always_step_executes_despite_failed_dependency(test_db, monkeypatch, tmp_path):
     monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
     monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
