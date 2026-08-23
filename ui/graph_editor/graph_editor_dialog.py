@@ -8,7 +8,7 @@ même pipeline (voir docs/ARCHITECTURE.md).
 
 from PySide6.QtCore import QPointF, QTimer
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox,
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox, QInputDialog,
 )
 
 from ui.styles import COLORS, DIALOG_STYLE
@@ -20,6 +20,7 @@ from .graph_scene import PipelineGraphScene
 from .graph_view import PipelineGraphView
 from .node_item import StepNodeItem
 from .edge_item import EdgeItem
+from .zone_item import ZoneItem
 from .minimap_widget import GraphMinimapWidget
 
 _NODE_SPACING_X = 240
@@ -166,6 +167,17 @@ class PipelineGraphEditorDialog(QDialog):
         self._btn_undo_layout.clicked.connect(self._on_undo_layout)
         toolbar.addWidget(self._btn_undo_layout)
 
+        btn_add_zone = QPushButton("  + Ajouter une zone")
+        btn_add_zone.setObjectName("secondary")
+        btn_add_zone.setFixedHeight(32)
+        btn_add_zone.setToolTip(
+            "Dessine un rectangle nommé pour regrouper visuellement des étapes — purement "
+            "décoratif, sans effet sur l'exécution. Glisser l'en-tête pour déplacer, le coin "
+            "bas-droit pour redimensionner, double-clic pour renommer."
+        )
+        btn_add_zone.clicked.connect(self._on_add_zone)
+        toolbar.addWidget(btn_add_zone)
+
         btn_toggle_minimap = QPushButton("  Mini-carte")
         btn_toggle_minimap.setObjectName("secondary")
         btn_toggle_minimap.setFixedHeight(32)
@@ -197,6 +209,7 @@ class PipelineGraphEditorDialog(QDialog):
 
         self._scene = PipelineGraphScene()
         self._scene.node_double_clicked.connect(self._on_node_double_clicked)
+        self._scene.zone_double_clicked.connect(self._on_zone_double_clicked)
         self._view = PipelineGraphView(self._scene)
         root.addWidget(self._view, stretch=1)
 
@@ -259,6 +272,9 @@ class PipelineGraphEditorDialog(QDialog):
         for e in edges:
             self._scene.add_edge(e.from_step_key, e.from_port, e.to_step_key)
 
+        for z in db.get_zones(self._pipeline.id):
+            self._scene.add_zone(z.name, QPointF(z.pos_x, z.pos_y), z.width, z.height)
+
     # ── Ajout / édition / suppression ─────────
 
     def _next_new_node_pos(self) -> QPointF:
@@ -277,7 +293,7 @@ class PipelineGraphEditorDialog(QDialog):
         (minimise les croisements d'arêtes grossiers — un simple rang→colonne sans ce tri
         laisserait un pipeline à plusieurs branches enchevêtré même "rangé"). Retourne None si
         le graphe contient un cycle (rangement impossible)."""
-        _, edges = self._collect_graph()
+        _, edges, _ = self._collect_graph()
         ranks = topological_ranks(self._scene.nodes.keys(), edges)
         if ranks is None:
             return None
@@ -336,6 +352,21 @@ class PipelineGraphEditorDialog(QDialog):
                 node.setPos(pos)
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
+
+    # ── Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) ────
+
+    def _on_add_zone(self):
+        pos = self._view.mapToScene(self._view.viewport().rect().center())
+        self._scene.add_zone("Nouvelle zone", pos)
+
+    def _on_zone_double_clicked(self, zone: ZoneItem):
+        new_name, ok = QInputDialog.getText(
+            self, "Renommer la zone", "Nom :", text=zone.name,
+        )
+        new_name = new_name.strip()
+        if ok and new_name:
+            zone.name = new_name
+            zone.update()
 
     # ── Mini-carte (chantier UX éditeur, Lot 2, A3) ────
 
@@ -424,6 +455,8 @@ class PipelineGraphEditorDialog(QDialog):
                 self._scene.remove_node(item)
             elif isinstance(item, EdgeItem):
                 self._scene.remove_edge(item)
+            elif isinstance(item, ZoneItem):
+                self._scene.remove_zone(item)
 
     def _on_open_schedule_dialog(self):
         """Raccourci vers l'éditeur classique pour le nom/planification/déclenchement
@@ -457,10 +490,21 @@ class PipelineGraphEditorDialog(QDialog):
             }
             for e in self._scene.edges
         ]
-        return steps, edges
+
+        zones = [
+            {
+                "name":   z.name,
+                "pos_x":  int(z.pos().x()),
+                "pos_y":  int(z.pos().y()),
+                "width":  int(z._width),
+                "height": int(z._height),
+            }
+            for z in self._scene.zones
+        ]
+        return steps, edges, zones
 
     def _on_save(self):
-        steps, edges = self._collect_graph()
+        steps, edges, zones = self._collect_graph()
 
         if not steps:
             QMessageBox.warning(
@@ -489,5 +533,5 @@ class PipelineGraphEditorDialog(QDialog):
                 return
 
         from database import db_manager as db
-        db.save_pipeline_graph(self._pipeline.id, steps, edges)
+        db.save_pipeline_graph(self._pipeline.id, steps, edges, zones=zones)
         self.accept()

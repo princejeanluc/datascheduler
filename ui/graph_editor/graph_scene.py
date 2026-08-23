@@ -11,17 +11,20 @@ from PySide6.QtWidgets import QGraphicsScene
 
 from .node_item import StepNodeItem, PORT_RADIUS
 from .edge_item import EdgeItem, TempEdgeItem
+from .zone_item import ZoneItem
 
 HIT_RADIUS = PORT_RADIUS + 6
 
 
 class PipelineGraphScene(QGraphicsScene):
     node_double_clicked = Signal(object)   # StepNodeItem
+    zone_double_clicked = Signal(object)   # ZoneItem — chantier UX éditeur, Lot 2, A4
 
     def __init__(self):
         super().__init__()
         self.nodes: dict[str, StepNodeItem] = {}   # step_key -> item
         self.edges: list[EdgeItem] = []
+        self.zones: list[ZoneItem] = []             # chantier UX éditeur, Lot 2, A4
         self._pending_edge: TempEdgeItem | None = None
         self._pending_source: tuple[str, str] | None = None   # (step_key, port_name)
         self._executing_step_keys: set[str] = set()
@@ -37,6 +40,18 @@ class PipelineGraphScene(QGraphicsScene):
         self.addItem(node)
         self.nodes[key] = node
         return node
+
+    def add_zone(self, name: str, pos: QPointF, width: float = 240, height: float = 160) -> ZoneItem:
+        zone = ZoneItem(name, width, height)
+        zone.setPos(pos)
+        self.addItem(zone)
+        self.zones.append(zone)
+        return zone
+
+    def remove_zone(self, zone: ZoneItem) -> None:
+        if zone in self.zones:
+            self.zones.remove(zone)
+        self.removeItem(zone)
 
     def add_edge(self, from_key: str, from_port: str, to_key: str) -> EdgeItem | None:
         if from_key == to_key:
@@ -147,6 +162,9 @@ class PipelineGraphScene(QGraphicsScene):
         if isinstance(item, StepNodeItem):
             self.node_double_clicked.emit(item)
             return
+        if isinstance(item, ZoneItem):
+            self.zone_double_clicked.emit(item)
+            return
         super().mouseDoubleClickEvent(event)
 
     # ── Suppression ───────────────────────────
@@ -158,6 +176,8 @@ class PipelineGraphScene(QGraphicsScene):
                     self.remove_node(item)
                 elif isinstance(item, EdgeItem):
                     self.remove_edge(item)
+                elif isinstance(item, ZoneItem):
+                    self.remove_zone(item)
             return
         super().keyPressEvent(event)
 
