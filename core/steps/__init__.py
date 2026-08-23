@@ -80,3 +80,11 @@ def get_step_output_ports(step_type: str) -> tuple[str, ...]:
     cls = _REGISTRY.get(step_type)
     base = cls.OUTPUT_PORTS if cls is not None else ("output_file",)
     return base + ("error",)
+
+
+def is_routing_node(step_type: str) -> bool:
+    """Un nœud de routage/jonction (aujourd'hui CONDITION, futur GATEWAY) se rend en losange
+    sur le canevas plutôt qu'en rectangle — voir ui/graph_editor/node_item.py. Faux pour tout
+    type inconnu, même défaut que la classe de base."""
+    cls = _REGISTRY.get(step_type)
+    return bool(cls is not None and cls.IS_ROUTING_NODE)

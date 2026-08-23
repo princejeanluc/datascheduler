@@ -47,6 +47,67 @@ def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
     assert color == "text_dim"
 
 
+# ──────────────────────────────────────────────
+#  Nœuds de routage en losange (chantier UX éditeur, Lot 1)
+# ──────────────────────────────────────────────
+
+def test_diamond_port_local_pos_single_port_is_the_right_vertex():
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    assert _diamond_port_local_pos(200, 64, 0, 1) == (200, 32)
+
+
+def test_diamond_port_local_pos_three_ports_are_distinct_and_symmetric():
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    positions = [_diamond_port_local_pos(200, 64, i, 3) for i in range(3)]
+    # 3 points distincts — sinon 2 ports se superposeraient et seraient impossibles à cliquer
+    # individuellement (le vrai bug qu'aurait causé une répartition verticale sur x=WIDTH).
+    assert len(set(positions)) == 3
+    top, mid, bottom = positions
+    # Le port du milieu tombe exactement sur le sommet droit du losange.
+    assert mid == (200, 32)
+    # Symétrie verticale autour du sommet droit (même x, y équidistants de 32).
+    assert top[0] == bottom[0]
+    assert abs(top[1] - 32) == abs(bottom[1] - 32)
+    # Les deux ports obliques sont bien à l'intérieur du losange (x < WIDTH), pas sur le bord
+    # droit du rectangle englobant — c'est ce qui les distingue géométriquement d'un nœud normal.
+    assert top[0] < 200 and bottom[0] < 200
+
+
+def test_diamond_port_local_pos_matches_rectangle_symmetry_convention():
+    """Même formule step*(idx+1) que l'ancienne répartition verticale (voir node_item.py) —
+    juste appliquée à une coordonnée curviligne plutôt qu'à une ligne droite : les positions
+    doivent rester symétriques autour du centre, comme avant pour un nœud rectangulaire."""
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    a = _diamond_port_local_pos(200, 64, 0, 2)
+    b = _diamond_port_local_pos(200, 64, 1, 2)
+    assert a[1] < 32 < b[1]
+    assert abs(a[1] - 32) == pytest.approx(abs(b[1] - 32))
+
+
+def test_condition_node_output_ports_use_diamond_geometry_not_vertical_line():
+    """Les 3 ports de sortie d'un nœud CONDITION (true/false/error) doivent être répartis sur
+    le losange, pas alignés verticalement sur x=WIDTH comme un nœud rectangulaire — sinon ils se
+    superposeraient (voir test_diamond_port_local_pos_three_ports_are_distinct_and_symmetric)."""
+    node = StepNodeItem({"step_type": "CONDITION", "config": {"_step_key": "cond"}})
+    assert node.is_routing_node is True
+
+    positions = {port: node.output_port_pos(port) for port in node.output_ports}
+    assert len({(p.x(), p.y()) for p in positions.values()}) == 3
+    # Le port "false" (milieu, 2e de 3) tombe exactement sur le sommet droit du losange.
+    assert positions["false"].x() == node.pos().x() + node.WIDTH
+
+
+def test_regular_step_output_ports_unaffected_by_diamond_change():
+    """Non-régression : un nœud normal (pas de routage) garde exactement la répartition
+    verticale d'avant, sur la ligne x=WIDTH."""
+    node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    assert node.is_routing_node is False
+
+    for port in node.output_ports:
+        pos = node.output_port_pos(port)
+        assert pos.x() == node.pos().x() + node.WIDTH
+
+
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
     """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
     le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de
