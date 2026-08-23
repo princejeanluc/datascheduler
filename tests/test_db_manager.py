@@ -479,6 +479,31 @@ def test_migrate_adds_active_steps_json_to_a_pre_existing_pipeline_runs_table(tm
     db._SessionFactory = None
 
 
+def test_migrate_adds_failed_step_key_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Chantier UX éditeur, Lot 1 (B1) — même patron que active_steps_json ci-dessus, pour la
+    colonne failed_step_key."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs_failed_step_key.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "failed_step_key" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 # ──────────────────────────────────────────────
 #  GRAPHE DE PIPELINE (chantier 6a)
 # ──────────────────────────────────────────────

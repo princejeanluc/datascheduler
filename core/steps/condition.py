@@ -71,6 +71,7 @@ class ConditionStep(BaseStep):
     REQUIRES: set[str] = set()
     PRODUCES: set[str] = set()
     OUTPUT_PORTS = ("true", "false")
+    IS_ROUTING_NODE = True
 
     def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         expression = self.config.get("expression", "")

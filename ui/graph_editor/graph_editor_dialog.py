@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
 
 from ui.styles import COLORS, DIALOG_STYLE
 from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
-from core.pipeline import validate_pipeline_graph
+from core.pipeline import validate_pipeline_graph, topological_ranks
 
 from .graph_scene import PipelineGraphScene
 from .graph_view import PipelineGraphView
@@ -29,9 +29,14 @@ _START_X, _START_Y = 60, 60
 class PipelineGraphEditorDialog(QDialog):
     """Éditeur graphique des étapes d'un pipeline déjà existant."""
 
-    def __init__(self, parent=None, pipeline=None):
+    def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None):
         super().__init__(parent)
         self._pipeline = pipeline
+        # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
+        # éditeur, Lot 1) — aucun QUndoStack n'existe nulle part dans cette app, annulation à un
+        # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
+        # précédent à chaque nouveau rangement, effacé par _on_undo_layout().
+        self._layout_snapshot: dict[str, QPointF] | None = None
         self._load_profiles()
 
         self.setWindowTitle(f"Éditeur graphique — {pipeline.name}" if pipeline else "Éditeur graphique")
@@ -39,6 +44,16 @@ class PipelineGraphEditorDialog(QDialog):
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui()
         self._load_graph()
+
+        if highlight_step_key:
+            # Lien "Voir dans le graphe" depuis une ligne d'historique en échec (chantier UX
+            # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture, jamais le sondage live
+            # ci-dessous : get_running_step_keys_multi()/get_running_step_keys() ne trouvent
+            # structurellement jamais un run FAILED (filtrés sur RUNNING), le lancer serait donc
+            # pur travail perdu. Limite acceptée et documentée : un run concurrent réellement en
+            # cours sur ce même pipeline, dans une autre fenêtre, n'est pas pris en compte ici.
+            self._highlight_failed_step(highlight_step_key)
+            return
 
         # Traçage lumineux (chantier identité visuelle) : actif en permanence dès l'ouverture,
         # pas de bascule de mode — éditer un pipeline qui se trouve être en cours d'exécution
@@ -48,6 +63,16 @@ class PipelineGraphEditorDialog(QDialog):
         self._executing_timer.setInterval(db.get_app_settings().trace_glow_refresh_s * 1000)
         self._executing_timer.timeout.connect(self._poll_executing_step)
         self._executing_timer.start()
+
+    def _highlight_failed_step(self, step_key: str) -> None:
+        node = self._scene.nodes.get(step_key)
+        if not node:
+            return
+        node.set_failed(True)
+        for e in self._scene.edges:
+            if e.to_node is node:
+                e.set_failed(True)
+        self._view.centerOn(node)
 
     def _poll_executing_step(self):
         if not self._pipeline:
@@ -117,6 +142,23 @@ class PipelineGraphEditorDialog(QDialog):
         )
         btn_schedule.clicked.connect(self._on_open_schedule_dialog)
         toolbar.addWidget(btn_schedule)
+
+        btn_auto_layout = QPushButton("  Ranger automatiquement")
+        btn_auto_layout.setObjectName("secondary")
+        btn_auto_layout.setFixedHeight(32)
+        btn_auto_layout.setToolTip(
+            "Repositionne toutes les étapes par rang (colonnes de gauche à droite selon "
+            "l'ordre du graphe), sans changer les connexions."
+        )
+        btn_auto_layout.clicked.connect(self._on_auto_layout)
+        toolbar.addWidget(btn_auto_layout)
+
+        self._btn_undo_layout = QPushButton("  Annuler le rangement")
+        self._btn_undo_layout.setObjectName("secondary")
+        self._btn_undo_layout.setFixedHeight(32)
+        self._btn_undo_layout.setEnabled(False)
+        self._btn_undo_layout.clicked.connect(self._on_undo_layout)
+        toolbar.addWidget(self._btn_undo_layout)
 
         hint = QLabel(
             "Glisser depuis un point de sortie (droite) vers un point d'entrée (gauche) pour "
@@ -190,6 +232,76 @@ class PipelineGraphEditorDialog(QDialog):
             return QPointF(_START_X, _START_Y)
         max_x = max(n.pos().x() for n in self._scene.nodes.values())
         return QPointF(max_x + _NODE_SPACING_X, _START_Y)
+
+    # ── Rangement automatique (chantier UX éditeur, Lot 1) ────
+
+    def _compute_auto_layout_positions(self, node_subset=None) -> dict | None:
+        """Calcule une nouvelle position pour chaque nœud du canevas (ou du sous-ensemble
+        `node_subset`, en prévision d'un futur "Ranger la sélection" — pas encore branché dans
+        ce lot, mais le coût de le supporter ici est quasi nul) : colonne = rang topologique,
+        ligne = ordre par barycentre des prédécesseurs déjà positionnés au sein du même rang
+        (minimise les croisements d'arêtes grossiers — un simple rang→colonne sans ce tri
+        laisserait un pipeline à plusieurs branches enchevêtré même "rangé"). Retourne None si
+        le graphe contient un cycle (rangement impossible)."""
+        _, edges = self._collect_graph()
+        ranks = topological_ranks(self._scene.nodes.keys(), edges)
+        if ranks is None:
+            return None
+
+        incoming: dict[str, list[str]] = {k: [] for k in self._scene.nodes}
+        for e in edges:
+            frm, to = e["from_step_key"], e["to_step_key"]
+            if to in incoming:
+                incoming[to].append(frm)
+
+        keys = set(self._scene.nodes) if node_subset is None else set(node_subset) & set(self._scene.nodes)
+        by_rank: dict[int, list[str]] = {}
+        for key in keys:
+            by_rank.setdefault(ranks.get(key, 0), []).append(key)
+
+        # Amorcé aux positions Y actuelles — sert de repère de barycentre pour tout prédécesseur
+        # hors sous-ensemble (jamais repositionné) ou pas encore traité à ce stade de la boucle.
+        placed_y: dict[str, float] = {k: n.pos().y() for k, n in self._scene.nodes.items()}
+
+        positions: dict[str, QPointF] = {}
+        for rank in sorted(by_rank):
+            rank_keys = by_rank[rank]
+            if rank == 0:
+                rank_keys.sort(key=lambda k: self._scene.nodes[k].pos().y())
+            else:
+                def _barycenter(k, _incoming=incoming, _placed_y=placed_y):
+                    preds_y = [_placed_y[p] for p in _incoming.get(k, []) if p in _placed_y]
+                    return sum(preds_y) / len(preds_y) if preds_y else _placed_y.get(k, 0.0)
+                rank_keys.sort(key=_barycenter)
+            for i, key in enumerate(rank_keys):
+                x = _START_X + rank * _NODE_SPACING_X
+                y = _START_Y + i * _ROW_HEIGHT
+                positions[key] = QPointF(x, y)
+                placed_y[key] = y
+        return positions
+
+    def _on_auto_layout(self):
+        positions = self._compute_auto_layout_positions()
+        if positions is None:
+            QMessageBox.warning(
+                self, "Rangement impossible",
+                "Le graphe contient un cycle — impossible de déterminer un ordre de rangement.",
+            )
+            return
+        self._layout_snapshot = {k: n.pos() for k, n in self._scene.nodes.items()}
+        for key, pos in positions.items():
+            self._scene.nodes[key].setPos(pos)
+        self._btn_undo_layout.setEnabled(True)
+
+    def _on_undo_layout(self):
+        if not self._layout_snapshot:
+            return
+        for key, pos in self._layout_snapshot.items():
+            node = self._scene.nodes.get(key)
+            if node:
+                node.setPos(pos)
+        self._layout_snapshot = None
+        self._btn_undo_layout.setEnabled(False)
 
     def _incoming_prior_steps(self, node: StepNodeItem) -> list:
         """Étapes amont réellement connectées à `node` par une arête — ce que le sélecteur

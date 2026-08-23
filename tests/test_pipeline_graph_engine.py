@@ -9,7 +9,7 @@ substitués dans le registre, fixture test_db, round-trip complet via run_pipeli
 from pathlib import Path
 
 import core.steps as steps_module
-from core.pipeline import validate_pipeline_graph, run_pipeline
+from core.pipeline import validate_pipeline_graph, run_pipeline, topological_ranks
 from core.steps.base import BaseStep, StepResult
 from database import db_manager as db
 
@@ -118,6 +118,37 @@ def test_validate_error_port_edge_alongside_a_normal_edge_still_satisfies_requir
     assert warnings == []
 
 
+def test_topological_ranks_linear_chain():
+    ranks = topological_ranks(["a", "b", "c"], [_edge("a", "b"), _edge("b", "c")])
+    assert ranks == {"a": 0, "b": 1, "c": 2}
+
+
+def test_topological_ranks_disconnected_nodes_all_get_rank_zero():
+    ranks = topological_ranks(["a", "b", "c"], [])
+    assert ranks == {"a": 0, "b": 0, "c": 0}
+
+
+def test_topological_ranks_diamond_takes_the_longer_path():
+    # a -> b -> d, a -> c -> d : d doit être au rang max(rang(b), rang(c)) + 1, pas juste après
+    # le premier chemin trouvé.
+    ranks = topological_ranks(
+        ["a", "b", "c", "d"],
+        [_edge("a", "b"), _edge("a", "c"), _edge("b", "d"), _edge("c", "d")],
+    )
+    assert ranks == {"a": 0, "b": 1, "c": 1, "d": 2}
+
+
+def test_topological_ranks_returns_none_on_cycle():
+    assert topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "a")]) is None
+
+
+def test_topological_ranks_ignores_edges_referencing_unknown_keys():
+    """Une arête pointant vers une clé absente de step_keys (nœud supprimé entre-temps, ou
+    filtre volontaire) est ignorée plutôt que de faire planter le calcul."""
+    ranks = topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "ghost")])
+    assert ranks == {"a": 0, "b": 1}
+
+
 def test_validate_detects_cycle_formed_purely_via_error_port_edges():
     """La détection de cycle utilise les arêtes NON filtrées — un cycle formé uniquement via
     des arêtes "error" doit rester détecté, l'exclusion ne s'applique qu'au test REQUIRES."""
@@ -179,6 +210,65 @@ def test_fan_out_failure_blocks_only_its_own_dependent(test_db, monkeypatch, tmp
 
     assert not result.success   # au moins une étape a échoué
     assert sink.read_text() == "DATA"   # mais la branche indépendante a bien tourné
+
+
+# ──────────────────────────────────────────────
+#  failed_step_key (chantier UX éditeur, Lot 1, B1) — survit après la fin du run, contrairement
+#  à current_step_key, pour un lien "Voir dans le graphe" depuis l'historique.
+# ──────────────────────────────────────────────
+
+def test_failed_step_key_recorded_for_linear_pipeline_failure(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+
+    pipeline = db.create_pipeline(name="linear-failed-step-key")
+    db.save_steps(pipeline.id, [
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails"
+
+
+def test_failed_step_key_recorded_for_graph_pipeline_failure(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(name="graph-failed-step-key")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+    ], edges=[_edge("prod", "fails")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails"
+
+
+def test_failed_step_key_is_none_for_a_successful_run(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src, sink = tmp_path / "src.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="success-no-failed-step-key")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "ok"}},
+    ], edges=[_edge("prod", "ok")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success
+    assert result.failed_step_key is None
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key is None
 
 
 def test_dependent_of_failed_step_is_skipped_not_failed_again(test_db, monkeypatch, tmp_path):

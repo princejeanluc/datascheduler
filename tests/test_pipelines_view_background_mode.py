@@ -27,6 +27,10 @@ def test_on_run_pipeline_delegates_to_worker_and_opens_remote_dialog(qapp, test_
 
     db.update_app_settings(execution_mode="BACKGROUND")
     p = db.create_pipeline(name="run-background-test")
+    # Étape valide (chantier UX éditeur, Lot 1) — _on_run_pipeline() valide désormais la
+    # structure du pipeline avant de lancer ; un pipeline sans étape déclencherait une vraie
+    # boîte de dialogue bloquante, hors du périmètre de ce test (dispatch background/in-app).
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "config": {}}])
     view = PipelinesView()
 
     monkeypatch.setattr(QDialog, "exec", lambda self: QDialog.Accepted)
@@ -47,6 +51,7 @@ def test_on_run_pipeline_stays_local_in_app_mode(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 
     p = db.create_pipeline(name="run-local-test")
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "config": {}}])
     view = PipelinesView()
 
     exec_calls = []

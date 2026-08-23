@@ -82,9 +82,20 @@ class PipelinesView(QWidget):
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
+        # Modèle de démarrage (chantier UX éditeur, Lot 1, C1) — dupliquer/adapter un squelette
+        # réaliste plutôt que partir d'une toile blanche, visible uniquement tant qu'aucun
+        # pipeline n'existe (même condition que le label lui-même, voir refresh() ci-dessous).
+        btn_template = QPushButton("  Commencer avec un modèle")
+        btn_template.setObjectName("secondary")
+        btn_template.setFixedHeight(34)
+        btn_template.setIcon(_icon("fa5s.magic", COLORS["text_main"]))
+        btn_template.setIconSize(QSize(13, 13))
+        btn_template.clicked.connect(self._on_start_from_template)
+
         self._empty_label = _make_empty_label(
             "Aucun pipeline configuré — assurez-vous d'abord d'avoir vos connexions et requêtes "
-            "SQL (voir Connexions / Requêtes SQL), puis cliquez sur « Nouveau pipeline »."
+            "SQL (voir Connexions / Requêtes SQL), puis cliquez sur « Nouveau pipeline ».",
+            button=btn_template,
         )
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
@@ -260,6 +271,34 @@ class PipelinesView(QWidget):
             # ne servirait qu'à encombrer la liste.
             db.delete_pipeline(p.id)
 
+    def _on_start_from_template(self):
+        """Modèle de démarrage (chantier UX éditeur, Lot 1, C1) — même mécanisme que l'import
+        d'un vrai fichier .dspipeline (plan_import()/apply_import() n'exigent pas qu'un bundle
+        vienne d'un vrai export), mais sans dialogue de revue : le modèle n'a ni profil ni
+        collision à arbitrer (aucune référence de profil dans son bundle, nom toujours unique
+        via _unique_name côté apply_import). Ouvre directement l'éditeur graphique sur le
+        résultat pour que l'utilisateur atterrisse droit sur les champs à compléter."""
+        from database.export_import import plan_import, apply_import
+        from database.pipeline_templates import build_starter_template_bundle
+        from database import db_manager as db
+        from ui.graph_editor import PipelineGraphEditorDialog
+
+        plan = plan_import(build_starter_template_bundle())
+        if not plan.success:
+            QMessageBox.critical(self, "Échec du modèle", plan.error or "Erreur inconnue.")
+            return
+        result = apply_import(plan)
+        if not result.success:
+            QMessageBox.critical(self, "Échec du modèle", result.error or "Erreur inconnue.")
+            return
+
+        self.refresh()
+        pipeline = db.get_pipeline(result.pipeline_id) if result.pipeline_id else None
+        if pipeline:
+            PipelineGraphEditorDialog(self, pipeline=pipeline).exec()
+            self._schedule_if_possible(pipeline.id)
+            self.refresh()
+
     def _on_import_pipeline(self):
         from database.export_import import plan_import_from_file, apply_import
         from ui.dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
@@ -400,6 +439,34 @@ class PipelinesView(QWidget):
                     "que l'étape en cours se termine."
                 )
             return
+
+        # Validation structurelle avant tout lancement (chantier UX éditeur, Lot 1) — nœuds
+        # orphelins, ports requis non connectés, cycles, références de profil disparues.
+        # test_connections=False : jamais de test réseau réel ici, cette phase reste rapide et
+        # synchrone (0 accès réseau, quelques lectures DB) — les tests de connexion réels restent
+        # le domaine exclusif de "Valider (à blanc)" (menu "⋯"), plus lent, jamais déclenché
+        # automatiquement. Validé à CHAQUE clic, pas seulement le premier : dry_run_pipeline sans
+        # test_connections est trop rapide pour justifier un cache invalidé sur chaque point
+        # d'édition (un chemin d'édition oublié réutiliserait silencieusement une passe périmée).
+        from core.pipeline import dry_run_pipeline
+        dry_run = dry_run_pipeline(pipeline_id, test_connections=False)
+        if dry_run.errors:
+            QMessageBox.warning(
+                self, "Pipeline invalide",
+                f"« {p.name} » ne peut pas s'exécuter tel quel :\n\n"
+                + "\n".join(f"• {e}" for e in dry_run.errors),
+            )
+            return
+        if dry_run.warnings:
+            reply = QMessageBox.question(
+                self, "Avertissement",
+                f"« {p.name} » pourrait tourner sans les données attendues :\n\n"
+                + "\n".join(f"• {w}" for w in dry_run.warnings)
+                + "\n\nContinuer quand même ?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
 
         if request_run_now(pipeline_id):
             from .remote_run_dialog import open_remote_run_dialog

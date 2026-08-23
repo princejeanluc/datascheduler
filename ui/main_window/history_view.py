@@ -292,6 +292,19 @@ class HistoryView(QWidget):
             btn_view.clicked.connect(lambda _, i=r_idx: self._open_log(i))
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4)
             hl.addWidget(btn_view)
+
+            # "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) — pas seulement st ==
+            # "FAILED" : certains échecs n'ont jamais traversé la boucle d'étapes (pipeline
+            # introuvable, plafond de concurrence, reprise invalide, exception générique) et
+            # n'ont donc jamais de failed_step_key, y compris toute ligne antérieure à cette
+            # colonne — le bouton ne doit apparaître que quand il y a réellement un nœud à
+            # montrer.
+            if st == "FAILED" and run.failed_step_key:
+                btn_graph = _action_btn("fa5s.project-diagram", object_name="secondary",
+                                        tooltip="Voir dans le graphe", size=(26, 26))
+                btn_graph.clicked.connect(lambda _, i=r_idx: self._open_graph(i))
+                hl.addWidget(btn_graph)
+
             self.table.setCellWidget(r_idx, 6, w)
 
             self.table.setRowHeight(r_idx, 44)
@@ -306,6 +319,24 @@ class HistoryView(QWidget):
             return
         from .run_log_dialog import open_run_log_dialog
         open_run_log_dialog(self, self._run_ids[row])
+
+    def _open_graph(self, row: int):
+        """Lien "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1). db.get_run() ne
+        joinedload pas Pipeline — accéder à run.pipeline après la fermeture de sa session
+        lèverait DetachedInstanceError ; db.get_pipeline(run.pipeline_id) refait une requête
+        dédiée plutôt que de suivre cette relation (même prudence que PipelineDetailDialog)."""
+        if row >= len(self._run_ids):
+            return
+        from database import db_manager as db
+        from ui.graph_editor import PipelineGraphEditorDialog
+
+        run = db.get_run(self._run_ids[row])
+        if not run or not run.failed_step_key:
+            return
+        pipeline = db.get_pipeline(run.pipeline_id)
+        if not pipeline:
+            return
+        PipelineGraphEditorDialog(self, pipeline=pipeline, highlight_step_key=run.failed_step_key).exec()
 
     @staticmethod
     def _build_audit_table(events) -> QTableWidget:

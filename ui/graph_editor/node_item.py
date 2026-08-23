@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject
 from ui.styles import COLORS
 from ui.step_editor import STEP_META
 from ui.step_editor.common import _icon
-from core.steps import get_step_output_ports
+from core.steps import get_step_output_ports, is_routing_node
 
 PORT_RADIUS = 6
 
@@ -36,6 +36,31 @@ def _port_visual(port: str) -> tuple[str, str]:
     return _PORT_STYLE.get(port, _DEFAULT_PORT_STYLE)
 
 
+def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -> tuple[float, float]:
+    """Position LOCALE (avant mapToScene) du idx-ième port de sortie sur un nœud de routage en
+    losange — chantier UX éditeur. Sur un rectangle, plusieurs ports se répartissent sur la
+    ligne verticale x=WIDTH (le bord droit) ; sur un vrai losange inscrit dans WIDTH×HEIGHT,
+    x=WIDTH n'est qu'un seul point (le sommet droit) — y placer plusieurs ports les
+    superposerait exactement, les rendant impossibles à cliquer individuellement. Les ports sont
+    donc répartis le long des deux arêtes obliques (sommet haut → sommet droit → sommet bas),
+    symétriquement autour du sommet droit, exactement comme l'ancienne répartition verticale
+    était symétrique autour de HEIGHT/2 — même formule `step * (idx+1)`, appliquée à une
+    coordonnée curviligne le long du "V" du losange plutôt qu'à une ligne droite."""
+    if count <= 1:
+        return (width, height / 2)
+    step = 1.0 / (count + 1)
+    t = step * (idx + 1)   # 0 < t < 1, position le long du chemin sommet-haut→droit→bas
+    if t <= 0.5:
+        local_t = t / 0.5
+        x = width / 2 + local_t * (width / 2)
+        y = local_t * (height / 2)
+    else:
+        local_t = (t - 0.5) / 0.5
+        x = width - local_t * (width / 2)
+        y = height / 2 + local_t * (height / 2)
+    return (x, y)
+
+
 class StepNodeItem(QGraphicsObject):
     """
     Rectangle arrondi représentant une étape sur le canevas. Porte le dict `step` complet —
@@ -50,6 +75,7 @@ class StepNodeItem(QGraphicsObject):
         super().__init__()
         self.step = step
         self._is_executing = False
+        self._is_failed    = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -63,6 +89,15 @@ class StepNodeItem(QGraphicsObject):
         distincte de la sélection (même épaisseur, couleur différente)."""
         if executing != self._is_executing:
             self._is_executing = executing
+            self.update()
+
+    def set_failed(self, failed: bool) -> None:
+        """Surlignage "échec" (chantier UX éditeur, Lot 1, B1 — lien "Voir dans le graphe" depuis
+        une ligne d'historique en échec). État JUMEAU de set_executing(), jamais une
+        réutilisation : celui-ci peint en rouge (COLORS["danger"]), pas en bleu "signal" — un
+        nœud surligné ainsi est terminé/en échec, pas en train de tourner."""
+        if failed != self._is_failed:
+            self._is_failed = failed
             self.update()
 
     # ── Identité ──────────────────────────────
@@ -80,15 +115,21 @@ class StepNodeItem(QGraphicsObject):
     def input_port_pos(self) -> QPointF:
         return self.mapToScene(QPointF(0, self.HEIGHT / 2))
 
+    @property
+    def is_routing_node(self) -> bool:
+        return is_routing_node(self.step.get("step_type", ""))
+
     def output_port_pos(self, port: str) -> QPointF:
         ports = self.output_ports
-        if len(ports) <= 1:
-            y = self.HEIGHT / 2
+        idx = ports.index(port) if port in ports else 0
+        if self.is_routing_node:
+            x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, idx, len(ports))
+        elif len(ports) <= 1:
+            x, y = self.WIDTH, self.HEIGHT / 2
         else:
-            idx = ports.index(port) if port in ports else 0
             step = self.HEIGHT / (len(ports) + 1)
-            y = step * (idx + 1)
-        return self.mapToScene(QPointF(self.WIDTH, y))
+            x, y = self.WIDTH, step * (idx + 1)
+        return self.mapToScene(QPointF(x, y))
 
     # ── Qt ────────────────────────────────────
 
@@ -99,15 +140,33 @@ class StepNodeItem(QGraphicsObject):
     def paint(self, painter, option, widget=None):
         step_type = self.step.get("step_type", "")
         meta = STEP_META.get(step_type, {"label": step_type, "color": COLORS["accent"]})
+        routing = self.is_routing_node
 
-        rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
         path = QPainterPath()
-        path.addRoundedRect(rect, 8, 8)
+        if routing:
+            # Losange inscrit dans WIDTH×HEIGHT (chantier UX éditeur) — distingue un nœud de
+            # routage/jonction (CONDITION, futur GATEWAY) d'une étape normale au premier coup
+            # d'œil, sans avoir à lire le texte. boundingRect() reste inchangé (le rectangle
+            # englobant reste une boîte de collision valide, juste plus large que la forme
+            # peinte).
+            path.moveTo(self.WIDTH / 2, 0)
+            path.lineTo(self.WIDTH, self.HEIGHT / 2)
+            path.lineTo(self.WIDTH / 2, self.HEIGHT)
+            path.lineTo(0, self.HEIGHT / 2)
+            path.closeSubpath()
+        else:
+            rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
+            path.addRoundedRect(rect, 8, 8)
 
         painter.setRenderHint(QPainter.Antialiasing)
         painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
-        border_color = QColor(COLORS["signal"]) if self._is_executing else QColor(meta["color"])
-        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing) else 1.5)
+        if self._is_failed:
+            border_color = QColor(COLORS["danger"])
+        elif self._is_executing:
+            border_color = QColor(COLORS["signal"])
+        else:
+            border_color = QColor(meta["color"])
+        pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing or self._is_failed) else 1.5)
         painter.setPen(pen)
         painter.drawPath(path)
 
@@ -134,21 +193,24 @@ class StepNodeItem(QGraphicsObject):
         painter.setPen(Qt.NoPen)
         painter.drawEllipse(QPointF(0, self.HEIGHT / 2), PORT_RADIUS, PORT_RADIUS)
 
-        # Port(s) de sortie.
+        # Port(s) de sortie — même géométrie que output_port_pos() (coordonnées locales ici,
+        # scène là-bas), pour que le point dessiné coïncide toujours avec la zone cliquable.
         ports = self.output_ports
         for i, port in enumerate(ports):
-            if len(ports) <= 1:
-                y = self.HEIGHT / 2
+            if routing:
+                x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, i, len(ports))
+            elif len(ports) <= 1:
+                x, y = self.WIDTH, self.HEIGHT / 2
             else:
                 step = self.HEIGHT / (len(ports) + 1)
-                y = step * (i + 1)
+                x, y = self.WIDTH, step * (i + 1)
             color_key, label = _port_visual(port)
             color = COLORS[color_key]
             painter.setBrush(QBrush(QColor(color)))
-            painter.drawEllipse(QPointF(self.WIDTH, y), PORT_RADIUS, PORT_RADIUS)
+            painter.drawEllipse(QPointF(x, y), PORT_RADIUS, PORT_RADIUS)
             if label:
                 painter.setPen(QColor(color))
-                painter.drawText(QRectF(self.WIDTH - 22, y - 9, 16, 18),
+                painter.drawText(QRectF(x - 22, y - 9, 16, 18),
                                   Qt.AlignRight | Qt.AlignVCenter, label)
 
     def itemChange(self, change, value):

@@ -33,6 +33,9 @@ class PipelineResult:
         self.rows_exported = 0
         self.remote_path   = None
         self.error         = None
+        # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — None si le pipeline
+        # n'a pas échoué, ou si l'échec est survenu hors de la boucle d'étapes.
+        self.failed_step_key = None
         self.log_lines     = []
         self.started_at    = datetime.utcnow()
         self.finished_at   = None
@@ -434,6 +437,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                 break
             if not pipeline_failed:
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
                 pipeline_failed = True
@@ -659,6 +663,7 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             result.log(f"Étape {i + 1} ({step_label}) en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
 
@@ -890,6 +895,7 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             result.log(f"Étape {step_label} en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
             for nxt in outgoing_keys.get(step_key, []):
@@ -940,6 +946,9 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             result.log(f"Étape {step_label} en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                # Étape "keyless" (sans _step_key, par construction — voir _topological_order) :
+                # aucun nœud correspondant dans l'éditeur graphique, rien à surligner.
+                ctx.extra["failed_step_key"]   = None
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
 
@@ -1023,6 +1032,52 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
 
     errors.extend(_duplicate_output_name_errors(steps))
     return errors, warnings
+
+
+def topological_ranks(step_keys, edges) -> dict[str, int] | None:
+    """
+    Rang topologique de chaque étape (chantier UX éditeur, Lot 1, rangement automatique du
+    canevas) — rang 0 pour un nœud sans arête entrante, rang = 1 + max(rang des prédécesseurs)
+    sinon. `None` si le graphe contient un cycle (même convention que validate_pipeline_graph).
+
+    Dict-shaped comme validate_pipeline_graph (step_keys + edges en dicts {"from_step_key",
+    "to_step_key", ...}) — c'est la forme déjà produite par
+    ui/graph_editor/graph_editor_dialog.py::_collect_graph(), pas les objets ORM de
+    _topological_order() (qui, lui, retourne un ORDRE, pas des rangs — pas ce dont un algorithme
+    de disposition a besoin). Kahn par VAGUES plutôt que nœud par nœud : chaque nœud prêt à une
+    vague donnée reçoit le même rang, ce qui donne directement une répartition en colonnes.
+    """
+    keys = set(step_keys)
+    incoming: dict = {k: [] for k in keys}
+    outgoing: dict = {k: [] for k in keys}
+    in_degree: dict = {k: 0 for k in keys}
+    for e in edges:
+        frm, to = e.get("from_step_key"), e.get("to_step_key")
+        if frm in keys and to in keys:
+            incoming[to].append(frm)
+            outgoing[frm].append(to)
+            in_degree[to] += 1
+
+    ranks: dict = {}
+    remaining = dict(in_degree)
+    wave = [k for k in keys if in_degree[k] == 0]
+    rank = 0
+    visited = 0
+    while wave:
+        next_wave = []
+        for k in wave:
+            ranks[k] = rank
+            visited += 1
+            for nxt in outgoing[k]:
+                remaining[nxt] -= 1
+                if remaining[nxt] == 0:
+                    next_wave.append(nxt)
+        wave = next_wave
+        rank += 1
+
+    if visited != len(keys):
+        return None
+    return ranks
 
 
 # ──────────────────────────────────────────────
@@ -1385,6 +1440,9 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             return result
 
         if pipeline_failed:
+            # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — même patron que
+            # result.remote_path côté succès juste plus bas : absent jusqu'ici côté échec.
+            result.failed_step_key = ctx.extra.get("failed_step_key")
             _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
             _trigger_downstream_pipelines(pipeline_id, "FAILED")
@@ -1435,6 +1493,7 @@ def _update_run(run_id: int, status: str, result: PipelineResult,
         log_text=result.log_text,
         resumable_state_json=resumable_state_json,
         resumed_from_run_id=resumed_from_run_id,
+        failed_step_key=result.failed_step_key,
     )
 
 

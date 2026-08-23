@@ -47,6 +47,67 @@ def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
     assert color == "text_dim"
 
 
+# ──────────────────────────────────────────────
+#  Nœuds de routage en losange (chantier UX éditeur, Lot 1)
+# ──────────────────────────────────────────────
+
+def test_diamond_port_local_pos_single_port_is_the_right_vertex():
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    assert _diamond_port_local_pos(200, 64, 0, 1) == (200, 32)
+
+
+def test_diamond_port_local_pos_three_ports_are_distinct_and_symmetric():
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    positions = [_diamond_port_local_pos(200, 64, i, 3) for i in range(3)]
+    # 3 points distincts — sinon 2 ports se superposeraient et seraient impossibles à cliquer
+    # individuellement (le vrai bug qu'aurait causé une répartition verticale sur x=WIDTH).
+    assert len(set(positions)) == 3
+    top, mid, bottom = positions
+    # Le port du milieu tombe exactement sur le sommet droit du losange.
+    assert mid == (200, 32)
+    # Symétrie verticale autour du sommet droit (même x, y équidistants de 32).
+    assert top[0] == bottom[0]
+    assert abs(top[1] - 32) == abs(bottom[1] - 32)
+    # Les deux ports obliques sont bien à l'intérieur du losange (x < WIDTH), pas sur le bord
+    # droit du rectangle englobant — c'est ce qui les distingue géométriquement d'un nœud normal.
+    assert top[0] < 200 and bottom[0] < 200
+
+
+def test_diamond_port_local_pos_matches_rectangle_symmetry_convention():
+    """Même formule step*(idx+1) que l'ancienne répartition verticale (voir node_item.py) —
+    juste appliquée à une coordonnée curviligne plutôt qu'à une ligne droite : les positions
+    doivent rester symétriques autour du centre, comme avant pour un nœud rectangulaire."""
+    from ui.graph_editor.node_item import _diamond_port_local_pos
+    a = _diamond_port_local_pos(200, 64, 0, 2)
+    b = _diamond_port_local_pos(200, 64, 1, 2)
+    assert a[1] < 32 < b[1]
+    assert abs(a[1] - 32) == pytest.approx(abs(b[1] - 32))
+
+
+def test_condition_node_output_ports_use_diamond_geometry_not_vertical_line():
+    """Les 3 ports de sortie d'un nœud CONDITION (true/false/error) doivent être répartis sur
+    le losange, pas alignés verticalement sur x=WIDTH comme un nœud rectangulaire — sinon ils se
+    superposeraient (voir test_diamond_port_local_pos_three_ports_are_distinct_and_symmetric)."""
+    node = StepNodeItem({"step_type": "CONDITION", "config": {"_step_key": "cond"}})
+    assert node.is_routing_node is True
+
+    positions = {port: node.output_port_pos(port) for port in node.output_ports}
+    assert len({(p.x(), p.y()) for p in positions.values()}) == 3
+    # Le port "false" (milieu, 2e de 3) tombe exactement sur le sommet droit du losange.
+    assert positions["false"].x() == node.pos().x() + node.WIDTH
+
+
+def test_regular_step_output_ports_unaffected_by_diamond_change():
+    """Non-régression : un nœud normal (pas de routage) garde exactement la répartition
+    verticale d'avant, sur la ligne x=WIDTH."""
+    node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    assert node.is_routing_node is False
+
+    for port in node.output_ports:
+        pos = node.output_port_pos(port)
+        assert pos.x() == node.pos().x() + node.WIDTH
+
+
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
     """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
     le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de
@@ -161,6 +222,66 @@ def test_remove_node_removes_connected_edges_before_save(qapp, test_db):
     dlg._on_save()
     assert len(db.get_steps(pipeline.id)) == 1
     assert len(db.get_edges(pipeline.id)) == 0
+
+
+# ──────────────────────────────────────────────
+#  Surlignage "échec" post-mortem (chantier UX éditeur, Lot 1, B1)
+# ──────────────────────────────────────────────
+
+def test_highlight_step_key_marks_node_and_incoming_edge_as_failed(qapp, test_db):
+    pipeline = db.create_pipeline(name="highlight-failed-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="b")
+
+    assert dlg._scene.nodes["b"]._is_failed
+    assert not dlg._scene.nodes["a"]._is_failed
+    edge_ab = next(e for e in dlg._scene.edges if e.to_node is dlg._scene.nodes["b"])
+    assert edge_ab._is_failed
+
+
+def test_highlight_step_key_skips_the_live_polling_timer(qapp, test_db):
+    """get_running_step_keys_multi()/get_running_step_keys() ne trouvent structurellement
+    jamais un run FAILED (filtrés sur RUNNING) — lancer le sondage serait du travail perdu."""
+    pipeline = db.create_pipeline(name="highlight-no-timer-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="a")
+
+    assert not hasattr(dlg, "_executing_timer")
+
+
+def test_highlight_step_key_unknown_key_is_a_no_op(qapp, test_db):
+    """Le nœud fautif a pu être supprimé du graphe depuis — ne doit pas planter."""
+    pipeline = db.create_pipeline(name="highlight-unknown-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline, highlight_step_key="does-not-exist")
+
+    assert not dlg._scene.nodes["a"]._is_failed
+
+
+def test_without_highlight_step_key_the_live_timer_still_starts(qapp, test_db):
+    """Non-régression : le comportement par défaut (aucun highlight_step_key) garde le sondage
+    live existant, inchangé."""
+    pipeline = db.create_pipeline(name="no-highlight-default-timer-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert hasattr(dlg, "_executing_timer")
+    assert dlg._executing_timer.isActive()
 
 
 def test_set_executing_step_keys_highlights_node_and_incoming_edges(qapp, test_db):
@@ -369,3 +490,111 @@ def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, 
     assert captured["pipeline_id"] == pipeline.id
     assert dlg._pipeline.name == "renamed-via-linear-editor"
     assert "renamed-via-linear-editor" in dlg.windowTitle()
+
+
+# ──────────────────────────────────────────────
+#  Rangement automatique (chantier UX éditeur, Lot 1)
+# ──────────────────────────────────────────────
+
+def test_auto_layout_assigns_columns_by_rank(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-linear")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_auto_layout()
+
+    xa = dlg._scene.nodes["a"].pos().x()
+    xb = dlg._scene.nodes["b"].pos().x()
+    xc = dlg._scene.nodes["c"].pos().x()
+    assert xa < xb < xc
+    assert dlg._btn_undo_layout.isEnabled()
+
+
+def test_auto_layout_orders_diamond_branches_by_barycenter(qapp, test_db):
+    """a -> b, a -> c, b -> d, c -> d : b et c doivent finir au même rang (même colonne),
+    d au rang suivant — pas juste "quelque part", la colonne compte, pas la ligne exacte."""
+    pipeline = db.create_pipeline(name="auto-layout-diamond")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "d"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "d", "to_port": "input"},
+        {"from_step_key": "c", "from_port": "output_file", "to_step_key": "d", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_auto_layout()
+
+    xa = dlg._scene.nodes["a"].pos().x()
+    xb = dlg._scene.nodes["b"].pos().x()
+    xc = dlg._scene.nodes["c"].pos().x()
+    xd = dlg._scene.nodes["d"].pos().x()
+    assert xa < xb == xc < xd
+    assert dlg._scene.nodes["b"].pos().y() != dlg._scene.nodes["c"].pos().y()
+
+
+def test_auto_layout_warns_and_leaves_positions_unchanged_on_cycle(qapp, test_db, monkeypatch):
+    import ui.graph_editor.graph_editor_dialog as dialog_module
+
+    pipeline = db.create_pipeline(name="auto-layout-cycle")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "a", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = {k: n.pos() for k, n in dlg._scene.nodes.items()}
+
+    warnings = []
+    monkeypatch.setattr(dialog_module.QMessageBox, "warning",
+                         staticmethod(lambda *a, **k: warnings.append(a)))
+
+    dlg._on_auto_layout()
+
+    assert len(warnings) == 1
+    assert {k: n.pos() for k, n in dlg._scene.nodes.items()} == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+def test_undo_layout_restores_previous_positions(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-undo")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()}
+
+    dlg._on_auto_layout()
+    assert {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()} != before
+    assert dlg._btn_undo_layout.isEnabled()
+
+    dlg._on_undo_layout()
+
+    assert {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()} == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+def test_undo_layout_button_disabled_by_default(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-default")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert not dlg._btn_undo_layout.isEnabled()

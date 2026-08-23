@@ -491,6 +491,68 @@ def test_run_pipeline_uses_parallel_engine_when_pipeline_opted_in(test_db, monke
     assert elapsed < 0.45   # bien moins que 0.25 + 0.25 = 0.5s si les deux branches s'enchaînaient
 
 
+# ──────────────────────────────────────────────
+#  failed_step_key (chantier UX éditeur, Lot 1, B1) — première panne uniquement, même dans le
+#  moteur concurrent qui a DEUX points d'écriture distincts (échec direct + échec en aval d'un
+#  port amont en échec).
+# ──────────────────────────────────────────────
+
+class _FakeDelayedFailingStep(BaseStep):
+    """Échoue après un délai configurable — pour prouver déterministement quelle branche
+    "gagne" la course du premier échec enregistré dans un run réellement parallèle."""
+
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
+        time.sleep(self.config.get("delay", 0))
+        return StepResult(success=False, error="échec simulé (délai)")
+
+
+def test_failed_step_key_recorded_for_parallel_pipeline_failure(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(
+        name="parallel-failed-step-key", parallel_execution_enabled=True, max_parallel_branches=4,
+    )
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+    ], edges=[_edge("prod", "fails")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails"
+
+
+def test_failed_step_key_is_first_failure_only_in_parallel_engine(test_db, monkeypatch, tmp_path):
+    """Deux branches indépendantes échouent toutes les deux — celle qui échoue vite doit gagner
+    la course, jamais écrasée par celle qui échoue plus tard (garde
+    `if not ctx.extra.get("failed_step_label")` dans _execute_graph_parallel)."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "SPARK_SQL", _FakeDelayedFailingStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(
+        name="parallel-first-failure-only", parallel_execution_enabled=True, max_parallel_branches=4,
+    )
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails_fast"}},
+        {"step_type": "SPARK_SQL", "config": {"_step_key": "fails_slow", "delay": 0.3}},
+    ], edges=[_edge("prod", "fails_fast"), _edge("prod", "fails_slow")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails_fast"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails_fast"
+
+
 def test_run_pipeline_uses_sequential_graph_engine_by_default(test_db, monkeypatch, tmp_path):
     """parallel_execution_enabled=False (défaut) — même structure (un producteur, deux branches
     indépendantes), mais le chemin _execute_graph (séquentiel, inchangé) reste emprunté tant que

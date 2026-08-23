@@ -112,6 +112,11 @@ class BaseStep:
     # Ports de sortie nommés (chantier 6a) — un seul port implicite pour tous les steps
     # existants ; un nœud à ports multiples (ex: ConditionStep) le redéfinit ("true", "false").
     OUTPUT_PORTS: tuple[str, ...] = ("output_file",)
+    # Nœud de routage/jonction (chantier UX éditeur, losange plutôt que rectangle sur le
+    # canevas) — False pour tous les steps existants ; ConditionStep le redéfinit à True, un
+    # futur type GATEWAY en hériterait de même. Centralisé ici (jamais une liste de types en
+    # dur côté rendu Qt) — même principe que OUTPUT_PORTS ci-dessus.
+    IS_ROUTING_NODE: bool = False
 
     def __init__(self, config: dict):
         self.config = config
