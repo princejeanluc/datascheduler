@@ -1025,6 +1025,52 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
     return errors, warnings
 
 
+def topological_ranks(step_keys, edges) -> dict[str, int] | None:
+    """
+    Rang topologique de chaque étape (chantier UX éditeur, Lot 1, rangement automatique du
+    canevas) — rang 0 pour un nœud sans arête entrante, rang = 1 + max(rang des prédécesseurs)
+    sinon. `None` si le graphe contient un cycle (même convention que validate_pipeline_graph).
+
+    Dict-shaped comme validate_pipeline_graph (step_keys + edges en dicts {"from_step_key",
+    "to_step_key", ...}) — c'est la forme déjà produite par
+    ui/graph_editor/graph_editor_dialog.py::_collect_graph(), pas les objets ORM de
+    _topological_order() (qui, lui, retourne un ORDRE, pas des rangs — pas ce dont un algorithme
+    de disposition a besoin). Kahn par VAGUES plutôt que nœud par nœud : chaque nœud prêt à une
+    vague donnée reçoit le même rang, ce qui donne directement une répartition en colonnes.
+    """
+    keys = set(step_keys)
+    incoming: dict = {k: [] for k in keys}
+    outgoing: dict = {k: [] for k in keys}
+    in_degree: dict = {k: 0 for k in keys}
+    for e in edges:
+        frm, to = e.get("from_step_key"), e.get("to_step_key")
+        if frm in keys and to in keys:
+            incoming[to].append(frm)
+            outgoing[frm].append(to)
+            in_degree[to] += 1
+
+    ranks: dict = {}
+    remaining = dict(in_degree)
+    wave = [k for k in keys if in_degree[k] == 0]
+    rank = 0
+    visited = 0
+    while wave:
+        next_wave = []
+        for k in wave:
+            ranks[k] = rank
+            visited += 1
+            for nxt in outgoing[k]:
+                remaining[nxt] -= 1
+                if remaining[nxt] == 0:
+                    next_wave.append(nxt)
+        wave = next_wave
+        rank += 1
+
+    if visited != len(keys):
+        return None
+    return ranks
+
+
 # ──────────────────────────────────────────────
 #  VALIDATION À BLANC (dry-run) — chantier UX autonomie
 # ──────────────────────────────────────────────

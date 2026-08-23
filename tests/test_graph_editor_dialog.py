@@ -430,3 +430,111 @@ def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, 
     assert captured["pipeline_id"] == pipeline.id
     assert dlg._pipeline.name == "renamed-via-linear-editor"
     assert "renamed-via-linear-editor" in dlg.windowTitle()
+
+
+# ──────────────────────────────────────────────
+#  Rangement automatique (chantier UX éditeur, Lot 1)
+# ──────────────────────────────────────────────
+
+def test_auto_layout_assigns_columns_by_rank(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-linear")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_auto_layout()
+
+    xa = dlg._scene.nodes["a"].pos().x()
+    xb = dlg._scene.nodes["b"].pos().x()
+    xc = dlg._scene.nodes["c"].pos().x()
+    assert xa < xb < xc
+    assert dlg._btn_undo_layout.isEnabled()
+
+
+def test_auto_layout_orders_diamond_branches_by_barycenter(qapp, test_db):
+    """a -> b, a -> c, b -> d, c -> d : b et c doivent finir au même rang (même colonne),
+    d au rang suivant — pas juste "quelque part", la colonne compte, pas la ligne exacte."""
+    pipeline = db.create_pipeline(name="auto-layout-diamond")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "d"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "d", "to_port": "input"},
+        {"from_step_key": "c", "from_port": "output_file", "to_step_key": "d", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_auto_layout()
+
+    xa = dlg._scene.nodes["a"].pos().x()
+    xb = dlg._scene.nodes["b"].pos().x()
+    xc = dlg._scene.nodes["c"].pos().x()
+    xd = dlg._scene.nodes["d"].pos().x()
+    assert xa < xb == xc < xd
+    assert dlg._scene.nodes["b"].pos().y() != dlg._scene.nodes["c"].pos().y()
+
+
+def test_auto_layout_warns_and_leaves_positions_unchanged_on_cycle(qapp, test_db, monkeypatch):
+    import ui.graph_editor.graph_editor_dialog as dialog_module
+
+    pipeline = db.create_pipeline(name="auto-layout-cycle")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "a", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = {k: n.pos() for k, n in dlg._scene.nodes.items()}
+
+    warnings = []
+    monkeypatch.setattr(dialog_module.QMessageBox, "warning",
+                         staticmethod(lambda *a, **k: warnings.append(a)))
+
+    dlg._on_auto_layout()
+
+    assert len(warnings) == 1
+    assert {k: n.pos() for k, n in dlg._scene.nodes.items()} == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+def test_undo_layout_restores_previous_positions(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-undo")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()}
+
+    dlg._on_auto_layout()
+    assert {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()} != before
+    assert dlg._btn_undo_layout.isEnabled()
+
+    dlg._on_undo_layout()
+
+    assert {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()} == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+def test_undo_layout_button_disabled_by_default(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-default")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert not dlg._btn_undo_layout.isEnabled()

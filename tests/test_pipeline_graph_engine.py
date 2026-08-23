@@ -9,7 +9,7 @@ substitués dans le registre, fixture test_db, round-trip complet via run_pipeli
 from pathlib import Path
 
 import core.steps as steps_module
-from core.pipeline import validate_pipeline_graph, run_pipeline
+from core.pipeline import validate_pipeline_graph, run_pipeline, topological_ranks
 from core.steps.base import BaseStep, StepResult
 from database import db_manager as db
 
@@ -116,6 +116,37 @@ def test_validate_error_port_edge_alongside_a_normal_edge_still_satisfies_requir
     errors, warnings = validate_pipeline_graph(steps, edges)
     assert errors == []
     assert warnings == []
+
+
+def test_topological_ranks_linear_chain():
+    ranks = topological_ranks(["a", "b", "c"], [_edge("a", "b"), _edge("b", "c")])
+    assert ranks == {"a": 0, "b": 1, "c": 2}
+
+
+def test_topological_ranks_disconnected_nodes_all_get_rank_zero():
+    ranks = topological_ranks(["a", "b", "c"], [])
+    assert ranks == {"a": 0, "b": 0, "c": 0}
+
+
+def test_topological_ranks_diamond_takes_the_longer_path():
+    # a -> b -> d, a -> c -> d : d doit être au rang max(rang(b), rang(c)) + 1, pas juste après
+    # le premier chemin trouvé.
+    ranks = topological_ranks(
+        ["a", "b", "c", "d"],
+        [_edge("a", "b"), _edge("a", "c"), _edge("b", "d"), _edge("c", "d")],
+    )
+    assert ranks == {"a": 0, "b": 1, "c": 1, "d": 2}
+
+
+def test_topological_ranks_returns_none_on_cycle():
+    assert topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "a")]) is None
+
+
+def test_topological_ranks_ignores_edges_referencing_unknown_keys():
+    """Une arête pointant vers une clé absente de step_keys (nœud supprimé entre-temps, ou
+    filtre volontaire) est ignorée plutôt que de faire planter le calcul."""
+    ranks = topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "ghost")])
+    assert ranks == {"a": 0, "b": 1}
 
 
 def test_validate_detects_cycle_formed_purely_via_error_port_edges():
