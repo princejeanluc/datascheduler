@@ -555,6 +555,70 @@ def test_get_edges_empty_for_pipeline_never_saved_as_graph(test_db):
     assert db.get_edges(pipeline.id) == []
 
 
+# ──────────────────────────────────────────────
+#  ZONES DE REGROUPEMENT VISUEL (chantier UX éditeur, Lot 2, A4)
+# ──────────────────────────────────────────────
+
+def test_pipeline_zone_table_exists_without_any_migration(test_db):
+    """Table entièrement neuve — doit exister sur une base fraîche via create_all() seul,
+    aucune ALTER TABLE nécessaire (voir database/models.py::PipelineZone)."""
+    pipeline = db.create_pipeline(name="ZONE_TABLE_TEST")
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_persists_zones(test_db):
+    pipeline = db.create_pipeline(name="ZONE_SAVE_TEST")
+
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[],
+        zones=[{"name": "Extraction", "pos_x": 10, "pos_y": 20, "width": 300, "height": 200}],
+    )
+
+    zones = db.get_zones(pipeline.id)
+    assert len(zones) == 1
+    assert zones[0].name == "Extraction"
+    assert (zones[0].pos_x, zones[0].pos_y) == (10, 20)
+    assert (zones[0].width, zones[0].height) == (300, 200)
+
+
+def test_save_pipeline_graph_without_zones_arg_defaults_to_empty(test_db):
+    """Tout appelant antérieur à ce chantier (ne connaît pas `zones`) continue de fonctionner
+    sans erreur, sans créer de zone."""
+    pipeline = db.create_pipeline(name="ZONE_OMITTED_ARG_TEST")
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[],
+    )
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_replaces_zones_entirely_on_resave(test_db):
+    pipeline = db.create_pipeline(name="ZONE_RESAVE_TEST")
+    steps = [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}]
+
+    db.save_pipeline_graph(pipeline.id, steps, edges=[], zones=[{"name": "Zone 1"}])
+    assert len(db.get_zones(pipeline.id)) == 1
+
+    db.save_pipeline_graph(pipeline.id, steps, edges=[], zones=[])
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_zone_defaults_when_fields_missing(test_db):
+    pipeline = db.create_pipeline(name="ZONE_DEFAULTS_TEST")
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[], zones=[{}],
+    )
+    zone = db.get_zones(pipeline.id)[0]
+    assert zone.name == "Nouvelle zone"
+    assert (zone.pos_x, zone.pos_y) == (0, 0)
+    assert (zone.width, zone.height) == (240, 160)
+
+
 def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
     from sqlalchemy import create_engine, text
     from database.models import Base

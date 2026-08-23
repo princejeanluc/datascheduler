@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -1677,17 +1677,29 @@ def get_edges(pipeline_id: int) -> list[PipelineEdge]:
         return s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).all()
 
 
-def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) -> None:
+def get_zones(pipeline_id: int) -> list[PipelineZone]:
+    with get_session() as s:
+        return s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).all()
+
+
+def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
+                         zones: list[dict] | None = None) -> None:
     """
     Comme save_steps(), mais persiste aussi la position sur le canevas (pos_x/pos_y, 0 par
-    défaut si absente du dict) et remplace intégralement les PipelineEdge du pipeline.
+    défaut si absente du dict) et remplace intégralement les PipelineEdge/PipelineZone du
+    pipeline.
 
-    N'est appelée que par le futur éditeur graphique (chantier 6b) — save_steps() reste le
-    chemin de l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
+    N'est appelée que par l'éditeur graphique (chantier 6b) et par apply_import()
+    (database/export_import.py, écrasement et création) — save_steps() reste le chemin de
+    l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
 
     Chaque edge dict : {"from_step_key": str, "from_port": str, "to_step_key": str, "to_port": str}.
+    Chaque zone dict : {"name": str, "pos_x": int, "pos_y": int, "width": int, "height": int}
+    (chantier UX éditeur, Lot 2, A4) — `zones=None` (défaut) équivaut à une liste vide, pour tout
+    appelant antérieur à ce chantier.
     """
     import json
+    zones = zones or []
     with get_session() as s:
         s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).delete()
         for i, step in enumerate(steps):
@@ -1712,11 +1724,22 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) 
                 to_step_key=e["to_step_key"],
                 to_port=e.get("to_port") or "input",
             ))
+        s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).delete()
+        for z in zones:
+            s.add(PipelineZone(
+                pipeline_id=pipeline_id,
+                name=z.get("name") or "Nouvelle zone",
+                pos_x=z.get("pos_x", 0),
+                pos_y=z.get("pos_y", 0),
+                width=z.get("width", 240),
+                height=z.get("height", 160),
+            ))
     pipeline = get_pipeline(pipeline_id)
     log_audit_event(
         "pipeline_edited", pipeline_id=pipeline_id,
         pipeline_name=pipeline.name if pipeline else None,
-        detail=f"{len(steps)} étape(s), {len(edges)} arête(s) (éditeur graphique)",
+        detail=f"{len(steps)} étape(s), {len(edges)} arête(s), {len(zones)} zone(s) "
+               "(éditeur graphique)",
     )
 
 
