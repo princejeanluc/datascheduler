@@ -33,12 +33,14 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
         self._add_label_row(form)
         self._add_execution_policy_row(form)
 
-        self.inp_expression = self._input("ex : rows_count > 0")
+        self.inp_expression = self._input('ex : rows_count > 0 and artifact:rapport != ""')
         form.addRow(self._lbl("Expression *"), self.inp_expression)
 
         hint = QLabel(
-            "Grammaire : <champ> <opérateur> <valeur>.  Champs : rows_count, artifact:<nom>.  "
-            "Opérateurs : == != > >= < <=.  Deux sorties (Vrai/Faux) à connecter dans le canevas."
+            "Grammaire : <champ> <opérateur> <valeur>, combinables avec and / or / not et des "
+            "parenthèses.  Champs : rows_count, artifact:<nom> (citer le nom s'il contient un "
+            'espace : artifact:"nom avec espace").  Opérateurs : == != > >= < <=.  '
+            "Deux sorties (Vrai/Faux) à connecter dans le canevas."
         )
         hint.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONT_MONO_STACK}; "

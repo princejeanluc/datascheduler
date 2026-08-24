@@ -164,8 +164,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 ## Contrôle de flux
 
 - **Condition (`CONDITION`)** — disponible uniquement dans l'**éditeur graphique**. Évalue une
-  expression simple (ex : `rows_count > 0`, `artifact:rapport != ""`) et oriente l'exécution vers
-  l'une de ses deux sorties (`true` / `false`) selon le résultat.
+  expression (ex : `rows_count > 0`, `artifact:rapport != ""`) et oriente l'exécution vers l'une
+  de ses deux sorties (`true` / `false`) selon le résultat. Plusieurs critères se combinent avec
+  `and` / `or` / `not` et des parenthèses, ex. : `rows_count > 0 and artifact:rapport != ""` — un
+  nom d'artefact contenant un espace doit être cité (`artifact:"rapport final"`).
 """,
     ),
     HelpTopic(
