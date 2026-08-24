@@ -14,6 +14,9 @@ from ui.step_editor.common import _icon
 from core.steps import get_step_output_ports, is_routing_node
 
 PORT_RADIUS = 6
+# Marge supplémentaire sous le port "error" (au-delà de PORT_RADIUS) pour son étiquette "!",
+# dessinée en dessous du point plutôt qu'à côté — voir boundingRect()/paint().
+_ERROR_LABEL_MARGIN = 16
 
 # Port_name -> (clé de couleur COLORS, étiquette courte) — chantier port d'erreur générique.
 # "error" utilise "warning" (ambre), jamais "danger" (déjà pris par "false" sur ConditionStep :
@@ -37,15 +40,16 @@ def _port_visual(port: str) -> tuple[str, str]:
 
 
 def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -> tuple[float, float]:
-    """Position LOCALE (avant mapToScene) du idx-ième port de sortie sur un nœud de routage en
-    losange — chantier UX éditeur. Sur un rectangle, plusieurs ports se répartissent sur la
-    ligne verticale x=WIDTH (le bord droit) ; sur un vrai losange inscrit dans WIDTH×HEIGHT,
-    x=WIDTH n'est qu'un seul point (le sommet droit) — y placer plusieurs ports les
-    superposerait exactement, les rendant impossibles à cliquer individuellement. Les ports sont
-    donc répartis le long des deux arêtes obliques (sommet haut → sommet droit → sommet bas),
-    symétriquement autour du sommet droit, exactement comme l'ancienne répartition verticale
-    était symétrique autour de HEIGHT/2 — même formule `step * (idx+1)`, appliquée à une
-    coordonnée curviligne le long du "V" du losange plutôt qu'à une ligne droite."""
+    """Position LOCALE (avant mapToScene) du idx-ième port de sortie NORMAL (jamais "error", voir
+    _error_port_local_pos ci-dessous) sur un nœud de routage en losange — chantier UX éditeur.
+    Sur un rectangle, plusieurs ports se répartissent sur la ligne verticale x=WIDTH (le bord
+    droit) ; sur un vrai losange inscrit dans WIDTH×HEIGHT, x=WIDTH n'est qu'un seul point (le
+    sommet droit) — y placer plusieurs ports les superposerait exactement, les rendant
+    impossibles à cliquer individuellement. Les ports sont donc répartis le long des deux arêtes
+    obliques (sommet haut → sommet droit → sommet bas), symétriquement autour du sommet droit,
+    exactement comme l'ancienne répartition verticale était symétrique autour de HEIGHT/2 — même
+    formule `step * (idx+1)`, appliquée à une coordonnée curviligne le long du "V" du losange
+    plutôt qu'à une ligne droite."""
     if count <= 1:
         return (width, height / 2)
     step = 1.0 / (count + 1)
@@ -59,6 +63,20 @@ def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -
         x = width - local_t * (width / 2)
         y = height / 2 + local_t * (height / 2)
     return (x, y)
+
+
+def _error_port_local_pos(width: float, height: float) -> tuple[float, float]:
+    """Position LOCALE du port "error" — chantier placement du port d'erreur. Toujours au
+    sommet/bord BAS (`width/2, height`), quelle que soit la forme (losange ou rectangle) et quel
+    que soit le nombre d'autres ports : le sommet/bord DROIT reste exclusivement réservé au(x)
+    port(s) normal(aux), celui qu'on suit des yeux dans le sens de lecture. Sans cette séparation,
+    un nœud à seulement 2 ports (normal + error — le cas de la vaste majorité des types d'étape,
+    et des deux passerelles GATEWAY_PARALLEL/GATEWAY_JOIN) plaçait les deux via la même
+    répartition générique, les faisant atterrir l'un contre l'autre près du sommet droit d'un
+    losange (bug constaté par capture d'écran) — jamais un problème sur un rectangle (l'axe X y
+    est fixe), mais bien un sur un losange (l'axe X y varie avec Y). Aucun précédent BPMN/Dataiku
+    à copier ici — la gestion d'erreur générique par port est propre à cette app."""
+    return (width / 2, height)
 
 
 class StepNodeItem(QGraphicsObject):
@@ -150,22 +168,31 @@ class StepNodeItem(QGraphicsObject):
         return is_routing_node(self.step.get("step_type", ""))
 
     def output_port_pos(self, port: str) -> QPointF:
-        ports = self.output_ports
-        idx = ports.index(port) if port in ports else 0
+        if port == "error":
+            x, y = _error_port_local_pos(self.WIDTH, self.HEIGHT)
+            return self.mapToScene(QPointF(x, y))
+
+        normal_ports = [p for p in self.output_ports if p != "error"]
+        idx = normal_ports.index(port) if port in normal_ports else 0
+        count = len(normal_ports)
         if self.is_routing_node:
-            x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, idx, len(ports))
-        elif len(ports) <= 1:
+            x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, idx, count)
+        elif count <= 1:
             x, y = self.WIDTH, self.HEIGHT / 2
         else:
-            step = self.HEIGHT / (len(ports) + 1)
+            step = self.HEIGHT / (count + 1)
             x, y = self.WIDTH, step * (idx + 1)
         return self.mapToScene(QPointF(x, y))
 
     # ── Qt ────────────────────────────────────
 
     def boundingRect(self) -> QRectF:
+        # Marge basse élargie (au-delà du simple PORT_RADIUS des autres côtés) : le port "error"
+        # est désormais toujours au bord/sommet bas (_error_port_local_pos), avec son étiquette
+        # "!" dessinée EN DESSOUS du point plutôt qu'à côté (voir paint()) — sans cette marge
+        # supplémentaire, l'étiquette déborderait de la zone repeinte par Qt.
         return QRectF(-PORT_RADIUS, -PORT_RADIUS,
-                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + 2 * PORT_RADIUS)
+                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + _ERROR_LABEL_MARGIN)
 
     def paint(self, painter, option, widget=None):
         step_type = self.step.get("step_type", "")
@@ -228,14 +255,16 @@ class StepNodeItem(QGraphicsObject):
 
         # Port(s) de sortie — même géométrie que output_port_pos() (coordonnées locales ici,
         # scène là-bas), pour que le point dessiné coïncide toujours avec la zone cliquable.
-        ports = self.output_ports
-        for i, port in enumerate(ports):
+        # "error" est toujours à part, au bord/sommet bas (_error_port_local_pos) — jamais mêlé
+        # à la répartition des ports normaux, voir son commentaire complet.
+        normal_ports = [p for p in self.output_ports if p != "error"]
+        for i, port in enumerate(normal_ports):
             if routing:
-                x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, i, len(ports))
-            elif len(ports) <= 1:
+                x, y = _diamond_port_local_pos(self.WIDTH, self.HEIGHT, i, len(normal_ports))
+            elif len(normal_ports) <= 1:
                 x, y = self.WIDTH, self.HEIGHT / 2
             else:
-                step = self.HEIGHT / (len(ports) + 1)
+                step = self.HEIGHT / (len(normal_ports) + 1)
                 x, y = self.WIDTH, step * (i + 1)
             color_key, label = _port_visual(port)
             color = COLORS[color_key]
@@ -245,6 +274,16 @@ class StepNodeItem(QGraphicsObject):
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(x - 22, y - 9, 16, 18),
                                   Qt.AlignRight | Qt.AlignVCenter, label)
+
+        if "error" in self.output_ports:
+            ex, ey = _error_port_local_pos(self.WIDTH, self.HEIGHT)
+            color_key, label = _port_visual("error")
+            color = COLORS[color_key]
+            painter.setBrush(QBrush(QColor(color)))
+            painter.drawEllipse(QPointF(ex, ey), PORT_RADIUS, PORT_RADIUS)
+            if label:
+                painter.setPen(QColor(color))
+                painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.ItemPositionHasChanged and self.scene():

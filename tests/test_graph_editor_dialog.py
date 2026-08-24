@@ -84,6 +84,35 @@ def test_diamond_port_local_pos_matches_rectangle_symmetry_convention():
     assert abs(a[1] - 32) == pytest.approx(abs(b[1] - 32))
 
 
+# ──────────────────────────────────────────────
+#  Port d'erreur toujours au bord/sommet bas (chantier placement du port d'erreur)
+# ──────────────────────────────────────────────
+
+def test_error_port_local_pos_is_bottom_center_for_any_shape():
+    from ui.graph_editor.node_item import _error_port_local_pos
+    assert _error_port_local_pos(200, 64) == (100, 64)
+
+
+def test_gateway_parallel_output_and_error_ports_are_well_separated():
+    """Non-régression directe du bug constaté par capture d'écran : avec seulement 2 ports
+    (output_file + error, le cas de GATEWAY_PARALLEL/GATEWAY_JOIN), l'ancienne répartition
+    générique les faisait atterrir tous les deux à quelques pixels du sommet droit du losange.
+    Désormais "error" est toujours à part (bord bas) — "output_file" redevient seul occupant du
+    sommet droit, sans compétition."""
+    node = StepNodeItem({"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}})
+    assert node.output_ports == ("output_file", "error")
+
+    out_pos = node.output_port_pos("output_file")
+    err_pos = node.output_port_pos("error")
+
+    assert out_pos.x() == node.pos().x() + node.WIDTH   # sommet droit, seul occupant
+    assert out_pos.y() == node.pos().y() + node.HEIGHT / 2
+    assert err_pos.x() == node.pos().x() + node.WIDTH / 2   # sommet bas
+    assert err_pos.y() == node.pos().y() + node.HEIGHT
+    # Nettement séparés, plus de clustering près du sommet droit.
+    assert abs(out_pos.x() - err_pos.x()) > 50
+
+
 def test_condition_node_output_ports_use_diamond_geometry_not_vertical_line():
     """Les 3 ports de sortie d'un nœud CONDITION (true/false/error) doivent être répartis sur
     le losange, pas alignés verticalement sur x=WIDTH comme un nœud rectangulaire — sinon ils se
@@ -93,8 +122,14 @@ def test_condition_node_output_ports_use_diamond_geometry_not_vertical_line():
 
     positions = {port: node.output_port_pos(port) for port in node.output_ports}
     assert len({(p.x(), p.y()) for p in positions.values()}) == 3
-    # Le port "false" (milieu, 2e de 3) tombe exactement sur le sommet droit du losange.
-    assert positions["false"].x() == node.pos().x() + node.WIDTH
+    # "error" est toujours à part, au sommet BAS (chantier placement du port d'erreur) — jamais
+    # mêlé à la répartition de true/false, qui reste sur le losange proprement dit.
+    assert positions["error"].x() == node.pos().x() + node.WIDTH / 2
+    assert positions["error"].y() == node.pos().y() + node.HEIGHT
+    # true/false (2 ports normaux) restent répartis sur le losange, ni l'un ni l'autre au
+    # sommet droit exact désormais qu'ils ne sont plus que 2 (voir _diamond_port_local_pos).
+    assert positions["true"].x() < node.pos().x() + node.WIDTH
+    assert positions["false"].x() < node.pos().x() + node.WIDTH
 
 
 def test_gateway_parallel_node_is_a_routing_node_diamond():
@@ -110,14 +145,14 @@ def test_gateway_join_node_is_a_routing_node_diamond():
 
 
 def test_regular_step_output_ports_unaffected_by_diamond_change():
-    """Non-régression : un nœud normal (pas de routage) garde exactement la répartition
-    verticale d'avant, sur la ligne x=WIDTH."""
+    """Non-régression : le port normal d'un nœud rectangulaire garde exactement la répartition
+    verticale d'avant, sur la ligne x=WIDTH — seul "error" est désormais à part (bord bas)."""
     node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
     assert node.is_routing_node is False
 
-    for port in node.output_ports:
-        pos = node.output_port_pos(port)
-        assert pos.x() == node.pos().x() + node.WIDTH
+    assert node.output_port_pos("output_file").x() == node.pos().x() + node.WIDTH
+    assert node.output_port_pos("error").x() == node.pos().x() + node.WIDTH / 2
+    assert node.output_port_pos("error").y() == node.pos().y() + node.HEIGHT
 
 
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
