@@ -38,7 +38,7 @@ DataScheduler orchestre des **pipelines de données planifiés** : extraire depu
 données ou un serveur FTP, transformer via un script, charger vers une autre base ou diffuser un
 fichier, puis notifier par email si besoin — le tout automatiquement, à l'heure que vous choisissez.
 
-## Les 6 sections de l'application
+## Les 8 sections de l'application
 
 - **Dashboard** — vue d'ensemble : pipelines actifs, succès/échecs récents, activité des 30
   derniers jours.
@@ -48,6 +48,9 @@ fichier, puis notifier par email si besoin — le tout automatiquement, à l'heu
   que vos pipelines utilisent.
 - **Requêtes SQL** — vos requêtes enregistrées, réutilisables dans plusieurs pipelines.
 - **Historique** — le journal complet de chaque exécution, plus le journal des modifications.
+- **Ressources** — suivi CPU/mémoire de l'application et du nombre d'exécutions simultanées.
+- **Paramètres** — fuseau horaire, niveau de log, mode d'exécution (dans l'application ou en
+  arrière-plan), plafond de concurrence, réglages du digest de notifications.
 - **Aide** — vous y êtes.
 
 Chaque pipeline est une suite d'**étapes** (voir la rubrique *Glossaire des types d'étapes*)
@@ -265,9 +268,10 @@ Deux niveaux, complémentaires :
 
 - **Dashboard** — les exécutions en échec ressortent visuellement (nom en rouge, détail de
   l'erreur au survol) dans la table des dernières exécutions.
-- **Digest par email** — depuis le Dashboard, bouton **Notifications** : activez un résumé
-  quotidien ou hebdomadaire envoyé par email (profil SMTP + destinataires requis), qui liste les
-  succès/échecs de la période. Utile si vous n'ouvrez pas l'application tous les jours.
+- **Digest par email** — depuis le Dashboard, bouton **Notifications** (vous amène dans
+  **Paramètres**) : activez un résumé quotidien ou hebdomadaire envoyé par email (profil SMTP +
+  destinataires requis), qui liste les succès/échecs de la période. Utile si vous n'ouvrez pas
+  l'application tous les jours.
 
 > Un échec sur un pipeline **planifié** est capturé de la même façon qu'un échec déclenché
 > manuellement — vous êtes averti dans les deux cas, pas seulement quand vous lancez le pipeline
