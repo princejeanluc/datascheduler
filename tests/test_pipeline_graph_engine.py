@@ -241,6 +241,119 @@ def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch
 
 
 # ──────────────────────────────────────────────
+#  GATEWAY_JOIN (chantier Gateway) — jonction ET/OU, désignation explicite d'artefact.
+# ──────────────────────────────────────────────
+
+def test_gateway_join_and_mode_succeeds_when_all_branches_succeed(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-and-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+
+
+def test_gateway_join_and_mode_fails_the_pipeline_when_a_branch_fails(test_db, monkeypatch, tmp_path):
+    """Régression ciblée (risque identifié en recherche) : l'échec ET doit remonter jusqu'à
+    run_pipeline(), pas juste être marqué en interne sans jamais atteindre PipelineResult."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "never.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-and-fail")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert not sink.exists()   # "c" n'a jamais tourné — la jonction a échoué avant
+
+
+def test_gateway_join_or_mode_lets_join_and_downstream_run_despite_a_branch_failing(
+        test_db, monkeypatch, tmp_path):
+    """Le pipeline global reste en échec (une étape a réellement échoué — même convention déjà
+    établie que test_fan_out_failure_blocks_only_its_own_dependent : result.success reflète
+    "au moins une étape a échoué", pas "la branche indépendante a-t-elle quand même avancé").
+    Ce que le mode OU change, c'est que la jonction elle-même n'est PAS bloquée par la branche en
+    échec — elle avance dès qu'une seule branche a abouti, et "c" reçoit bien les données."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-or-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "OR",
+                                                   "artifact_source_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success   # "b" a réellement échoué — reflété au niveau du pipeline
+    assert sink.read_text() == "A"   # mais la jonction (mode OU) a quand même laissé passer "a"
+
+
+def test_gateway_join_forwards_the_designated_branch_even_if_another_also_produced(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join",
+                                                   "artifact_source_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == "B"   # la branche désignée, pas "a" même si elle a aussi produit
+
+
+def test_gateway_join_without_designation_forwards_nothing(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-no-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == ""   # synchronisation seulement, aucune donnée transmise
+
+
+# ──────────────────────────────────────────────
 #  failed_step_key (chantier UX éditeur, Lot 1, B1) — survit après la fin du run, contrairement
 #  à current_step_key, pour un lien "Voir dans le graphe" depuis l'historique.
 # ──────────────────────────────────────────────

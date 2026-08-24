@@ -82,6 +82,7 @@ class StepType(str, enum.Enum):
     COMPRESS       = "COMPRESS"        # Compression en archive ZIP
     SQOOP_EXPORT   = "SQOOP_EXPORT"    # Export Hive/HCatalog → Oracle via Sqoop, edge node SSH + Kerberos
     GATEWAY_PARALLEL = "GATEWAY_PARALLEL"  # Fork parallèle (chantier Gateway) — marqueur de branchement
+    GATEWAY_JOIN     = "GATEWAY_JOIN"      # Jonction ET/OU (chantier Gateway) — synchronise plusieurs branches
 
 
 # ──────────────────────────────────────────────

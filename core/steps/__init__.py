@@ -13,6 +13,7 @@ from .spark_sql      import SparkSqlStep
 from .compress       import CompressStep
 from .sqoop_export   import SqoopExportStep
 from .gateway_parallel import GatewayParallelStep
+from .gateway_join   import GatewayJoinStep
 
 _REGISTRY: dict[str, type[BaseStep]] = {
     "FTP_UPLOAD":     FtpUploadStep,
@@ -29,6 +30,7 @@ _REGISTRY: dict[str, type[BaseStep]] = {
     "COMPRESS":       CompressStep,
     "SQOOP_EXPORT":   SqoopExportStep,
     "GATEWAY_PARALLEL": GatewayParallelStep,
+    "GATEWAY_JOIN":      GatewayJoinStep,
 }
 
 
@@ -68,6 +70,11 @@ def step_produces_output_file(step_type: str, config: dict) -> bool:
         return True
     if step_type == "SPARK_SQL":
         return bool((config or {}).get("fetch_result"))
+    if step_type == "GATEWAY_JOIN":
+        # Ne produit que si l'utilisateur a explicitement désigné la branche dont l'artefact
+        # continue (chantier Gateway) — sinon la jonction ne fait QUE synchroniser, aucune
+        # donnée à proposer comme "Source" pour une étape plus en aval.
+        return bool((config or {}).get("artifact_source_step_key"))
     return False
 
 
@@ -85,8 +92,20 @@ def get_step_output_ports(step_type: str) -> tuple[str, ...]:
 
 
 def is_routing_node(step_type: str) -> bool:
-    """Un nœud de routage/jonction (aujourd'hui CONDITION, futur GATEWAY) se rend en losange
-    sur le canevas plutôt qu'en rectangle — voir ui/graph_editor/node_item.py. Faux pour tout
-    type inconnu, même défaut que la classe de base."""
+    """Un nœud de routage/jonction (aujourd'hui CONDITION, GATEWAY_PARALLEL, GATEWAY_JOIN) se
+    rend en losange sur le canevas plutôt qu'en rectangle — voir ui/graph_editor/node_item.py.
+    Faux pour tout type inconnu, même défaut que la classe de base."""
     cls = _REGISTRY.get(step_type)
     return bool(cls is not None and cls.IS_ROUTING_NODE)
+
+
+def get_join_mode(step_type: str, config: dict) -> str | None:
+    """Mode de jonction ("AND"/"OR") d'un step passerelle-jonction (chantier Gateway) — None
+    pour tout autre type (jamais un littéral "GATEWAY_JOIN" codé en dur dans core/pipeline.py,
+    même indirection que is_routing_node()). "OR" par défaut si la config ne précise rien —
+    repli sûr correspondant au comportement historique déjà en place pour tout nœud
+    multi-prédécesseurs (should_skip dans core/pipeline.py)."""
+    cls = _REGISTRY.get(step_type)
+    if cls is None or not cls.IS_JOIN_GATEWAY:
+        return None
+    return (config or {}).get("join_mode") or "OR"

@@ -117,6 +117,12 @@ class BaseStep:
     # futur type GATEWAY en hériterait de même. Centralisé ici (jamais une liste de types en
     # dur côté rendu Qt) — même principe que OUTPUT_PORTS ci-dessus.
     IS_ROUTING_NODE: bool = False
+    # Passerelle de jonction ET/OU (chantier Gateway) — False pour tous les steps existants ;
+    # GatewayJoinStep le redéfinit à True. Pilote get_join_mode() (core/steps/__init__.py), qui
+    # à son tour pilote la sémantique ET dans core/pipeline.py (_execute_graph/
+    # _execute_graph_parallel) — jamais un littéral "GATEWAY_JOIN" codé en dur dans le moteur,
+    # même principe d'indirection que IS_ROUTING_NODE/is_routing_node().
+    IS_JOIN_GATEWAY: bool = False
 
     def __init__(self, config: dict):
         self.config = config
