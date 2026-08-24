@@ -336,6 +336,27 @@ class PipelineGraphEditorDialog(QDialog):
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
 
+    def _on_arrange_selection(self):
+        """Version ciblée de _on_auto_layout (chantier UX éditeur, Lot 3, A6) : ne repositionne
+        que les étapes actuellement sélectionnées, le reste du graphe sert d'ancrage inchangé —
+        _compute_auto_layout_positions(node_subset=...) supporte déjà ce cas depuis le Lot 1.
+        Réutilise le même snapshot/bouton d'annulation que le rangement complet : une seule
+        action de rangement (complète ou ciblée) peut être annulée à la fois."""
+        keys = {n.step_key for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)}
+        if not keys:
+            return
+        positions = self._compute_auto_layout_positions(node_subset=keys)
+        if positions is None:
+            QMessageBox.warning(
+                self, "Rangement impossible",
+                "Le graphe contient un cycle — impossible de déterminer un ordre de rangement.",
+            )
+            return
+        self._layout_snapshot = {k: n.pos() for k, n in self._scene.nodes.items()}
+        for key, pos in positions.items():
+            self._scene.nodes[key].setPos(pos)
+        self._btn_undo_layout.setEnabled(True)
+
     # ── Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) ────
 
     def _on_add_zone(self):

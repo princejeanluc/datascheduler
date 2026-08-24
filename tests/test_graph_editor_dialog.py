@@ -753,6 +753,83 @@ def test_undo_layout_button_disabled_by_default(qapp, test_db):
 
 
 # ──────────────────────────────────────────────
+#  Ranger la sélection (chantier UX éditeur, Lot 3, A6)
+# ──────────────────────────────────────────────
+
+def test_compute_auto_layout_positions_node_subset_leaves_others_untouched(qapp, test_db):
+    pipeline = db.create_pipeline(name="auto-layout-subset")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    positions = dlg._compute_auto_layout_positions(node_subset={"b"})
+
+    assert positions is not None
+    assert set(positions.keys()) == {"b"}
+
+
+def test_arrange_selection_moves_only_selected_nodes(qapp, test_db):
+    pipeline = db.create_pipeline(name="arrange-selection")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    pos_a_before = dlg._scene.nodes["a"].pos()
+    pos_c_before = dlg._scene.nodes["c"].pos()
+    dlg._scene.nodes["b"].setSelected(True)
+
+    dlg._on_arrange_selection()
+
+    assert dlg._scene.nodes["a"].pos() == pos_a_before
+    assert dlg._scene.nodes["c"].pos() == pos_c_before
+    assert dlg._btn_undo_layout.isEnabled()
+
+
+def test_arrange_selection_no_selection_is_a_no_op(qapp, test_db):
+    pipeline = db.create_pipeline(name="arrange-selection-empty")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = dlg._scene.nodes["a"].pos()
+
+    dlg._on_arrange_selection()
+
+    assert dlg._scene.nodes["a"].pos() == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+def test_undo_after_arrange_selection_restores_all_positions(qapp, test_db):
+    pipeline = db.create_pipeline(name="arrange-selection-undo")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    before = {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()}
+    dlg._scene.nodes["b"].setSelected(True)
+
+    dlg._on_arrange_selection()
+    dlg._on_undo_layout()
+
+    assert {k: (n.pos().x(), n.pos().y()) for k, n in dlg._scene.nodes.items()} == before
+    assert not dlg._btn_undo_layout.isEnabled()
+
+
+# ──────────────────────────────────────────────
 #  Recherche textuelle (chantier UX éditeur, Lot 2, B3)
 # ──────────────────────────────────────────────
 

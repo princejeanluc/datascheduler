@@ -109,6 +109,24 @@ def test_rail_auto_layout_button_click_repositions_nodes(qapp, test_db):
     assert dlg._btn_undo_layout.isEnabled()
 
 
+def test_rail_arrange_selection_button_click_moves_only_selected_node(qapp, test_db):
+    pipeline = db.create_pipeline(name="rail-arrange-selection-click-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    pos_a_before = dlg._scene.nodes["a"].pos()
+    dlg._scene.nodes["b"].setSelected(True)
+
+    dlg._rail.btn_arrange_selection.click()
+
+    assert dlg._scene.nodes["a"].pos() == pos_a_before
+    assert dlg._btn_undo_layout.isEnabled()
+
+
 def test_rail_undo_layout_button_click_restores_positions(qapp, test_db):
     pipeline = db.create_pipeline(name="rail-undo-layout-click-test")
     db.save_pipeline_graph(pipeline.id, steps=[
