@@ -153,6 +153,7 @@ class StepNodeItem(QGraphicsObject):
         self._is_executing  = False
         self._is_failed     = False
         self._is_search_hit = False
+        self._dragging      = False
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -376,7 +377,23 @@ class StepNodeItem(QGraphicsObject):
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
 
+    def mousePressEvent(self, event):
+        # self._dragging distingue un glissé interactif réel d'un setPos() programmatique
+        # (rangement automatique/de la sélection, annulation, placement initial d'un nouveau
+        # nœud) — seul le premier doit déclencher l'accrochage aux guides d'alignement dans
+        # itemChange() ci-dessous (chantier UX éditeur, Lot 3, A5).
+        self._dragging = True
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        if self.scene():
+            self.scene().clear_alignment_guides()
+        super().mouseReleaseEvent(event)
+
     def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionChange and self._dragging and self.scene():
+            return self.scene().snap_node_position(self, value)
         if change == QGraphicsItem.ItemPositionHasChanged and self.scene():
             self.scene().notify_node_moved(self)
         return super().itemChange(change, value)
