@@ -24,6 +24,7 @@ class PipelineGraphView(QGraphicsView):
         # ne les connaît pas, elle se contente de les notifier des évènements pertinents).
         self._minimap = None
         self._rail = None
+        self._zoom_widget = None
         # Pan manuel (chantier identité visuelle) — bouton milieu réservé exclusivement au
         # panoramique, jamais transmis à PipelineGraphScene (qui ne filtre par bouton nulle
         # part) : interceptés ici, AVANT tout super()..., le clic gauche existant
@@ -96,6 +97,8 @@ class PipelineGraphView(QGraphicsView):
         self.scale(factor, factor)
         if self._minimap is not None:
             self._minimap.request_repaint()
+        if self._zoom_widget is not None:
+            self._zoom_widget.refresh()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -103,3 +106,5 @@ class PipelineGraphView(QGraphicsView):
             self._minimap.reposition()
         if self._rail is not None:
             self._rail.reposition()
+        if self._zoom_widget is not None:
+            self._zoom_widget.reposition()

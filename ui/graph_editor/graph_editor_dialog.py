@@ -24,6 +24,7 @@ from .edge_item import EdgeItem
 from .zone_item import ZoneItem
 from .minimap_widget import GraphMinimapWidget
 from .tool_rail import EditorToolRail
+from .zoom_widget import ZoomWidget
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -200,6 +201,12 @@ class PipelineGraphEditorDialog(QDialog):
         self._rail.reposition()
         self._btn_undo_layout = self._rail.btn_undo_layout
         self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
+
+        # Widget de zoom flottant (chantier identité visuelle) — coin bas-gauche, opposé à la
+        # mini-carte (bas-droite).
+        self._zoom_widget = ZoomWidget(self._view, parent=self._view.viewport())
+        self._view._zoom_widget = self._zoom_widget
+        self._zoom_widget.reposition()
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
