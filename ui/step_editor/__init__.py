@@ -21,6 +21,8 @@ from .condition_config_dialog import _ConditionConfigDialog
 from .spark_sql_config_dialog import _SparkSqlConfigDialog
 from .compress_config_dialog import _CompressConfigDialog
 from .sqoop_export_config_dialog import _SqoopExportConfigDialog
+from .gateway_parallel_config_dialog import _GatewayParallelConfigDialog
+from .gateway_join_config_dialog import _GatewayJoinConfigDialog
 
 __all__ = ["STEP_META", "PipelineEditorDialog", "_open_config_dialog"]
 
@@ -57,6 +59,8 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         "SPARK_SQL":      _SparkSqlConfigDialog,
         "COMPRESS":       _CompressConfigDialog,
         "SQOOP_EXPORT":   _SqoopExportConfigDialog,
+        "GATEWAY_PARALLEL": _GatewayParallelConfigDialog,
+        "GATEWAY_JOIN":      _GatewayJoinConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None

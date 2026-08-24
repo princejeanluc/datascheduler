@@ -115,6 +115,143 @@ def _reset_fake_delayed_step():
 
 
 # ──────────────────────────────────────────────
+#  GATEWAY_PARALLEL (chantier Gateway) — fork explicite, chaque branche doit recevoir
+#  l'artefact amont (non-régression directe du Bug 1 trouvé en recherche).
+# ──────────────────────────────────────────────
+
+def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    sink_a, sink_b = tmp_path / "sink_a.txt", tmp_path / "sink_b.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-parallel")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(sink_a), "_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink_b), "_step_key": "b"}},
+    ], edges=[_edge("prod", "gw"), _edge("gw", "a"), _edge("gw", "b")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+    assert sink_a.read_text() == "DATA"
+    assert sink_b.read_text() == "DATA"
+
+
+# ──────────────────────────────────────────────
+#  GATEWAY_JOIN (chantier Gateway) — jonction ET/OU, désignation explicite d'artefact.
+# ──────────────────────────────────────────────
+
+def test_gateway_join_and_mode_succeeds_when_all_branches_succeed(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-join-and-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+
+
+def test_gateway_join_and_mode_fails_the_pipeline_when_a_branch_fails(test_db, monkeypatch, tmp_path):
+    """Régression ciblée trouvée en recherche : _submit() ne déclarait pas pipeline_failed en
+    nonlocal — une réassignation aurait créé une variable locale masquant celle de la fonction
+    englobante, et l'échec ET ne serait JAMAIS remonté jusqu'à _execute_graph_parallel()."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "never.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-join-and-fail")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    (pipeline_failed, _, _, active_port), ctx, result = _run_parallel(pipeline.id)
+
+    assert pipeline_failed   # LE point testé : doit remonter jusqu'ici, pas rester local à _submit()
+    assert active_port.get("join") == "error"
+    assert not sink.exists()
+
+
+def test_gateway_join_or_mode_lets_join_and_downstream_run_despite_a_branch_failing(
+        test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-join-or-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "OR",
+                                                   "artifact_source_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert pipeline_failed   # "b" a réellement échoué
+    assert sink.read_text() == "A"   # mais la jonction (mode OU) a quand même laissé passer "a"
+
+
+def test_gateway_join_forwards_the_designated_branch_even_if_another_also_produced(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-join-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join",
+                                                   "artifact_source_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+    assert sink.read_text() == "B"
+
+
+def test_gateway_join_without_designation_forwards_nothing(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="parallel-gateway-join-no-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+    assert sink.read_text() == ""
+
+
+# ──────────────────────────────────────────────
 #  Chevauchement temporel réel
 # ──────────────────────────────────────────────
 
@@ -222,6 +359,38 @@ def test_dependent_of_failed_step_is_skipped_not_failed_again(test_db, monkeypat
     assert pipeline_failed
     assert not (tmp_path / "never.txt").exists()
     assert any("ignorée" in line for line in result.log_lines)
+
+
+def test_skip_cascade_does_not_silently_drop_downstream_nodes(test_db, monkeypatch, tmp_path):
+    """Non-régression (bug trouvé pendant le chantier Gateway, `_execute_graph_parallel`) : une
+    chaîne de 2+ nœuds résolus SYNCHRONEMENT dans _submit() (via _resolve_skip(), jamais de
+    thread réel) pouvait disparaître silencieusement — jamais journalisée, jamais marquée
+    "ignorée" — si `in_flight` restait à 0 pendant toute la chaîne, la boucle principale sortant
+    via `if in_flight == 0: break` avant que le rescan de `ready` (alors uniquement fait après un
+    vrai résultat de thread) n'ait eu lieu. A réussit (thread réel) → B (arête tirée du port
+    "error" de A, donc structurellement toujours ignorée sur le chemin de succès, résolue en
+    synchrone) → C (dépend uniquement de B, résolu en synchrone lui aussi, juste après B, sans
+    qu'aucun thread n'ait jamais démarré entre les deux)."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(name="parallel-skip-cascade")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "a"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(tmp_path / "never_b.txt"), "_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(tmp_path / "never_c.txt"), "_step_key": "c"}},
+    ], edges=[_edge("a", "b", from_port="error"), _edge("b", "c")])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed   # a réussit, b/c sont ignorées, pas en échec
+    assert not (tmp_path / "never_b.txt").exists()
+    assert not (tmp_path / "never_c.txt").exists()
+    # Avant le correctif : ni "b" ni "c" n'étaient journalisées (disparues en silence, la boucle
+    # principale sortait avant même d'atteindre leur résolution synchrone).
+    assert sum(1 for line in result.log_lines if "ignorée" in line) == 2
 
 
 def test_run_always_step_executes_despite_failed_dependency(test_db, monkeypatch, tmp_path):

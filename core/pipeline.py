@@ -15,7 +15,7 @@ from pathlib import Path
 from database import db_manager as db
 from core.steps import (
     get_step, get_step_requirements, get_step_output_ports, step_produces_output_file,
-    StepContext, StepResult,
+    get_join_mode, StepContext, StepResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -582,6 +582,29 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         base_pct = int(i * 90 / total)
         next_pct = int((i + 1) * 90 / total)
 
+        # Passerelle de jonction en mode ET (chantier Gateway) : n'avance QUE si toutes les
+        # arêtes entrantes ont abouti — une seule indisponible fait ÉCHOUER la jonction
+        # elle-même (jamais un simple skip, contrairement au mode OU/comportement historique
+        # ci-dessous), pour qu'un gestionnaire d'erreur câblé depuis son port "error" puisse
+        # réagir. Décision assumée : "unavailable" mélange "source en échec/ignorée" et
+        # "mauvais port" (ex. une arête tirée du port "error") — une arête "error" câblée dans
+        # une jonction ET la fait donc échouer systématiquement sur le chemin nominal, pas de
+        # cas particulier ajouté pour ça.
+        join_mode = get_join_mode(step_type, config)
+        if join_mode == "AND" and incoming and unavailable and not step.run_always:
+            if step_key:
+                step_status[step_key] = "failed"
+                active_port[step_key] = "error"
+            pipeline_failed = True
+            error_msg = "Passerelle de jonction (ET) : au moins une branche entrante n'a pas abouti."
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} en échec ({error_msg}) ---")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
+                ctx.extra["error_message"]     = error_msg
+                result.fail(f"Étape {i + 1} ({step_label}) : {error_msg}")
+            continue
+
         should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
         if should_skip:
             if step_key:
@@ -630,8 +653,17 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
             # PRODUCES statique de la classe (voir _execute_linear pour la même logique et son
-            # commentaire complet).
-            if ctx.output_file != before_output_file and step_key:
+            # commentaire complet) — SAUF si step_produces_output_file(step_type, config) est
+            # vrai (chantier Gateway) : un passe-plat comme GatewayParallelStep (PRODUCES
+            # inconditionnel) ou GatewayJoinStep (produit seulement si artifact_source_step_key
+            # est renseigné — même style config-dépendant que SPARK_SQL/fetch_result) peut
+            # légitimement laisser ctx.output_file égal à sa valeur d'avant (déjà la bonne valeur
+            # — réorientée avant cet appel, ou fixée par run() à une valeur qui coïncide avec
+            # avant) tout en ayant besoin d'être republié sous sa propre clé pour ses
+            # consommateurs avals — sans ça, leur réorientation à un seul prédécesseur
+            # (ctx.artifacts.get(step_key) plus bas) retomberait sur None.
+            if step_key and (ctx.output_file != before_output_file
+                              or step_produces_output_file(step_type, config)):
                 ctx.artifacts[step_key] = ctx.output_file
             output_name = config.get("output_name")
             if output_name:
@@ -792,6 +824,39 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         for nxt in outgoing_keys.get(step_key, []):
             in_degree[nxt] -= 1
 
+    def _resolve_join_failure(step_key, step_label, error_msg):
+        """Passerelle de jonction en mode ET (chantier Gateway) — mirroir de _resolve_skip()
+        mais un ÉCHEC, pas un skip (voir le commentaire complet dans _execute_graph). Point
+        d'attention : pipeline_failed DOIT être dans ce nonlocal — une réassignation dans
+        _submit()/ici sans lui créerait une variable locale masquant celle de la fonction
+        englobante, et l'échec ne remonterait jamais jusqu'à run_pipeline()."""
+        nonlocal pipeline_failed
+        step_status[step_key] = "failed"
+        active_port[step_key] = "error"
+        pipeline_failed = True
+        result.log(f"--- {step_label} en échec ({error_msg}) ---")
+        if not ctx.extra.get("failed_step_label"):
+            ctx.extra["failed_step_label"] = step_label
+            ctx.extra["failed_step_key"]   = step_key
+            ctx.extra["error_message"]     = error_msg
+            result.fail(f"{step_label} : {error_msg}")
+        for nxt in outgoing_keys.get(step_key, []):
+            in_degree[nxt] -= 1
+
+    def _scan_ready():
+        """Ajoute à `ready` tout nœud dont le in_degree vient d'atteindre 0 — appelée après
+        CHAQUE résolution, pas seulement après un résultat de thread réel (voir plus bas dans la
+        boucle principale). Bug trouvé pendant le chantier Gateway : `_resolve_skip()` (appelé
+        depuis `_submit()`) décrémente déjà `in_degree` sans jamais passer par la queue/un thread
+        — sans ce rescan après CHAQUE `_submit()`, une chaîne de 2+ nœuds résolus ainsi de suite
+        (aucun jamais mis en vol) laissait `in_flight` à 0, faisant sortir la boucle principale
+        via `if in_flight == 0: break` avant que leurs dépendants n'aient jamais été ajoutés à
+        `ready` — disparus silencieusement, jamais journalisés, jamais marqués "ignorée"."""
+        for k in by_key:
+            if (k not in step_status and k not in ready and k not in in_flight_keys
+                    and in_degree[k] == 0):
+                ready.append(k)
+
     def _submit(step_key):
         nonlocal in_flight, done_count
         step = by_key[step_key]
@@ -813,6 +878,16 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             src_active_port = active_port.get(e.from_step_key)
             if src_active_port is not None and e.from_port != src_active_port:
                 unavailable.append(e)
+
+        join_mode = get_join_mode(step_type, config)
+        if join_mode == "AND" and incoming and unavailable and not step.run_always:
+            _resolve_join_failure(
+                step_key, step_label,
+                "Passerelle de jonction (ET) : au moins une branche entrante n'a pas abouti.",
+            )
+            done_count += 1
+            progress(f"{step_label} (échec jonction)", int(done_count * 90 / total), step_key)
+            return
 
         should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
         if should_skip:
@@ -848,6 +923,8 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         while ready and in_flight < max_workers and not cancel_event.is_set():
             ready.sort(key=lambda k: key_order.get(k, 0))
             _submit(ready.pop(0))
+            if not cancel_event.is_set():
+                _scan_ready()
 
         if in_flight == 0:
             break   # plus rien à soumettre (annulé) et plus rien en vol
@@ -870,8 +947,12 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
 
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — même logique
-            # que _execute_graph/_execute_linear, appliquée à la copie isolée de cette étape.
-            if step_ctx.output_file != before_output_file:
+            # que _execute_graph/_execute_linear (voir son commentaire complet pour le cas
+            # step_produces_output_file(), chantier Gateway), appliquée à la copie isolée de
+            # cette étape.
+            _step_type = str(step.step_type).replace("StepType.", "")
+            if (step_ctx.output_file != before_output_file
+                    or step_produces_output_file(_step_type, config)):
                 ctx.artifacts[step_key] = step_ctx.output_file
             output_name = config.get("output_name")
             if output_name:
@@ -902,10 +983,7 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
                 in_degree[nxt] -= 1
 
         if not pipeline_cancelled:
-            for k in by_key:
-                if (k not in step_status and k not in ready and k not in in_flight_keys
-                        and in_degree[k] == 0):
-                    ready.append(k)
+            _scan_ready()
 
     if cancel_event.is_set() and not pipeline_cancelled:
         pipeline_cancelled = True

@@ -391,7 +391,7 @@ class PipelineGraphEditorDialog(QDialog):
     def _on_add_step(self):
         from ui.step_editor import _open_config_dialog
 
-        dlg = StepTypeChooserDialog(self, include_condition=True)
+        dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
         if not dlg.exec():
             return
         config_dlg = _open_config_dialog(

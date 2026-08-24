@@ -97,6 +97,18 @@ def test_condition_node_output_ports_use_diamond_geometry_not_vertical_line():
     assert positions["false"].x() == node.pos().x() + node.WIDTH
 
 
+def test_gateway_parallel_node_is_a_routing_node_diamond():
+    """Chantier Gateway — GATEWAY_PARALLEL hérite du rendu en losange générique (Lot 1) sans
+    aucun changement dans node_item.py, juste IS_ROUTING_NODE=True sur la classe du step."""
+    node = StepNodeItem({"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}})
+    assert node.is_routing_node is True
+
+
+def test_gateway_join_node_is_a_routing_node_diamond():
+    node = StepNodeItem({"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}})
+    assert node.is_routing_node is True
+
+
 def test_regular_step_output_ports_unaffected_by_diamond_change():
     """Non-régression : un nœud normal (pas de routage) garde exactement la répartition
     verticale d'avant, sur la ligne x=WIDTH."""
