@@ -104,6 +104,11 @@ def test_gateway_parallel_node_is_a_routing_node_diamond():
     assert node.is_routing_node is True
 
 
+def test_gateway_join_node_is_a_routing_node_diamond():
+    node = StepNodeItem({"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}})
+    assert node.is_routing_node is True
+
+
 def test_regular_step_output_ports_unaffected_by_diamond_change():
     """Non-régression : un nœud normal (pas de routage) garde exactement la répartition
     verticale d'avant, sur la ligne x=WIDTH."""

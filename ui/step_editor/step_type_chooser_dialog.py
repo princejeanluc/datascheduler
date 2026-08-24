@@ -40,6 +40,8 @@ _DESCRIPTIONS = {
                       "sorties (Vrai/Faux) — à connecter dans le canevas.",
     "GATEWAY_PARALLEL": "Marque explicitement un embranchement parallèle — le flux se divise en "
                       "plusieurs branches actives simultanément.",
+    "GATEWAY_JOIN":   "Synchronise plusieurs branches convergentes — ET (toutes doivent réussir) "
+                      "ou OU (une seule suffit), artefact désigné explicitement.",
 }
 
 

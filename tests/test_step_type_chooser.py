@@ -44,6 +44,16 @@ def test_gateway_parallel_available_from_graph_editor(qapp):
     assert "GATEWAY_PARALLEL" in dlg._visible_types()
 
 
+def test_gateway_join_hidden_from_linear_editor(qapp):
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=False)
+    assert "GATEWAY_JOIN" not in dlg._visible_types()
+
+
+def test_gateway_join_available_from_graph_editor(qapp):
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+    assert "GATEWAY_JOIN" in dlg._visible_types()
+
+
 def test_every_step_meta_entry_has_a_known_category(qapp):
     from ui.step_editor.step_type_chooser_dialog import _CATEGORY_ORDER
     for step_type, meta in STEP_META.items():
@@ -89,8 +99,8 @@ def test_search_matches_category_name(qapp):
     dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
     dlg.inp_search.setText("contrôle de flux")
     visible = [card for card, _ in dlg._cards if not card.isHidden()]
-    # CONDITION + GATEWAY_PARALLEL (chantier Gateway) partagent cette catégorie.
-    assert len(visible) == 2
+    # CONDITION + GATEWAY_PARALLEL + GATEWAY_JOIN (chantier Gateway) partagent cette catégorie.
+    assert len(visible) == 3
 
 
 def test_choosing_a_filtered_card_returns_correct_step_type(qapp):
