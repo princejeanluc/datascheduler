@@ -9,7 +9,7 @@ substitués dans le registre, fixture test_db, round-trip complet via run_pipeli
 from pathlib import Path
 
 import core.steps as steps_module
-from core.pipeline import validate_pipeline_graph, run_pipeline
+from core.pipeline import validate_pipeline_graph, run_pipeline, topological_ranks
 from core.steps.base import BaseStep, StepResult
 from database import db_manager as db
 
@@ -88,6 +88,81 @@ def test_validate_detects_cycle():
 
 
 # ──────────────────────────────────────────────
+#  validate_pipeline_graph — port d'erreur générique
+# ──────────────────────────────────────────────
+
+def test_validate_error_port_edge_alone_does_not_satisfy_requires():
+    """Un gestionnaire d'erreur alimenté SEULEMENT par le port "error" d'une étape amont ne
+    reçoit généralement aucune donnée réelle — ça ne doit pas satisfaire son REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "aucune arête entrante" in errors[0]
+
+
+def test_validate_error_port_edge_alongside_a_normal_edge_still_satisfies_requires():
+    """La même étape, alimentée EN PLUS par une arête normale, reste valide — l'arête "error"
+    ne retire rien, elle ne compte simplement pas comme suffisante à elle seule."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a2"}},
+        {"step_type": "DB_LOAD", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b"), _edge("a2", "b", from_port="error")]
+    errors, warnings = validate_pipeline_graph(steps, edges)
+    assert errors == []
+    assert warnings == []
+
+
+def test_topological_ranks_linear_chain():
+    ranks = topological_ranks(["a", "b", "c"], [_edge("a", "b"), _edge("b", "c")])
+    assert ranks == {"a": 0, "b": 1, "c": 2}
+
+
+def test_topological_ranks_disconnected_nodes_all_get_rank_zero():
+    ranks = topological_ranks(["a", "b", "c"], [])
+    assert ranks == {"a": 0, "b": 0, "c": 0}
+
+
+def test_topological_ranks_diamond_takes_the_longer_path():
+    # a -> b -> d, a -> c -> d : d doit être au rang max(rang(b), rang(c)) + 1, pas juste après
+    # le premier chemin trouvé.
+    ranks = topological_ranks(
+        ["a", "b", "c", "d"],
+        [_edge("a", "b"), _edge("a", "c"), _edge("b", "d"), _edge("c", "d")],
+    )
+    assert ranks == {"a": 0, "b": 1, "c": 1, "d": 2}
+
+
+def test_topological_ranks_returns_none_on_cycle():
+    assert topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "a")]) is None
+
+
+def test_topological_ranks_ignores_edges_referencing_unknown_keys():
+    """Une arête pointant vers une clé absente de step_keys (nœud supprimé entre-temps, ou
+    filtre volontaire) est ignorée plutôt que de faire planter le calcul."""
+    ranks = topological_ranks(["a", "b"], [_edge("a", "b"), _edge("b", "ghost")])
+    assert ranks == {"a": 0, "b": 1}
+
+
+def test_validate_detects_cycle_formed_purely_via_error_port_edges():
+    """La détection de cycle utilise les arêtes NON filtrées — un cycle formé uniquement via
+    des arêtes "error" doit rester détecté, l'exclusion ne s'applique qu'au test REQUIRES."""
+    steps = [
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "b"}},
+    ]
+    edges = [_edge("a", "b", from_port="error"), _edge("b", "a", from_port="error")]
+    errors, _ = validate_pipeline_graph(steps, edges)
+    assert len(errors) == 1
+    assert "cycle" in errors[0]
+
+
+# ──────────────────────────────────────────────
 #  Exécuteur de bout en bout — steps factices substitués dans le registre
 # ──────────────────────────────────────────────
 
@@ -135,6 +210,206 @@ def test_fan_out_failure_blocks_only_its_own_dependent(test_db, monkeypatch, tmp
 
     assert not result.success   # au moins une étape a échoué
     assert sink.read_text() == "DATA"   # mais la branche indépendante a bien tourné
+
+
+# ──────────────────────────────────────────────
+#  GATEWAY_PARALLEL (chantier Gateway) — fork explicite, chaque branche doit recevoir
+#  l'artefact amont (non-régression directe du Bug 1 trouvé en recherche : un run() no-op
+#  laisserait chaque branche recevoir None).
+# ──────────────────────────────────────────────
+
+def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src = tmp_path / "src.txt"
+    sink_a, sink_b = tmp_path / "sink_a.txt", tmp_path / "sink_b.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-parallel")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "GATEWAY_PARALLEL", "config": {"_step_key": "gw"}},
+        {"step_type": "FTP_UPLOAD", "config": {"sink_path": str(sink_a), "_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink_b), "_step_key": "b"}},
+    ], edges=[_edge("prod", "gw"), _edge("gw", "a"), _edge("gw", "b")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink_a.read_text() == "DATA"
+    assert sink_b.read_text() == "DATA"
+
+
+# ──────────────────────────────────────────────
+#  GATEWAY_JOIN (chantier Gateway) — jonction ET/OU, désignation explicite d'artefact.
+# ──────────────────────────────────────────────
+
+def test_gateway_join_and_mode_succeeds_when_all_branches_succeed(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-and-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+
+
+def test_gateway_join_and_mode_fails_the_pipeline_when_a_branch_fails(test_db, monkeypatch, tmp_path):
+    """Régression ciblée (risque identifié en recherche) : l'échec ET doit remonter jusqu'à
+    run_pipeline(), pas juste être marqué en interne sans jamais atteindre PipelineResult."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "never.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-and-fail")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "AND"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert not sink.exists()   # "c" n'a jamais tourné — la jonction a échoué avant
+
+
+def test_gateway_join_or_mode_lets_join_and_downstream_run_despite_a_branch_failing(
+        test_db, monkeypatch, tmp_path):
+    """Le pipeline global reste en échec (une étape a réellement échoué — même convention déjà
+    établie que test_fan_out_failure_blocks_only_its_own_dependent : result.success reflète
+    "au moins une étape a échoué", pas "la branche indépendante a-t-elle quand même avancé").
+    Ce que le mode OU change, c'est que la jonction elle-même n'est PAS bloquée par la branche en
+    échec — elle avance dès qu'une seule branche a abouti, et "c" reçoit bien les données."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, sink = tmp_path / "a.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-or-ok")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join", "join_mode": "OR",
+                                                   "artifact_source_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success   # "b" a réellement échoué — reflété au niveau du pipeline
+    assert sink.read_text() == "A"   # mais la jonction (mode OU) a quand même laissé passer "a"
+
+
+def test_gateway_join_forwards_the_designated_branch_even_if_another_also_produced(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join",
+                                                   "artifact_source_step_key": "b"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == "B"   # la branche désignée, pas "a" même si elle a aussi produit
+
+
+def test_gateway_join_without_designation_forwards_nothing(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_DOWNLOAD", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src_a, src_b, sink = tmp_path / "a.txt", tmp_path / "b.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="graph-gateway-join-no-designation")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src_a), "content": "A", "_step_key": "a"}},
+        {"step_type": "FTP_DOWNLOAD", "config": {"path": str(src_b), "content": "B", "_step_key": "b"}},
+        {"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "c"}},
+    ], edges=[_edge("a", "join"), _edge("b", "join"), _edge("join", "c")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == ""   # synchronisation seulement, aucune donnée transmise
+
+
+# ──────────────────────────────────────────────
+#  failed_step_key (chantier UX éditeur, Lot 1, B1) — survit après la fin du run, contrairement
+#  à current_step_key, pour un lien "Voir dans le graphe" depuis l'historique.
+# ──────────────────────────────────────────────
+
+def test_failed_step_key_recorded_for_linear_pipeline_failure(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+
+    pipeline = db.create_pipeline(name="linear-failed-step-key")
+    db.save_steps(pipeline.id, [
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails"
+
+
+def test_failed_step_key_recorded_for_graph_pipeline_failure(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+
+    src = tmp_path / "src.txt"
+    pipeline = db.create_pipeline(name="graph-failed-step-key")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+    ], edges=[_edge("prod", "fails")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert result.failed_step_key == "fails"
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key == "fails"
+
+
+def test_failed_step_key_is_none_for_a_successful_run(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src, sink = tmp_path / "src.txt", tmp_path / "sink.txt"
+    pipeline = db.create_pipeline(name="success-no-failed-step-key")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "ok"}},
+    ], edges=[_edge("prod", "ok")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success
+    assert result.failed_step_key is None
+    run = db.get_run(result.run_id)
+    assert run.failed_step_key is None
 
 
 def test_dependent_of_failed_step_is_skipped_not_failed_again(test_db, monkeypatch, tmp_path):
@@ -227,3 +502,118 @@ def test_cycle_prevents_any_execution(test_db, monkeypatch, tmp_path):
     assert not result.success
     assert "cycle" in result.error
     assert not marker.exists()
+
+
+# ──────────────────────────────────────────────
+#  Port d'erreur générique (analogue BPMN "événement-frontière d'erreur")
+# ──────────────────────────────────────────────
+
+def test_step_failure_routes_via_its_error_port_while_normal_port_is_skipped(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src         = tmp_path / "src.txt"
+    normal_sink = tmp_path / "never.txt"
+    error_sink  = tmp_path / "handled.txt"
+
+    pipeline = db.create_pipeline(name="graph-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(normal_sink), "_step_key": "downstream"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(error_sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "downstream"),                    # port normal — ignorée sur échec
+        _edge("fails", "handler", from_port="error"),     # port erreur — s'exécute sur échec
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert not normal_sink.exists()
+    assert error_sink.exists()
+
+
+def test_run_always_step_executes_even_when_only_edge_is_an_unfired_error_port(test_db, monkeypatch, tmp_path):
+    """run_always et le port d'erreur sont deux mécanismes indépendants : un step run_always
+    s'exécute même si sa SEULE arête entrante est un port "error" jamais déclenché (source
+    réussie, donc ce port reste indisponible) — run_always ignore la disponibilité des arêtes,
+    un point déjà vrai avant ce chantier, toujours vrai après."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "notify.txt"
+
+    pipeline = db.create_pipeline(name="graph-run-always-error-port")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "notify"},
+         "run_always": True},
+    ], edges=[_edge("prod", "notify", from_port="error")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.exists()
+
+
+def test_condition_step_failure_routes_via_error_port(test_db, monkeypatch, tmp_path):
+    """ConditionStep laisse active_port=None sur échec (expression invalide) — le backfill
+    générique du moteur le comble à "error", exactement comme pour n'importe quel autre type
+    d'étape en échec."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "on_error.txt"
+
+    pipeline = db.create_pipeline(name="graph-condition-error")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "CONDITION", "config": {"expression": "n'importe quoi d'invalide", "_step_key": "cond"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(sink), "_step_key": "handler"}},
+    ], edges=[
+        _edge("prod", "cond"),
+        _edge("cond", "handler", from_port="error"),
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success
+    assert sink.exists()
+
+
+def test_downstream_of_error_handler_routes_from_handlers_own_success_port(test_db, monkeypatch, tmp_path):
+    """Le port d'erreur ne se propage pas au-delà d'un saut : une étape en aval d'un
+    gestionnaire d'erreur route normalement depuis le port de succès de CE gestionnaire, sans
+    lien avec l'échec d'origine plus haut dans le graphe."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "FTP_UPLOAD", _FakeFailingStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "EMAIL_NOTIFY", _FakeConsumerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src          = tmp_path / "src.txt"
+    handled_sink = tmp_path / "handled.txt"
+    after_sink   = tmp_path / "after_handler.txt"
+
+    pipeline = db.create_pipeline(name="graph-error-one-hop")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "fails"}},
+        {"step_type": "EMAIL_NOTIFY", "config": {"sink_path": str(handled_sink), "_step_key": "handler"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(after_sink), "_step_key": "after"}},
+    ], edges=[
+        _edge("prod", "fails"),
+        _edge("fails", "handler", from_port="error"),
+        _edge("handler", "after"),   # port normal depuis "handler", qui a réussi
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert not result.success   # le pipeline reste en échec (fails a vraiment échoué)
+    assert handled_sink.exists()
+    assert after_sink.exists()  # la propagation d'erreur ne va pas plus loin qu'un saut

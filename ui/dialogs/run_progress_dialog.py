@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QPlainTextEdit, QProgressBar,
 )
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtGui import QFont
 from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
 
@@ -99,6 +99,16 @@ class RunProgressDialog(QDialog):
         self.lbl_step.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
         root.addWidget(self.lbl_step)
 
+        # Étapes actives en parallèle (chantier parallélisme intra-pipeline) — masqué par défaut,
+        # ne s'affiche que si ce pipeline a le parallélisme activé ET que plus d'une étape tourne
+        # réellement en même temps (voir _poll_active_steps) ; lbl_step/progress_bar ci-dessus
+        # restent la vue "dernière étape en date", inchangée, pour tout run non-parallèle.
+        self.lbl_active_steps = QLabel("")
+        self.lbl_active_steps.setWordWrap(True)
+        self.lbl_active_steps.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        self.lbl_active_steps.setVisible(False)
+        root.addWidget(self.lbl_active_steps)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
@@ -153,10 +163,53 @@ class RunProgressDialog(QDialog):
         root.addLayout(btn_row)
 
     def _start(self, pipeline_id: int, resume_from_run_id: int | None = None):
+        from datetime import datetime
+
         self._thread = RunProgressThread(pipeline_id, resume_from_run_id)
         self._thread.progress_signal.connect(self._on_progress)
         self._thread.finished_signal.connect(self._on_finished)
         self._thread.start()
+
+        # Sondage indépendant du signal ci-dessus (chantier parallélisme intra-pipeline) —
+        # progress_signal ne porte que la DERNIÈRE étape ayant tiqué, insuffisant pour afficher
+        # "N étapes en cours" (voir core/pipeline.py::_execute_graph_parallel, qui persiste déjà
+        # cet état complet dans PipelineRun.active_steps_json). Même patron de découverte du run
+        # que ui/main_window/remote_run_dialog.py : on ne connaît pas encore son id à l'ouverture.
+        from database import db_manager as db
+        self._active_steps_enqueued_at = datetime.utcnow()
+        self._active_steps_run_id = None
+        interval_s = max(1, db.get_app_settings().live_log_refresh_s)
+        self._active_steps_timer = QTimer(self)
+        self._active_steps_timer.setInterval(interval_s * 1000)
+        self._active_steps_timer.timeout.connect(self._poll_active_steps)
+        self._active_steps_timer.start()
+
+    def _poll_active_steps(self):
+        import json
+        from database import db_manager as db
+
+        if self._active_steps_run_id is None:
+            runs = db.get_runs(self._pipeline_id, limit=1)
+            if not runs or not runs[0].started_at or runs[0].started_at < self._active_steps_enqueued_at:
+                return
+            self._active_steps_run_id = runs[0].id
+
+        run = db.get_run(self._active_steps_run_id)
+        if not run or not run.active_steps_json:
+            self.lbl_active_steps.setVisible(False)
+            return
+        try:
+            active = json.loads(run.active_steps_json)
+        except (ValueError, TypeError):
+            return
+        if len(active) <= 1:
+            # Une seule étape à la fois : lbl_step ci-dessus la montre déjà, pas besoin de
+            # dupliquer l'information.
+            self.lbl_active_steps.setVisible(False)
+            return
+        lines = [f"• {info.get('label') or key}" for key, info in active.items()]
+        self.lbl_active_steps.setText("Étapes en cours en parallèle :\n" + "\n".join(lines))
+        self.lbl_active_steps.setVisible(True)
 
     def _on_progress(self, step: str, pct: int):
         self.lbl_step.setText(step)
@@ -174,8 +227,19 @@ class RunProgressDialog(QDialog):
         super().closeEvent(event)
 
     def _on_finished(self, result):
+        # finished_signal est émis en toute dernière ligne de RunProgressThread.run() — au moment
+        # où ce slot s'exécute (connexion en file d'attente, thread GUI), le thread natif a très
+        # probablement déjà fini de se dérouler, mais ce n'est pas garanti (surtout avec plusieurs
+        # threads daemon du moteur parallèle qui se disputent le GIL au même instant) : un
+        # self._thread.wait() ici ferme cette fenêtre de course sans jamais bloquer réellement
+        # (confirmé en pratique par "QThread: Destroyed while thread is still running").
+        if self._thread is not None:
+            self._thread.wait()
         _background_runs.discard(self)
         self.btn_stop.setVisible(False)
+        if getattr(self, "_active_steps_timer", None) is not None:
+            self._active_steps_timer.stop()
+        self.lbl_active_steps.setVisible(False)
         self._last_result = result
         if result.success:
             m, s = divmod(int(result.duration_s), 60)

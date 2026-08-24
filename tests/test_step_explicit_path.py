@@ -29,6 +29,24 @@ def test_local_copy_uses_explicit_path_when_set(tmp_path):
     assert (dest_dir / "source.csv").read_text() == "a,b\n1,2\n"
 
 
+def test_local_copy_republishes_destination_as_output_file(tmp_path):
+    """Chantier identité visuelle : LOCAL_COPY devient chainable — la destination continue en
+    aval via ctx.output_file, en plus (pas à la place) de ctx.extra["local_path"] déjà consommé
+    par core/pipeline.py pour le résumé de fin de run (jamais retiré)."""
+    src = tmp_path / "source.csv"
+    src.write_text("a,b\n1,2\n")
+    dest_dir = tmp_path / "dest"
+
+    ctx = StepContext()
+    step = LocalCopyStep({"explicit_path": str(src), "dest_dir": str(dest_dir)})
+    result = step.run(ctx)
+
+    assert result.success, result.error
+    expected = dest_dir / "source.csv"
+    assert ctx.output_file == expected
+    assert ctx.extra["local_path"] == str(expected)
+
+
 def test_local_copy_falls_back_to_context_when_no_explicit_path(tmp_path):
     src = tmp_path / "from_ctx.csv"
     src.write_text("x")

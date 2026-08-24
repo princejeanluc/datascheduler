@@ -81,6 +81,8 @@ class StepType(str, enum.Enum):
     SPARK_SQL      = "SPARK_SQL"       # Requête Spark SQL via edge node SSH + Kerberos
     COMPRESS       = "COMPRESS"        # Compression en archive ZIP
     SQOOP_EXPORT   = "SQOOP_EXPORT"    # Export Hive/HCatalog → Oracle via Sqoop, edge node SSH + Kerberos
+    GATEWAY_PARALLEL = "GATEWAY_PARALLEL"  # Fork parallèle (chantier Gateway) — marqueur de branchement
+    GATEWAY_JOIN     = "GATEWAY_JOIN"      # Jonction ET/OU (chantier Gateway) — synchronise plusieurs branches
 
 
 # ──────────────────────────────────────────────
@@ -345,6 +347,14 @@ class Pipeline(Base):
     last_run_at       = Column(DateTime, nullable=True)
     next_run_at       = Column(DateTime, nullable=True)
 
+    # Parallélisme intra-pipeline (chantier dédié) — bascule explicite PAR pipeline, jamais
+    # globale : défaut False préserve le comportement séquentiel actuel pour tout pipeline
+    # existant tant que l'utilisateur ne l'active pas lui-même. max_parallel_branches n'a
+    # d'effet que si parallel_execution_enabled est vrai (borne le ThreadPoolExecutor du moteur
+    # concurrent — voir core/pipeline.py::_execute_graph_parallel).
+    parallel_execution_enabled = Column(Boolean, default=False, nullable=False)
+    max_parallel_branches      = Column(Integer, default=4, nullable=False)
+
     # Déclenchement conditionnel après un autre pipeline (chantier P) — additif, coexiste avec
     # la planification cron ci-dessus, ne la remplace jamais. Volontairement pas transporté par
     # l'export/import (database/export_import.py) : référence un autre pipeline de premier
@@ -367,6 +377,8 @@ class Pipeline(Base):
                                   cascade="all, delete-orphan",
                                   order_by="PipelineStep.step_order")
     edges          = relationship("PipelineEdge",  back_populates="pipeline",
+                                  cascade="all, delete-orphan")
+    zones          = relationship("PipelineZone",  back_populates="pipeline",
                                   cascade="all, delete-orphan")
 
     def __repr__(self):
@@ -427,6 +439,35 @@ class PipelineEdge(Base):
 
 
 # ──────────────────────────────────────────────
+#  ZONE DE REGROUPEMENT VISUEL (chantier UX éditeur, Lot 2, A4)
+# ──────────────────────────────────────────────
+
+class PipelineZone(Base):
+    """
+    Rectangle nommé dessiné sur le canevas de l'éditeur graphique pour regrouper visuellement un
+    ensemble d'étapes (type "sous-processus" Dataiku DSS / "frame" Miro-Figma) — purement
+    décoratif, ne référence aucune étape, aucun impact sur l'exécution (core/pipeline.py).
+    Table entièrement neuve : aucune migration ALTER TABLE nécessaire, créée automatiquement par
+    Base.metadata.create_all() (voir db_manager.py::init_db()), même mécanisme que
+    resource_samples.
+    """
+    __tablename__ = "pipeline_zones"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    name        = Column(String(100), nullable=False, default="Nouvelle zone")
+    pos_x       = Column(Integer, nullable=False, default=0)
+    pos_y       = Column(Integer, nullable=False, default=0)
+    width       = Column(Integer, nullable=False, default=240)
+    height      = Column(Integer, nullable=False, default=160)
+
+    pipeline = relationship("Pipeline", back_populates="zones")
+
+    def __repr__(self):
+        return f"<PipelineZone name={self.name} pipeline_id={self.pipeline_id}>"
+
+
+# ──────────────────────────────────────────────
 #  HISTORIQUE D'EXÉCUTION
 # ──────────────────────────────────────────────
 
@@ -452,6 +493,22 @@ class PipelineRun(Base):
     # pendant une exécution (chantier identité visuelle, traçage lumineux). NULL une fois le run
     # terminé, comme current_step_label.
     current_step_key = Column(String(255), nullable=True)
+    # Étapes actuellement en cours en mode parallèle (chantier dédié) — JSON {step_key: {"label":
+    # str, "pct": int}}, écrit UNIQUEMENT par le moteur concurrent (core/pipeline.py::
+    # _execute_graph_parallel). current_step_label/current_step_key ci-dessus restent la seule
+    # source de vérité pour tout run linéaire/graphe séquentiel, inchangés — additif, pas un
+    # remplacement. NULL une fois le run terminé, ou pour tout run qui n'a jamais emprunté le
+    # moteur concurrent.
+    active_steps_json = Column(Text, nullable=True)
+
+    # _step_key de l'étape qui a causé l'échec (chantier UX éditeur, Lot 1, B1) — contrairement à
+    # current_step_key ci-dessus, N'EST JAMAIS remis à NULL à la fin du run : c'est justement la
+    # donnée qui doit survivre après coup, pour qu'un lien "Voir dans le graphe" depuis
+    # l'historique puisse surligner le bon nœud sur un run déjà terminé. NULL pour un run réussi,
+    # annulé, ou dont l'échec est survenu hors de la boucle d'étapes (pipeline introuvable,
+    # plafond de concurrence, reprise invalide, exception générique) — pas de garantie qu'un run
+    # FAILED ait toujours cette colonne renseignée.
+    failed_step_key = Column(String(255), nullable=True)
 
     # Reprise depuis l'échec (chantier J.2) — snapshot JSON (étapes déjà réussies, empreintes de
     # config pour détecter une modification depuis l'échec, artefacts, ports actifs) persisté

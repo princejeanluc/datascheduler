@@ -67,6 +67,8 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         form.addRow(self._lbl("Nom du fichier"),  self.inp_file)
         form.addRow("", self._tokens_hint())
 
+        self.inp_output_name = self._output_name_row(form)
+
         # Aperçu
         self.lbl_preview = QLabel()
         self.lbl_preview.setStyleSheet(
@@ -104,6 +106,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         self.inp_explicit_path.setText(c.get("explicit_path", ""))
         self.inp_dest.setText(c.get("dest_dir", ""))
         self.inp_file.setText(c.get("filename_tpl", ""))
+        self.inp_output_name.setText(c.get("output_name", ""))
         self._refresh_preview()
 
     def _collect_config(self) -> dict:
@@ -112,6 +115,7 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
             "filename_tpl": self.inp_file.text().strip(),
             "reads_from_step_key": self.cb_source.currentData(),
             "explicit_path": self.inp_explicit_path.text().strip(),
+            "output_name":  self.inp_output_name.text().strip(),
         }
 
     def _on_ok(self):

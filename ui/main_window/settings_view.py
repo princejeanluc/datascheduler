@@ -572,10 +572,23 @@ class SettingsView(QWidget):
             except RuntimeError:
                 pass   # scheduler pas encore démarré (ne devrait pas arriver depuis l'UI)
 
+        background_activation_failed = False
         if new_mode != previous_mode:
             from core.task_scheduler import register_logon_task, unregister_logon_task
             if new_mode == "BACKGROUND":
-                register_logon_task()
+                if not register_logon_task():
+                    # Échec réel de terrain (compte standard bloqué par une politique IT,
+                    # "Accès refusé") : sans ce filet, AppSettings.execution_mode restait quand
+                    # même à BACKGROUND (déjà écrit par le db.update_app_settings() ci-dessus) —
+                    # l'appli desktop cesse alors d'exécuter ses propres pipelines planifiés
+                    # (comportement normal du mode BACKGROUND, "c'est le worker qui s'en
+                    # charge"), mais le worker, lui, ne démarre jamais (aucune tâche Windows
+                    # enregistrée) : plus aucun pipeline planifié ne tournait, silencieusement,
+                    # avec pour seul indice une ligne de log. On revient donc explicitement en
+                    # "Dans l'application seulement" plutôt que de laisser l'utilisateur dans cet
+                    # état cassé.
+                    db.update_app_settings(execution_mode=previous_mode)
+                    background_activation_failed = True
             else:
                 unregister_logon_task()
                 db.enqueue_worker_command("SHUTDOWN")
@@ -585,6 +598,17 @@ class SettingsView(QWidget):
         # "Enregistrer" qu'on peut cliquer plusieurs fois de suite sans devoir fermer une boîte
         # de dialogue à chaque fois est plus confortable sur un écran de paramètres — et ça évite
         # tout risque de blocage en environnement offscreen (tests) où rien ne clique le bouton.
-        self._save_status_lbl.setText(
-            "Enregistré ✓ — certains réglages ne prennent effet qu'au prochain redémarrage.")
-        QTimer.singleShot(4000, lambda: self._save_status_lbl.setText(""))
+        if background_activation_failed:
+            self._save_status_lbl.setStyleSheet(
+                f"color: {COLORS['danger']}; font-size: 12px; font-weight: 600;")
+            self._save_status_lbl.setText(
+                "Échec de l'activation du mode arrière-plan (accès refusé) — contactez votre "
+                "support informatique. Le mode « Dans l'application seulement » reste actif."
+            )
+            QTimer.singleShot(10000, lambda: self._save_status_lbl.setText(""))
+        else:
+            self._save_status_lbl.setStyleSheet(
+                f"color: {COLORS['success']}; font-size: 12px; font-weight: 600;")
+            self._save_status_lbl.setText(
+                "Enregistré ✓ — certains réglages ne prennent effet qu'au prochain redémarrage.")
+            QTimer.singleShot(4000, lambda: self._save_status_lbl.setText(""))

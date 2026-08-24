@@ -93,6 +93,9 @@ def test_finished_releases_the_keepalive_reference(qapp, test_db, monkeypatch):
         def isRunning(self):
             return True
 
+        def wait(self):
+            pass
+
     dlg._thread = _FakeRunningThread()
     dlg._on_close_clicked()
     assert dlg in _background_runs
@@ -130,3 +133,81 @@ def test_on_finished_hides_the_stop_button(qapp, test_db, monkeypatch):
     dlg._on_finished(result)
 
     assert dlg.btn_stop.isHidden()
+
+
+# ──────────────────────────────────────────────
+#  Étapes actives en parallèle (chantier parallélisme intra-pipeline)
+# ──────────────────────────────────────────────
+
+def test_poll_active_steps_stays_hidden_before_the_run_is_discovered(qapp, test_db, monkeypatch):
+    dlg, _ = _inert_dialog(monkeypatch, "active-steps-not-discovered-test")
+
+    dlg._poll_active_steps()
+
+    assert dlg._active_steps_run_id is None
+    assert dlg.lbl_active_steps.isHidden()
+
+
+def test_poll_active_steps_stays_hidden_with_only_one_active_step(qapp, test_db, monkeypatch):
+    dlg, p = _inert_dialog(monkeypatch, "active-steps-single-test")
+    run = db.create_run(p.id)
+    db.update_run_active_steps(run.id, {"a": {"label": "Étape A", "pct": 40}})
+
+    dlg._poll_active_steps()
+
+    assert dlg._active_steps_run_id == run.id
+    assert dlg.lbl_active_steps.isHidden()
+
+
+def test_poll_active_steps_shows_list_when_multiple_steps_active(qapp, test_db, monkeypatch):
+    dlg, p = _inert_dialog(monkeypatch, "active-steps-multi-test")
+    run = db.create_run(p.id)
+    db.update_run_active_steps(run.id, {
+        "a": {"label": "Étape A", "pct": 40},
+        "b": {"label": "Étape B", "pct": 10},
+    })
+
+    dlg._poll_active_steps()
+
+    assert not dlg.lbl_active_steps.isHidden()
+    assert "Étape A" in dlg.lbl_active_steps.text()
+    assert "Étape B" in dlg.lbl_active_steps.text()
+
+
+def test_poll_active_steps_ignores_a_run_started_before_this_dialog_opened(qapp, test_db, monkeypatch):
+    """Même patron que remote_run_dialog.py : un run RUNNING antérieur à l'ouverture de CE
+    dialogue (ex: un autre lancement laissé en arrière-plan) ne doit jamais être confondu avec
+    celui que ce dialogue vient de démarrer."""
+    from datetime import datetime, timedelta
+
+    dlg, p = _inert_dialog(monkeypatch, "active-steps-stale-run-test")
+    stale_run = db.create_run(p.id)
+    with db.get_session() as s:
+        from database.models import PipelineRun
+        s.get(PipelineRun, stale_run.id).started_at = datetime.utcnow() - timedelta(minutes=5)
+    db.update_run_active_steps(stale_run.id, {"old": {"label": "Vieille étape", "pct": 90}})
+
+    dlg._poll_active_steps()
+
+    assert dlg._active_steps_run_id is None
+    assert dlg.lbl_active_steps.isHidden()
+
+
+def test_on_finished_stops_the_active_steps_timer_and_hides_the_label(qapp, test_db, monkeypatch):
+    from core.pipeline import PipelineResult
+
+    dlg, p = _inert_dialog(monkeypatch, "active-steps-finish-test")
+    run = db.create_run(p.id)
+    db.update_run_active_steps(run.id, {
+        "a": {"label": "Étape A", "pct": 40}, "b": {"label": "Étape B", "pct": 10},
+    })
+    dlg._poll_active_steps()
+    assert not dlg.lbl_active_steps.isHidden()
+
+    result = PipelineResult()
+    result.success = True
+    result.finish()
+    dlg._on_finished(result)
+
+    assert dlg.lbl_active_steps.isHidden()
+    assert not dlg._active_steps_timer.isActive()

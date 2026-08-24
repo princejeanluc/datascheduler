@@ -29,6 +29,7 @@ class EdgeItem(QGraphicsPathItem):
         self.from_port = from_port
         self.to_node   = to_node
         self._is_executing = False
+        self._is_failed    = False
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setZValue(0)
         self.update_path()
@@ -38,6 +39,14 @@ class EdgeItem(QGraphicsPathItem):
         vers l'étape en cours d'une exécution réelle. Voir StepNodeItem.set_executing()."""
         if executing != self._is_executing:
             self._is_executing = executing
+            self.update()
+
+    def set_failed(self, failed: bool) -> None:
+        """Surlignage "échec" (chantier UX éditeur, Lot 1, B1) — état JUMEAU de set_executing(),
+        jamais une réutilisation : celui-ci peint en rouge (COLORS["danger"]), pas en bleu
+        "signal" (qui affirmerait à tort qu'une étape terminée est en train de tourner)."""
+        if failed != self._is_failed:
+            self._is_failed = failed
             self.update()
 
     def update_path(self):
@@ -57,13 +66,17 @@ class EdgeItem(QGraphicsPathItem):
         return tip, base1, base2
 
     def paint(self, painter, option, widget=None):
-        if self._is_executing:
+        if self._is_failed:
+            color = QColor(COLORS["danger"])
+        elif self._is_executing:
             color = QColor(COLORS["signal"])
         elif self.isSelected():
             color = QColor(COLORS["accent"])
         else:
             color = QColor(COLORS["text_dim"])
-        painter.setPen(QPen(color, 2.5 if (self.isSelected() or self._is_executing) else 1.8))
+        painter.setPen(QPen(
+            color, 2.5 if (self.isSelected() or self._is_executing or self._is_failed) else 1.8
+        ))
         painter.drawPath(self.path())
 
         tip, base1, base2 = self._arrow_points()

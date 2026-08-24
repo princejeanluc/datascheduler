@@ -29,6 +29,67 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.31.0] - 2026-08-21
+
+### Ajouté
+- Exécution en arrière-plan : la tâche planifiée `DataSchedulerWorker` gagne un second
+  déclencheur "watchdog" (répétition toutes les 5 minutes, en plus du déclenchement à la
+  connexion existant) qui relance le worker s'il n'est plus actif — crash, ou simplement app
+  fermée puis rouverte sans déconnexion Windows entre les deux (cas déjà rencontré en test réel,
+  où `onlogon` seul ne redéclenche rien). `MultipleInstancesPolicy=IgnoreNew` garantit qu'une
+  instance déjà active n'est jamais dupliquée : le déclencheur périodique n'a d'effet que si le
+  worker est réellement arrêté. Nécessite une définition de tâche XML complète (`schtasks
+  /create /xml`) plutôt que le `/sc onlogon` précédent — un seul déclencheur par appel n'aurait
+  pas suffi à combiner les deux sur la même tâche. `ExecutionTimeLimit` explicitement illimité
+  (la limite par défaut d'une tâche XML est 3 jours, ce qui aurait sinon tué le worker en continu
+  au bout de 3 jours). Comportement fixe, non configurable — la plupart des types de
+  déclencheur schtasks (quotidien, hebdomadaire, au repos…) sont pensés pour des tâches
+  ponctuelles, pas pour un daemon persistant, et n'auraient ajouté que de la complexité.
+- Parallélisme intra-pipeline : deux branches indépendantes d'un pipeline en graphe peuvent
+  désormais tourner réellement en même temps au lieu de s'exécuter l'une après l'autre — un
+  choix explicite par pipeline (case "Exécuter les branches indépendantes en parallèle" +
+  plafond de branches simultanées, 1 à 16, défaut 4, dans l'éditeur de planification), jamais
+  une bascule automatique. Désactivé par défaut pour tout pipeline existant — aucun changement
+  de comportement sans action explicite de l'utilisateur.
+  - Nouveau moteur d'exécution dédié (`_execute_graph_parallel`), séparé des moteurs
+    séquentiels existants (linéaire, graphe) qui restent inchangés et demeurent le chemin par
+    défaut. Chaque étape lancée en parallèle reçoit sa propre copie isolée du contexte
+    (`StepContext.fork()`) ; seul le thread coordinateur fusionne les résultats dans le
+    contexte partagé, sans verrou nécessaire sur celui-ci.
+  - L'annulation coopérative (v0.30.0) s'applique telle quelle : une demande d'arrêt bloque
+    toute nouvelle soumission mais laisse les étapes déjà en vol se terminer normalement.
+  - Suivi visuel : le traçage lumineux du graphe peut désormais surligner plusieurs étapes en
+    cours simultanément, et les dialogues de suivi d'exécution (lancement direct et lancement
+    en arrière-plan) affichent la liste des étapes actives quand plus d'une tourne à la fois —
+    aucun changement d'affichage pour un run à une seule étape active à la fois.
+  - `AppSettings.max_concurrent_runs` (chantier Ressources) continue de compter des pipelines,
+    pas des étapes, et reste donc correct sans modification : le parallélisme reste interne à
+    un seul pipeline, toujours compté comme 1 run actif.
+  - Vérifié empiriquement (script direct, pas seulement les tests) : un pipeline à 2 branches
+    indépendantes contenant chacune un vrai sous-processus de 3s tourne en ~6s en mode
+    parallèle contre ~9s en mode séquentiel classique (33 % plus rapide), sans régression sur
+    le mode séquentiel par défaut.
+
+### Corrigé
+- `RunProgressDialog` pouvait occasionnellement afficher l'avertissement Qt "QThread: Destroyed
+  while thread is still running" en fin d'exécution — course déjà connue entre la fin réelle du
+  thread d'exécution et le traitement de son signal de fin côté interface, rendue plus probable
+  par les threads supplémentaires du nouveau moteur parallèle (davantage de contention sur le
+  GIL au moment précis où le thread se termine). `_on_finished()` attend désormais explicitement
+  la fin effective du thread (`QThread.wait()`, quasi instantané à ce stade) avant de relâcher sa
+  dernière référence Python.
+- Exécution en arrière-plan : l'échec d'enregistrement de la tâche planifiée `DataSchedulerWorker`
+  (`schtasks /create`) n'était journalisé que comme "returned non-zero exit status 1" — jamais le
+  vrai message de `schtasks.exe` (ex : refus d'accès), qui n'était pourtant pas perdu, juste jamais
+  affiché. La sortie réelle (stderr, ou stdout à défaut) est désormais incluse dans le log
+  d'erreur.
+- Même enregistrement : la commande construite pour un lancement depuis les sources (pas l'exe
+  gelé) utilisait `sys.argv[0]` tel quel — souvent un chemin **relatif** (`"main.py"`). Le
+  Planificateur de tâches Windows n'hérite pas forcément du même répertoire de travail au
+  déclenchement ultérieur de la tâche, donc ce chemin relatif pouvait ne mener nulle part.
+  Corrigé : chemins systématiquement résolus en absolu (`os.path.abspath`) avant construction de
+  la ligne de commande. Sans effet sur l'exe gelé, où `sys.executable` est déjà un chemin absolu.
+
 ## [0.30.0] - 2026-08-20
 
 ### Ajouté

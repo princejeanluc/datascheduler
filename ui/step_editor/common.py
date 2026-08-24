@@ -45,6 +45,10 @@ STEP_META = {
                        "category": "Notification & intégration", "icon": "fa5s.globe"},
     "CONDITION":      {"label": "Condition / Routeur", "color": "#7e57c2",
                        "category": "Contrôle de flux", "icon": "fa5s.code-branch"},
+    "GATEWAY_PARALLEL": {"label": "Passerelle parallèle", "color": "#5c6bc0",
+                       "category": "Contrôle de flux", "icon": "fa5s.share-alt"},
+    "GATEWAY_JOIN":   {"label": "Passerelle de jonction", "color": "#26c6da",
+                       "category": "Contrôle de flux", "icon": "fa5s.compress-arrows-alt"},
 }
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]

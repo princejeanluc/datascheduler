@@ -159,22 +159,29 @@ class _BaseStepConfigDialog(QDialog):
         form.addRow(self._lbl(label), w)
         return cb
 
-    def _source_row(self, form: QFormLayout, prior_steps: list) -> QComboBox:
+    def _source_row(self, form: QFormLayout, prior_steps: list,
+                     empty_label: str = "Étape précédente (par défaut)",
+                     tooltip: str | None = None) -> QComboBox:
         """
         Sélecteur de source explicite : par défaut "étape précédente" (comportement
         historique, ctx.output_file tel que rempli par la dernière étape productrice),
         ou une étape productrice antérieure précise (ctx.artifacts[son _step_key]) —
         utile dès qu'un pipeline contient plusieurs étapes productrices (ex: deux
         DB_EXTRACT) et qu'une étape en aval doit choisir laquelle consommer.
+
+        `empty_label`/`tooltip` (chantier Gateway) : personnalisables pour un appelant dont
+        l'entrée par défaut n'a pas de sens ("étape précédente" ne veut rien dire pour une
+        jonction à plusieurs branches convergentes) — défauts inchangés pour les 7 appelants
+        existants.
         """
         from core.steps import step_produces_output_file
         cb = QComboBox(); cb.setStyleSheet(self._combo_style())
-        cb.setToolTip(
+        cb.setToolTip(tooltip or (
             "Étape dont la sortie alimente celle-ci. Par défaut, la dernière étape ayant produit "
             "un fichier — à choisir explicitement dès que plusieurs étapes en amont en "
             "produisent un."
-        )
-        cb.addItem("Étape précédente (par défaut)", None)
+        ))
+        cb.addItem(empty_label, None)
         for i, s in enumerate(prior_steps or []):
             if not step_produces_output_file(s.get("step_type", ""), s.get("config") or {}):
                 continue

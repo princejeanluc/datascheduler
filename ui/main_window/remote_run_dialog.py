@@ -13,6 +13,7 @@ persisté en base — seuls le libellé d'étape et le log le sont, donc c'est t
 qui ne fait QUE lire la base peut afficher.
 """
 
+import json
 from datetime import datetime
 
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QLabel, QPushButton
@@ -51,6 +52,15 @@ def open_remote_run_dialog(parent, pipeline_id: int, pipeline_name: str) -> None
     lbl_step = QLabel("")
     lbl_step.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
     vl.addWidget(lbl_step)
+
+    # Étapes actives en parallèle (chantier parallélisme intra-pipeline) — masqué tant qu'au
+    # plus une étape est active à la fois (lbl_step ci-dessus suffit alors), même convention que
+    # ui/dialogs/run_progress_dialog.py::lbl_active_steps.
+    lbl_active_steps = QLabel("")
+    lbl_active_steps.setWordWrap(True)
+    lbl_active_steps.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+    lbl_active_steps.setVisible(False)
+    vl.addWidget(lbl_active_steps)
 
     lbl_err = QLabel("")
     lbl_err.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
@@ -117,6 +127,19 @@ def open_remote_run_dialog(parent, pipeline_id: int, pipeline_name: str) -> None
 
         step_label = run.current_step_label or ""
         lbl_step.setText(f"Étape en cours : {step_label}" if step_label else "")
+
+        active_steps = {}
+        if run.active_steps_json:
+            try:
+                active_steps = json.loads(run.active_steps_json)
+            except (ValueError, TypeError):
+                active_steps = {}
+        if len(active_steps) > 1:
+            lines = [f"• {info.get('label') or key}" for key, info in active_steps.items()]
+            lbl_active_steps.setText("Étapes en cours en parallèle :\n" + "\n".join(lines))
+            lbl_active_steps.setVisible(True)
+        else:
+            lbl_active_steps.setVisible(False)
 
         new_status = _status_str(run.status)
         if new_status != state["status"]:

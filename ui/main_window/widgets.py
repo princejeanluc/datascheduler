@@ -82,17 +82,37 @@ def _make_search_input(placeholder: str) -> QLineEdit:
     return inp
 
 
-def _make_empty_label(text: str) -> QLabel:
-    """Message d'état vide, cohérent avec celui de l'éditeur de pipeline."""
+def _make_empty_label(text: str, button: QPushButton | None = None) -> QWidget:
+    """Message d'état vide, cohérent avec celui de l'éditeur de pipeline. `button` (chantier UX
+    éditeur, Lot 1 — ex: "Commencer avec un modèle" sur l'état vide de PipelinesView) est
+    optionnel et rétrocompatible : par défaut (None), retourne le QLabel nu exactement comme
+    avant — tous les appelants existants n'utilisent que des méthodes QWidget génériques
+    (setVisible/setFixedHeight), jamais rien de spécifique à QLabel, donc le conteneur composite
+    retourné quand un bouton est fourni reste un remplacement transparent."""
     lbl = QLabel(text)
     lbl.setAlignment(Qt.AlignCenter)
     lbl.setWordWrap(True)
     lbl.setStyleSheet(
         f"color: {COLORS['text_muted']}; font-size: 12px; font-style: italic; "
+        f"background: transparent; border: none;" if button is not None else
+        f"color: {COLORS['text_muted']}; font-size: 12px; font-style: italic; "
         f"background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
         f"border-radius: 6px; padding: 28px 12px;"
     )
-    return lbl
+    if button is None:
+        return lbl
+
+    container = QWidget()
+    container.setStyleSheet(
+        f"background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+        f"border-radius: 6px;"
+    )
+    vl = QVBoxLayout(container)
+    vl.setContentsMargins(12, 28, 12, 28)
+    vl.setSpacing(14)
+    vl.addWidget(lbl)
+    vl.addWidget(button, alignment=Qt.AlignCenter)
+    return container
 
 # ──────────────────────────────────────────────
 #  CONSTANTES

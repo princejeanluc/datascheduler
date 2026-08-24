@@ -454,6 +454,56 @@ def test_migrate_adds_current_step_label_to_a_pre_existing_pipeline_runs_table(t
     db._SessionFactory = None
 
 
+def test_migrate_adds_active_steps_json_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Chantier parallélisme intra-pipeline — même patron que current_step_label/
+    current_step_key ci-dessus, pour la colonne active_steps_json."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs_active_steps.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "active_steps_json" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
+def test_migrate_adds_failed_step_key_to_a_pre_existing_pipeline_runs_table(tmp_path):
+    """Chantier UX éditeur, Lot 1 (B1) — même patron que active_steps_json ci-dessus, pour la
+    colonne failed_step_key."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_runs_failed_step_key.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert "failed_step_key" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 # ──────────────────────────────────────────────
 #  GRAPHE DE PIPELINE (chantier 6a)
 # ──────────────────────────────────────────────
@@ -505,6 +555,162 @@ def test_get_edges_empty_for_pipeline_never_saved_as_graph(test_db):
     assert db.get_edges(pipeline.id) == []
 
 
+# ──────────────────────────────────────────────
+#  Journal des modifications enrichi (chantier UX éditeur, Lot 3, B4)
+# ──────────────────────────────────────────────
+
+def test_diff_pipeline_graph_reports_added_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[], new_steps=[("a", "Extraction CSV")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "+1 étape(s) (Extraction CSV)"
+
+
+def test_diff_pipeline_graph_reports_removed_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "Ancien filtre")], new_steps=[],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "-1 étape(s) (Ancien filtre)"
+
+
+def test_diff_pipeline_graph_reports_renamed_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "Filtre")], new_steps=[("a", "Filtre ventes")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "1 renommée(s) (Filtre → Filtre ventes)"
+
+
+def test_diff_pipeline_graph_reports_added_and_removed_edges():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A"), ("b", "B")], new_steps=[("a", "A"), ("b", "B")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "error")],
+    )
+    assert detail == "+1 arête(s) · -1 arête(s)"
+
+
+def test_diff_pipeline_graph_combines_all_change_kinds():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A"), ("b", "Filtre")],
+        new_steps=[("a", "A"), ("b", "Filtre ventes"), ("c", "Copie locale")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "input"), ("b", "output_file", "c", "input")],
+    )
+    assert detail == "+1 étape(s) (Copie locale) · 1 renommée(s) (Filtre → Filtre ventes) · +1 arête(s)"
+
+
+def test_diff_pipeline_graph_tolerates_missing_step_key():
+    """Une étape sans _step_key (config vide/legacy) donne une clé None — ne doit jamais faire
+    planter le tri (comparaison None/str impossible en Python) mélangé à des clés réelles."""
+    detail = db._diff_pipeline_graph(
+        old_steps=[(None, "Sans clé")], new_steps=[("a", "A"), (None, "Sans clé")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "+1 étape(s) (A)"
+
+
+def test_diff_pipeline_graph_falls_back_to_layout_only_message_when_nothing_changed():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A")], new_steps=[("a", "A")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "input")],
+    )
+    assert detail == "Repositionnement / mise en page uniquement"
+
+
+def test_save_pipeline_graph_logs_precise_diff_in_audit_detail(test_db):
+    pipeline = db.create_pipeline(name="GRAPH_DIFF_AUDIT")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "label": "Extraction"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}, "label": "Filtre"},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "label": "Extraction"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}, "label": "Filtre ventes"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}, "label": "Copie locale"},
+    ], edges=[
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+
+    events = db.get_audit_events(pipeline_id=pipeline.id)
+    detail = events[0].detail
+    assert "Copie locale" in detail   # étape ajoutée
+    assert "Filtre → Filtre ventes" in detail   # étape renommée
+    assert "-1 arête(s)" in detail   # a->b retirée
+    assert "+1 arête(s)" in detail   # b->c ajoutée
+    assert "(éditeur graphique)" in detail
+
+
+# ──────────────────────────────────────────────
+#  ZONES DE REGROUPEMENT VISUEL (chantier UX éditeur, Lot 2, A4)
+# ──────────────────────────────────────────────
+
+def test_pipeline_zone_table_exists_without_any_migration(test_db):
+    """Table entièrement neuve — doit exister sur une base fraîche via create_all() seul,
+    aucune ALTER TABLE nécessaire (voir database/models.py::PipelineZone)."""
+    pipeline = db.create_pipeline(name="ZONE_TABLE_TEST")
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_persists_zones(test_db):
+    pipeline = db.create_pipeline(name="ZONE_SAVE_TEST")
+
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[],
+        zones=[{"name": "Extraction", "pos_x": 10, "pos_y": 20, "width": 300, "height": 200}],
+    )
+
+    zones = db.get_zones(pipeline.id)
+    assert len(zones) == 1
+    assert zones[0].name == "Extraction"
+    assert (zones[0].pos_x, zones[0].pos_y) == (10, 20)
+    assert (zones[0].width, zones[0].height) == (300, 200)
+
+
+def test_save_pipeline_graph_without_zones_arg_defaults_to_empty(test_db):
+    """Tout appelant antérieur à ce chantier (ne connaît pas `zones`) continue de fonctionner
+    sans erreur, sans créer de zone."""
+    pipeline = db.create_pipeline(name="ZONE_OMITTED_ARG_TEST")
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[],
+    )
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_replaces_zones_entirely_on_resave(test_db):
+    pipeline = db.create_pipeline(name="ZONE_RESAVE_TEST")
+    steps = [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}]
+
+    db.save_pipeline_graph(pipeline.id, steps, edges=[], zones=[{"name": "Zone 1"}])
+    assert len(db.get_zones(pipeline.id)) == 1
+
+    db.save_pipeline_graph(pipeline.id, steps, edges=[], zones=[])
+    assert db.get_zones(pipeline.id) == []
+
+
+def test_save_pipeline_graph_zone_defaults_when_fields_missing(test_db):
+    pipeline = db.create_pipeline(name="ZONE_DEFAULTS_TEST")
+    db.save_pipeline_graph(
+        pipeline.id,
+        steps=[{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}],
+        edges=[], zones=[{}],
+    )
+    zone = db.get_zones(pipeline.id)[0]
+    assert zone.name == "Nouvelle zone"
+    assert (zone.pos_x, zone.pos_y) == (0, 0)
+    assert (zone.width, zone.height) == (240, 160)
+
+
 def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
     from sqlalchemy import create_engine, text
     from database.models import Base
@@ -533,9 +739,10 @@ def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
         """))
         conn.execute(text(
             "INSERT INTO pipelines (uuid, name, csv_separator, csv_encoding, csv_chunk_size, "
-            "csv_quoting, frequency, is_active, prevent_overlap) "
+            "csv_quoting, frequency, is_active, prevent_overlap, parallel_execution_enabled, "
+            "max_parallel_branches) "
             "VALUES ('11111111-1111-1111-1111-111111111111', 'LEGACY', ';', 'utf-8', 50000, "
-            "'QUOTE_NONNUMERIC', 'DAILY', 1, 0)"
+            "'QUOTE_NONNUMERIC', 'DAILY', 1, 0, 0, 4)"
         ))
         conn.execute(text(
             "INSERT INTO pipeline_steps (pipeline_id, step_order, step_type, config_json) "
@@ -692,3 +899,58 @@ def test_get_latest_resource_sample_returns_most_recent(test_db):
 
     latest = db.get_latest_resource_sample()
     assert latest.cpu_percent == 9.0
+
+
+# ──────────────────────────────────────────────
+#  PARALLÉLISME INTRA-PIPELINE (chantier dédié)
+# ──────────────────────────────────────────────
+
+def test_create_pipeline_defaults_parallel_execution_disabled(test_db):
+    """Défaut False/4 pour tout pipeline — le parallélisme reste un choix explicite, jamais le
+    comportement par défaut, même pour un pipeline tout juste créé."""
+    p = db.create_pipeline(name="parallel-default-test")
+    assert p.parallel_execution_enabled is False
+    assert p.max_parallel_branches == 4
+
+
+def test_update_run_active_steps_and_get_running_step_keys_multi_round_trip(test_db):
+    pipeline = db.create_pipeline(name="active-steps-test")
+    run = db.create_run(pipeline.id)
+
+    assert db.get_running_step_keys_multi() == {}
+
+    db.update_run_active_steps(run.id, {
+        "a": {"label": "Étape A", "pct": 40},
+        "b": {"label": "Étape B", "pct": 10},
+    })
+
+    result = db.get_running_step_keys_multi()
+    assert result == {pipeline.id: {"a", "b"}}
+
+
+def test_get_running_step_keys_multi_ignores_runs_without_active_steps(test_db):
+    """Un run RUNNING dont active_steps_json est NULL (moteur linéaire/graphe séquentiel,
+    jamais concurrent) ne doit jamais apparaître ici — get_running_step_keys() (singulier)
+    reste la source pour ce cas."""
+    pipeline = db.create_pipeline(name="active-steps-null-test")
+    db.create_run(pipeline.id)
+
+    assert db.get_running_step_keys_multi() == {}
+
+
+def test_get_running_step_keys_multi_uses_most_recent_run_per_pipeline(test_db):
+    from datetime import datetime, timedelta
+
+    pipeline = db.create_pipeline(name="active-steps-multi-run-test")
+    older = db.create_run(pipeline.id)
+    db.update_run_active_steps(older.id, {"old": {"label": "Vieille étape", "pct": 50}})
+    newer = db.create_run(pipeline.id)
+    db.update_run_active_steps(newer.id, {"new": {"label": "Nouvelle étape", "pct": 20}})
+
+    with db.get_session() as s:
+        from database.models import PipelineRun
+        s.get(PipelineRun, older.id).started_at = datetime.utcnow() - timedelta(minutes=5)
+        s.get(PipelineRun, newer.id).started_at = datetime.utcnow()
+
+    result = db.get_running_step_keys_multi()
+    assert result == {pipeline.id: {"new"}}

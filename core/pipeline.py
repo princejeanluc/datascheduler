@@ -6,13 +6,17 @@ Exécuteur de pipeline : itère sur les PipelineStep dans l'ordre et passe le co
 import hashlib
 import json
 import logging
+import queue
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
-from core.steps import get_step, get_step_requirements, step_produces_output_file, StepContext, StepResult
+from core.steps import (
+    get_step, get_step_requirements, get_step_output_ports, step_produces_output_file,
+    get_join_mode, preserves_output, StepContext, StepResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,9 @@ class PipelineResult:
         self.rows_exported = 0
         self.remote_path   = None
         self.error         = None
+        # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — None si le pipeline
+        # n'a pas échoué, ou si l'échec est survenu hors de la boucle d'étapes.
+        self.failed_step_key = None
         self.log_lines     = []
         self.started_at    = datetime.utcnow()
         self.finished_at   = None
@@ -430,6 +437,7 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                 break
             if not pipeline_failed:
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
                 pipeline_failed = True
@@ -551,19 +559,51 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
             continue
 
+        # Disponibilité d'une arête entrante (chantier port d'erreur générique) : une source
+        # "skipped" (jamais exécutée) rend TOUJOURS ses arêtes indisponibles, quel que soit le
+        # port — rien ne s'est produit, ni succès ni échec. Une source "failed" ou "success",
+        # elle, est jugée UNIQUEMENT par correspondance de port (active_port, backfillé plus bas
+        # à "error" sur échec, au port normal sur succès) — c'est ce qui permet à une arête
+        # dessinée depuis le port "error" de devenir disponible précisément quand la source
+        # échoue, alors qu'une arête normale depuis cette même source reste indisponible
+        # (comportement identique à avant pour tout pipeline qui ne dessine jamais d'arête
+        # "error" : son from_port ne matche jamais "error", donc reste indisponible sur échec).
         incoming    = incoming_by_key.get(step_key, []) if step_key else []
         unavailable = []
         for e in incoming:
             src_status = step_status.get(e.from_step_key)
-            if src_status in ("failed", "skipped"):
+            if src_status == "skipped":
                 unavailable.append(e)
                 continue
             src_active_port = active_port.get(e.from_step_key)
             if src_active_port is not None and e.from_port != src_active_port:
-                unavailable.append(e)   # branche non sélectionnée par un nœud Condition en amont
+                unavailable.append(e)   # port/branche non actif (Condition, ou échec routé ailleurs)
 
         base_pct = int(i * 90 / total)
         next_pct = int((i + 1) * 90 / total)
+
+        # Passerelle de jonction en mode ET (chantier Gateway) : n'avance QUE si toutes les
+        # arêtes entrantes ont abouti — une seule indisponible fait ÉCHOUER la jonction
+        # elle-même (jamais un simple skip, contrairement au mode OU/comportement historique
+        # ci-dessous), pour qu'un gestionnaire d'erreur câblé depuis son port "error" puisse
+        # réagir. Décision assumée : "unavailable" mélange "source en échec/ignorée" et
+        # "mauvais port" (ex. une arête tirée du port "error") — une arête "error" câblée dans
+        # une jonction ET la fait donc échouer systématiquement sur le chemin nominal, pas de
+        # cas particulier ajouté pour ça.
+        join_mode = get_join_mode(step_type, config)
+        if join_mode == "AND" and incoming and unavailable and not step.run_always:
+            if step_key:
+                step_status[step_key] = "failed"
+                active_port[step_key] = "error"
+            pipeline_failed = True
+            error_msg = "Passerelle de jonction (ET) : au moins une branche entrante n'a pas abouti."
+            result.log(f"--- Étape {i + 1}/{total} : {step_label} en échec ({error_msg}) ---")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
+                ctx.extra["error_message"]     = error_msg
+                result.fail(f"Étape {i + 1} ({step_label}) : {error_msg}")
+            continue
 
         should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
         if should_skip:
@@ -600,19 +640,37 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         executor    = get_step(step_type, config)
         step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
 
+        # Port actif par défaut (chantier port d'erreur générique) — ne jamais écraser un choix
+        # explicite déjà fait par l'étape elle-même (ex : ConditionStep sur succès). Une étape
+        # qui ne sait rien des ports (les 12 autres types) obtient son port normal sur succès, ou
+        # "error" sur échec — c'est CE backfill qui alimente active_port pour la boucle de
+        # disponibilité ci-dessus, y compris pour une étape en échec (voir plus bas).
+        if step_result.active_port is None:
+            step_result.active_port = (
+                get_step_output_ports(step_type)[0] if step_result.success else "error"
+            )
+
         if step_result.success:
             # Détection par comparaison avec le snapshot pris avant l'exécution — pas par le
             # PRODUCES statique de la classe (voir _execute_linear pour la même logique et son
-            # commentaire complet).
-            if ctx.output_file != before_output_file and step_key:
+            # commentaire complet) — SAUF si step_produces_output_file(step_type, config) est
+            # vrai (chantier Gateway) : un passe-plat comme GatewayParallelStep (PRODUCES
+            # inconditionnel) ou GatewayJoinStep (produit seulement si artifact_source_step_key
+            # est renseigné — même style config-dépendant que SPARK_SQL/fetch_result) peut
+            # légitimement laisser ctx.output_file égal à sa valeur d'avant (déjà la bonne valeur
+            # — réorientée avant cet appel, ou fixée par run() à une valeur qui coïncide avec
+            # avant) tout en ayant besoin d'être republié sous sa propre clé pour ses
+            # consommateurs avals — sans ça, leur réorientation à un seul prédécesseur
+            # (ctx.artifacts.get(step_key) plus bas) retomberait sur None.
+            if step_key and (ctx.output_file != before_output_file
+                              or step_produces_output_file(step_type, config)):
                 ctx.artifacts[step_key] = ctx.output_file
             output_name = config.get("output_name")
             if output_name:
                 ctx.artifacts[output_name] = ctx.output_file
             if step_key:
                 step_status[step_key] = "success"
-                if step_result.active_port:
-                    active_port[step_key] = step_result.active_port
+                active_port[step_key] = step_result.active_port
                 # Règle de sécurité (chantier J.2) : voir le commentaire équivalent dans
                 # _execute_linear — une étape run_always exécutée après un échec déjà survenu
                 # n'est jamais marquée "complétée" pour une future reprise.
@@ -625,18 +683,357 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             # un échec de pipeline (voir _execute_linear pour la même logique).
             if step_key:
                 step_status[step_key] = "failed"
+                active_port[step_key] = step_result.active_port
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
             break
         else:
             if step_key:
                 step_status[step_key] = "failed"
+                active_port[step_key] = step_result.active_port
             pipeline_failed = True
             result.log(f"Étape {i + 1} ({step_label}) en échec : {step_result.error}")
             if not ctx.extra.get("failed_step_label"):
                 ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+
+    return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
+
+
+# ──────────────────────────────────────────────
+#  EXÉCUTION EN GRAPHE — MOTEUR CONCURRENT (chantier parallélisme intra-pipeline)
+# ──────────────────────────────────────────────
+
+def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, pipeline,
+                             skip_step_keys: frozenset = frozenset(),
+                             active_ports_seed: dict | None = None) -> tuple:
+    """
+    Variante concurrente de _execute_graph() — empruntée uniquement quand
+    pipeline.parallel_execution_enabled est vrai (voir l'aiguillage dans run_pipeline()). Même
+    contrat de retour, même sémantique métier (l'échec d'une étape ne bloque que ses dépendants,
+    routage ConditionStep via active_port, run_always, reprise skip_step_keys) — seule la
+    MÉCANIQUE change : les étapes dont toutes les dépendances sont résolues en même temps
+    tournent réellement en parallèle, bornées par pipeline.max_parallel_branches threads.
+
+    Isolation (chantier phase 1, StepContext.fork()) : chaque étape tourne contre sa PROPRE copie
+    de `ctx`, jamais contre le `ctx` partagé — seul CE coordinateur (jamais un thread worker) lit
+    ou écrit `ctx`, donc aucun verrou n'est nécessaire dessus. Threads daemon simples plutôt que
+    concurrent.futures.ThreadPoolExecutor — même raison que _run_step_with_policy (voir sa
+    docstring) : son shutdown(wait=True)/joiner atexit bloquerait la fermeture de l'app tant
+    qu'un appel resterait bloqué sans timeout configuré, ce qui PEUT arriver ici comme ailleurs.
+    """
+    # Détection de cycle — réutilise _topological_order() telle quelle (même algorithme de Kahn
+    # déjà testé par _execute_graph) plutôt que de la redupliquer : son retour None est le seul
+    # signal utilisé ici, l'ordre linéaire lui-même ne sert pas à ce moteur.
+    if _topological_order(steps, edges) is None:
+        result.fail("Le graphe de ce pipeline contient un cycle — exécution impossible.")
+        return True, False, set(), {}
+
+    active_ports_seed = active_ports_seed or {}
+    configs = {id(s): json.loads(s.config_json or "{}") for s in steps}
+    by_key: dict = {}
+    key_order: dict = {}
+    for s in steps:
+        key = configs[id(s)].get("_step_key")
+        if key:
+            by_key[key] = s
+            key_order[key] = s.step_order
+
+    incoming_by_key: dict = {}          # to_step_key -> [Edge]
+    outgoing_keys: dict = {k: [] for k in by_key}   # from_step_key -> [to_step_key]
+    for e in edges:
+        if e.from_step_key in by_key and e.to_step_key in by_key:
+            incoming_by_key.setdefault(e.to_step_key, []).append(e)
+            outgoing_keys[e.from_step_key].append(e.to_step_key)
+
+    in_degree = {k: len(incoming_by_key.get(k, [])) for k in by_key}
+
+    keyless = sorted(
+        (s for s in steps if not configs[id(s)].get("_step_key")),
+        key=lambda s: s.step_order,
+    )
+    total = len(by_key) + len(keyless)
+    if total == 0:
+        return False, False, set(), {}
+
+    step_status: dict = {}     # step_key -> "success" | "failed" | "skipped"
+    active_port: dict = {}     # step_key -> port actif
+    completed_step_keys: set = set(skip_step_keys)
+    pipeline_failed    = False
+    pipeline_cancelled = False
+    done_count = 0
+
+    # Réamorçage (chantier J.2) : cascade immédiate, contrairement à _execute_graph qui le fait
+    # paresseusement "en atteignant leur tour" dans un ordre linéaire — ici il n'y a plus d'ordre
+    # fixe, donc tout est résolu d'un coup avant même de démarrer la boucle principale.
+    ready: list[str] = []
+    for key in skip_step_keys:
+        if key not in by_key:
+            continue
+        step_status[key] = "success"
+        done_count += 1
+        if key in active_ports_seed:
+            active_port[key] = active_ports_seed[key]
+        for nxt in outgoing_keys.get(key, []):
+            in_degree[nxt] -= 1
+    for key in by_key:
+        if key not in step_status and in_degree[key] == 0:
+            ready.append(key)
+
+    active_steps: dict = {}
+    active_steps_lock = threading.Lock()
+    results_queue: "queue.Queue" = queue.Queue()
+    in_flight = 0
+    # Étapes soumises à un thread réel, pas encore résolues (résultat pas encore dépilé de
+    # results_queue) — distinct de step_status (qui ne se remplit qu'à la résolution). Sans ce
+    # suivi, une étape déjà en vol mais dont le in_degree est resté à 0 depuis le début (donc
+    # jamais décrémenté par la complétion d'une AUTRE étape) était incorrectement rajoutée à
+    # `ready` et soumise une seconde fois pendant qu'elle tournait encore — bug réel trouvé en
+    # écrivant le test de chevauchement temporel (deux étapes indépendantes, l'une soumise deux
+    # fois de suite).
+    in_flight_keys: set = set()
+    max_workers = max(1, pipeline.max_parallel_branches or 1)
+
+    def _persist_active_steps():
+        try:
+            db.update_run_active_steps(result.run_id, dict(active_steps))
+        except Exception:
+            logger.warning("Échec de la mise à jour de la progression multi-étapes (ignoré).")
+
+    def _worker(step_key, step, step_type, step_label, config, step_ctx, before_output_file, base_pct, next_pct):
+        def step_progress(msg: str, pct: int):
+            scaled = base_pct + int(pct * (next_pct - base_pct) / 100)
+            with active_steps_lock:
+                active_steps[step_key] = {"label": msg, "pct": pct}
+                _persist_active_steps()
+            progress(msg, scaled, step_key)
+
+        executor_step = get_step(step_type, config)
+        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
+        results_queue.put((step_key, step, step_label, config, step_ctx, before_output_file, step_result))
+
+    def _resolve_skip(step_key, step_label, unavailable):
+        step_status[step_key] = "skipped"
+        failed_upstream = any(
+            step_status.get(e.from_step_key) in ("failed", "skipped") for e in unavailable
+        )
+        reason = "dépendance en échec" if failed_upstream else "branche non sélectionnée"
+        result.log(f"--- {step_label} ignorée ({reason}) ---")
+        for nxt in outgoing_keys.get(step_key, []):
+            in_degree[nxt] -= 1
+
+    def _resolve_join_failure(step_key, step_label, error_msg):
+        """Passerelle de jonction en mode ET (chantier Gateway) — mirroir de _resolve_skip()
+        mais un ÉCHEC, pas un skip (voir le commentaire complet dans _execute_graph). Point
+        d'attention : pipeline_failed DOIT être dans ce nonlocal — une réassignation dans
+        _submit()/ici sans lui créerait une variable locale masquant celle de la fonction
+        englobante, et l'échec ne remonterait jamais jusqu'à run_pipeline()."""
+        nonlocal pipeline_failed
+        step_status[step_key] = "failed"
+        active_port[step_key] = "error"
+        pipeline_failed = True
+        result.log(f"--- {step_label} en échec ({error_msg}) ---")
+        if not ctx.extra.get("failed_step_label"):
+            ctx.extra["failed_step_label"] = step_label
+            ctx.extra["failed_step_key"]   = step_key
+            ctx.extra["error_message"]     = error_msg
+            result.fail(f"{step_label} : {error_msg}")
+        for nxt in outgoing_keys.get(step_key, []):
+            in_degree[nxt] -= 1
+
+    def _scan_ready():
+        """Ajoute à `ready` tout nœud dont le in_degree vient d'atteindre 0 — appelée après
+        CHAQUE résolution, pas seulement après un résultat de thread réel (voir plus bas dans la
+        boucle principale). Bug trouvé pendant le chantier Gateway : `_resolve_skip()` (appelé
+        depuis `_submit()`) décrémente déjà `in_degree` sans jamais passer par la queue/un thread
+        — sans ce rescan après CHAQUE `_submit()`, une chaîne de 2+ nœuds résolus ainsi de suite
+        (aucun jamais mis en vol) laissait `in_flight` à 0, faisant sortir la boucle principale
+        via `if in_flight == 0: break` avant que leurs dépendants n'aient jamais été ajoutés à
+        `ready` — disparus silencieusement, jamais journalisés, jamais marqués "ignorée"."""
+        for k in by_key:
+            if (k not in step_status and k not in ready and k not in in_flight_keys
+                    and in_degree[k] == 0):
+                ready.append(k)
+
+    def _submit(step_key):
+        nonlocal in_flight, done_count
+        step = by_key[step_key]
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = configs[id(step)]
+
+        # Disponibilité d'une arête entrante (chantier port d'erreur générique) : même logique
+        # que _execute_graph — voir son commentaire complet. "skipped" reste indisponible en
+        # bloc, "failed"/"success" sont jugés par correspondance de port (active_port, backfillé
+        # ci-dessous à "error" sur échec, au port normal sur succès).
+        incoming    = incoming_by_key.get(step_key, [])
+        unavailable = []
+        for e in incoming:
+            src_status = step_status.get(e.from_step_key)
+            if src_status == "skipped":
+                unavailable.append(e)
+                continue
+            src_active_port = active_port.get(e.from_step_key)
+            if src_active_port is not None and e.from_port != src_active_port:
+                unavailable.append(e)
+
+        join_mode = get_join_mode(step_type, config)
+        if join_mode == "AND" and incoming and unavailable and not step.run_always:
+            _resolve_join_failure(
+                step_key, step_label,
+                "Passerelle de jonction (ET) : au moins une branche entrante n'a pas abouti.",
+            )
+            done_count += 1
+            progress(f"{step_label} (échec jonction)", int(done_count * 90 / total), step_key)
+            return
+
+        should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
+        if should_skip:
+            _resolve_skip(step_key, step_label, unavailable)
+            done_count += 1
+            progress(f"{step_label} (ignorée)", int(done_count * 90 / total), step_key)
+            return
+
+        data_incoming = [e for e in incoming if e not in unavailable]
+        step_ctx = ctx.fork()
+        if len(data_incoming) == 1:
+            step_ctx.output_file = ctx.artifacts.get(data_incoming[0].from_step_key)
+        before_output_file = step_ctx.output_file
+
+        base_pct = int(done_count * 90 / total)
+        next_pct = int((done_count + 1) * 90 / total)
+        with active_steps_lock:
+            active_steps[step_key] = {"label": step_label, "pct": 0}
+            _persist_active_steps()
+        result.log(f"--- {step_label} ({step_type}) — démarrage (parallèle) ---")
+
+        t = threading.Thread(
+            target=_worker,
+            args=(step_key, step, step_type, step_label, config, step_ctx, before_output_file, base_pct, next_pct),
+            daemon=True, name=f"parallel_step_{step_key}",
+        )
+        in_flight += 1
+        in_flight_keys.add(step_key)
+        t.start()
+
+    # ── Boucle principale ─────────────────────
+    while ready or in_flight > 0:
+        while ready and in_flight < max_workers and not cancel_event.is_set():
+            ready.sort(key=lambda k: key_order.get(k, 0))
+            _submit(ready.pop(0))
+            if not cancel_event.is_set():
+                _scan_ready()
+
+        if in_flight == 0:
+            break   # plus rien à soumettre (annulé) et plus rien en vol
+
+        step_key, step, step_label, config, step_ctx, before_output_file, step_result = results_queue.get()
+        in_flight -= 1
+        in_flight_keys.discard(step_key)
+        done_count += 1
+        with active_steps_lock:
+            active_steps.pop(step_key, None)
+            _persist_active_steps()
+
+        # Port actif par défaut (chantier port d'erreur générique) — même règle que
+        # _execute_graph : jamais écraser un choix explicite déjà fait par l'étape elle-même.
+        if step_result.active_port is None:
+            step_result.active_port = (
+                get_step_output_ports(str(step.step_type).replace("StepType.", ""))[0]
+                if step_result.success else "error"
+            )
+
+        if step_result.success:
+            # Détection par comparaison avec le snapshot pris avant l'exécution — même logique
+            # que _execute_graph/_execute_linear (voir son commentaire complet pour le cas
+            # step_produces_output_file(), chantier Gateway), appliquée à la copie isolée de
+            # cette étape.
+            _step_type = str(step.step_type).replace("StepType.", "")
+            if (step_ctx.output_file != before_output_file
+                    or step_produces_output_file(_step_type, config)):
+                ctx.artifacts[step_key] = step_ctx.output_file
+            output_name = config.get("output_name")
+            if output_name:
+                ctx.artifacts[output_name] = step_ctx.output_file
+            step_status[step_key] = "success"
+            active_port[step_key] = step_result.active_port
+            if not (pipeline_failed and step.run_always):
+                completed_step_keys.add(step_key)
+            for nxt in outgoing_keys.get(step_key, []):
+                in_degree[nxt] -= 1
+            progress(f"{step_label} — terminé", int(done_count * 90 / total), step_key)
+        elif cancel_event.is_set():
+            step_status[step_key] = "failed"
+            active_port[step_key] = step_result.active_port
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+        else:
+            step_status[step_key] = "failed"
+            active_port[step_key] = step_result.active_port
+            pipeline_failed = True
+            result.log(f"Étape {step_label} en échec : {step_result.error}")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                ctx.extra["failed_step_key"]   = step_key
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"{step_label} : {step_result.error}")
+            for nxt in outgoing_keys.get(step_key, []):
+                in_degree[nxt] -= 1
+
+        if not pipeline_cancelled:
+            _scan_ready()
+
+    if cancel_event.is_set() and not pipeline_cancelled:
+        pipeline_cancelled = True
+        result.fail("Exécution interrompue par l'utilisateur.")
+
+    # Étapes keyless (résiduelles, sans arête possible — voir _topological_order) : exécutées en
+    # dernier, séquentiellement, exactement comme leur ordre d'origine — cas marginal qui ne
+    # bénéficie de toute façon d'aucun parallélisme réel (aucune arête pour les distinguer).
+    for step in keyless:
+        if cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+        step_type  = str(step.step_type).replace("StepType.", "")
+        step_label = step.label or step_type
+        config     = configs[id(step)]
+        step_ctx   = ctx.fork()
+        base_pct   = int(done_count * 90 / total)
+        next_pct   = int((done_count + 1) * 90 / total)
+
+        def step_progress(msg: str, pct: int, _bp=base_pct, _np=next_pct):
+            scaled = _bp + int(pct * (_np - _bp) / 100)
+            progress(msg, scaled, None)
+
+        result.log(f"--- {step_label} ({step_type}) ---")
+        executor_step = get_step(step_type, config)
+        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
+        done_count += 1
+        if step_result.success:
+            if step_ctx.output_file is not None:
+                ctx.artifacts["output_file"] = step_ctx.output_file
+        elif cancel_event.is_set():
+            pipeline_cancelled = True
+            result.fail("Exécution interrompue par l'utilisateur.")
+            break
+        else:
+            pipeline_failed = True
+            result.log(f"Étape {step_label} en échec : {step_result.error}")
+            if not ctx.extra.get("failed_step_label"):
+                ctx.extra["failed_step_label"] = step_label
+                # Étape "keyless" (sans _step_key, par construction — voir _topological_order) :
+                # aucun nœud correspondant dans l'éditeur graphique, rien à surligner.
+                ctx.extra["failed_step_key"]   = None
+                ctx.extra["error_message"]     = step_result.error
+                result.fail(f"{step_label} : {step_result.error}")
+
+    with active_steps_lock:
+        if active_steps:
+            active_steps.clear()
+            _persist_active_steps()
 
     return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
 
@@ -701,12 +1098,64 @@ def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[
         # aucune arête entrante n'est alors nécessaire pour "output_file".
         if config.get("explicit_path"):
             requires = requires - {"output_file"}
-        if requires and not incoming.get(key):
+        # Une arête depuis le port "error" (chantier port d'erreur générique) ne compte JAMAIS
+        # comme satisfaisant un REQUIRES de données — un gestionnaire d'erreur ne reçoit
+        # généralement aucune donnée réelle de l'étape en échec qui l'a déclenché. La détection
+        # de cycle ci-dessus, elle, continue d'utiliser `incoming` non filtré : un cycle formé
+        # uniquement via des arêtes "error" doit rester détecté.
+        data_incoming = [e for e in incoming.get(key, []) if e.get("from_port") != "error"]
+        if requires and not data_incoming:
             msg = f"Étape « {label} » : nécessite {', '.join(sorted(requires))}, aucune arête entrante."
             (warnings if run_always else errors).append(msg)
 
     errors.extend(_duplicate_output_name_errors(steps))
     return errors, warnings
+
+
+def topological_ranks(step_keys, edges) -> dict[str, int] | None:
+    """
+    Rang topologique de chaque étape (chantier UX éditeur, Lot 1, rangement automatique du
+    canevas) — rang 0 pour un nœud sans arête entrante, rang = 1 + max(rang des prédécesseurs)
+    sinon. `None` si le graphe contient un cycle (même convention que validate_pipeline_graph).
+
+    Dict-shaped comme validate_pipeline_graph (step_keys + edges en dicts {"from_step_key",
+    "to_step_key", ...}) — c'est la forme déjà produite par
+    ui/graph_editor/graph_editor_dialog.py::_collect_graph(), pas les objets ORM de
+    _topological_order() (qui, lui, retourne un ORDRE, pas des rangs — pas ce dont un algorithme
+    de disposition a besoin). Kahn par VAGUES plutôt que nœud par nœud : chaque nœud prêt à une
+    vague donnée reçoit le même rang, ce qui donne directement une répartition en colonnes.
+    """
+    keys = set(step_keys)
+    incoming: dict = {k: [] for k in keys}
+    outgoing: dict = {k: [] for k in keys}
+    in_degree: dict = {k: 0 for k in keys}
+    for e in edges:
+        frm, to = e.get("from_step_key"), e.get("to_step_key")
+        if frm in keys and to in keys:
+            incoming[to].append(frm)
+            outgoing[frm].append(to)
+            in_degree[to] += 1
+
+    ranks: dict = {}
+    remaining = dict(in_degree)
+    wave = [k for k in keys if in_degree[k] == 0]
+    rank = 0
+    visited = 0
+    while wave:
+        next_wave = []
+        for k in wave:
+            ranks[k] = rank
+            visited += 1
+            for nxt in outgoing[k]:
+                remaining[nxt] -= 1
+                if remaining[nxt] == 0:
+                    next_wave.append(nxt)
+        wave = next_wave
+        rank += 1
+
+    if visited != len(keys):
+        return None
+    return ranks
 
 
 # ──────────────────────────────────────────────
@@ -1017,10 +1466,18 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
 
         # ── Exécution des étapes ──────────────────
         # Chemin DAG (chantier 6a) seulement si ce pipeline a des arêtes explicites (enregistré
-        # au moins une fois via le futur éditeur graphique) — sinon la boucle linéaire actuelle,
-        # inchangée : zéro changement de comportement pour tous les pipelines existants.
+        # au moins une fois via l'éditeur graphique) — sinon la boucle linéaire actuelle,
+        # inchangée : zéro changement de comportement pour tous les pipelines existants. Parmi
+        # les pipelines en graphe, le moteur concurrent (chantier parallélisme intra-pipeline)
+        # n'est emprunté que si l'utilisateur l'a explicitement activé pour CE pipeline — défaut
+        # False, donc _execute_graph (séquentiel, inchangé) reste le chemin de tout pipeline
+        # existant tant qu'il n'a pas fait ce choix lui-même.
         edges = db.get_edges(pipeline_id)
-        if edges:
+        if edges and pipeline.parallel_execution_enabled:
+            pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph_parallel(
+                steps, edges, ctx, progress, result, cancel_event, pipeline, skip_step_keys, active_ports_seed
+            )
+        elif edges:
             pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph(
                 steps, edges, ctx, progress, result, cancel_event, skip_step_keys, active_ports_seed
             )
@@ -1039,6 +1496,17 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             # en amont de deux consommateurs différents) — le set déduplique le cas courant où le
             # même Path apparaît à la fois sous "output_file" et sous une clé d'étape spécifique.
             temp_paths = {p for p in ctx.artifacts.values() if isinstance(p, Path)}
+            # Exclut les destinations PERMANENTES (chantier identité visuelle — ex: LOCAL_COPY) :
+            # rendre un type d'étape chainable (PRODUCES) l'aurait sinon aussi fait balayer ici
+            # par erreur, juste après l'avoir produit — voir preserves_output()/PRESERVES_OUTPUT.
+            for s in steps:
+                s_type = str(s.step_type).replace("StepType.", "")
+                if not preserves_output(s_type):
+                    continue
+                s_key = json.loads(s.config_json or "{}").get("_step_key")
+                s_path = ctx.artifacts.get(s_key) if s_key else None
+                if isinstance(s_path, Path):
+                    temp_paths.discard(s_path)
             for p in temp_paths:
                 if p.exists():
                     try:
@@ -1061,6 +1529,9 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             return result
 
         if pipeline_failed:
+            # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — même patron que
+            # result.remote_path côté succès juste plus bas : absent jusqu'ici côté échec.
+            result.failed_step_key = ctx.extra.get("failed_step_key")
             _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
             _trigger_downstream_pipelines(pipeline_id, "FAILED")
@@ -1111,6 +1582,7 @@ def _update_run(run_id: int, status: str, result: PipelineResult,
         log_text=result.log_text,
         resumable_state_json=resumable_state_json,
         resumed_from_run_id=resumed_from_run_id,
+        failed_step_key=result.failed_step_key,
     )
 
 

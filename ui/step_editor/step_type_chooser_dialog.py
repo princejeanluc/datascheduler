@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize
 from ui.styles import COLORS, DIALOG_STYLE
+from core.steps import is_routing_node
 from .common import STEP_META, _icon
 
 # Ordre d'affichage des sections — indépendant de l'ordre d'insertion de STEP_META.
@@ -37,16 +38,20 @@ _DESCRIPTIONS = {
     "HTTP_REQUEST":   "Appel d'une API REST / webhook, avec le fichier produit en option.",
     "CONDITION":      "Évalue une expression sur le contexte et route vers l'une de ses deux "
                       "sorties (Vrai/Faux) — à connecter dans le canevas.",
+    "GATEWAY_PARALLEL": "Marque explicitement un embranchement parallèle — le flux se divise en "
+                      "plusieurs branches actives simultanément.",
+    "GATEWAY_JOIN":   "Synchronise plusieurs branches convergentes — ET (toutes doivent réussir) "
+                      "ou OU (une seule suffit), artefact désigné explicitement.",
 }
 
 
 class StepTypeChooserDialog(QDialog):
     """Dialogue de sélection du type d'étape à ajouter."""
 
-    def __init__(self, parent=None, include_condition: bool = False):
+    def __init__(self, parent=None, include_routing_nodes: bool = False):
         super().__init__(parent)
         self.chosen_type: str = ""
-        self._include_condition = include_condition
+        self._include_routing_nodes = include_routing_nodes
         self._cards: list[tuple[QFrame, str]] = []          # (carte, texte de recherche)
         self._category_sections: dict[str, tuple[QLabel, list[QFrame]]] = {}
         self.setWindowTitle("Ajouter une étape")
@@ -56,9 +61,13 @@ class StepTypeChooserDialog(QDialog):
         self.inp_search.setFocus()
 
     def _visible_types(self) -> dict:
-        if self._include_condition:
+        # Un nœud de routage (CONDITION, GATEWAY_PARALLEL, GATEWAY_JOIN — IS_ROUTING_NODE) n'a de
+        # sens que connecté par arêtes dans le canevas ; jamais proposé dans l'éditeur linéaire
+        # (chantier Gateway — généralisé depuis un littéral "CONDITION" codé en dur, qui n'aurait
+        # exclu ni GATEWAY_PARALLEL ni GATEWAY_JOIN).
+        if self._include_routing_nodes:
             return dict(_DESCRIPTIONS)
-        return {k: v for k, v in _DESCRIPTIONS.items() if k != "CONDITION"}
+        return {k: v for k, v in _DESCRIPTIONS.items() if not is_routing_node(k)}
 
     def _build_ui(self):
         root = QVBoxLayout(self)

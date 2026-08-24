@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -327,6 +327,38 @@ def _migrate(engine) -> None:
         if "execution_mode" not in app_settings_cols:
             conn.execute(text(
                 "ALTER TABLE app_settings ADD COLUMN execution_mode VARCHAR(20) NOT NULL DEFAULT 'IN_APP'"
+            ))
+            conn.commit()
+
+        # Parallélisme intra-pipeline (chantier dédié) — bascule + plafond de branches ajoutés à
+        # pipelines, table déjà existante pour toute base antérieure à ce chantier.
+        pipeline_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipelines)")).fetchall()}
+        if "parallel_execution_enabled" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN parallel_execution_enabled BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+        if "max_parallel_branches" not in pipeline_cols:
+            conn.execute(text(
+                "ALTER TABLE pipelines ADD COLUMN max_parallel_branches INTEGER NOT NULL DEFAULT 4"
+            ))
+            conn.commit()
+
+        # Progression multi-étapes du moteur concurrent (chantier parallélisme) — colonne
+        # ajoutée à pipeline_runs, table déjà existante pour toute base antérieure à ce chantier.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "active_steps_json" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN active_steps_json TEXT"
+            ))
+            conn.commit()
+
+        # _step_key de l'étape en échec (chantier UX éditeur, Lot 1, B1) — colonne ajoutée à
+        # pipeline_runs, table déjà existante pour toute base antérieure à ce chantier.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "failed_step_key" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN failed_step_key VARCHAR(255)"
             ))
             conn.commit()
 
@@ -890,6 +922,7 @@ def create_pipeline(name, description=None,
                     frequency="DAILY", cron_expression=None,
                     scheduled_time="06:00", scheduled_day=None,
                     prevent_overlap=False,
+                    parallel_execution_enabled=False, max_parallel_branches=4,
                     # Champs legacy conservés pour compatibilité migration
                     oracle_profile_id=None, sql_query_id=None, ftp_profile_id=None,
                     remote_path_tpl=None, filename_tpl=None,
@@ -912,6 +945,8 @@ def create_pipeline(name, description=None,
             scheduled_time=scheduled_time,
             scheduled_day=scheduled_day,
             prevent_overlap=prevent_overlap,
+            parallel_execution_enabled=parallel_execution_enabled,
+            max_parallel_branches=max_parallel_branches,
         )
         if uuid:
             kwargs["uuid"] = uuid
@@ -958,7 +993,8 @@ def get_pipeline_by_uuid(uuid: str) -> Pipeline | None:
 def update_pipeline(pipeline_id, name, description=None,
                      frequency="DAILY", cron_expression=None,
                      scheduled_time="06:00", scheduled_day=None,
-                     prevent_overlap=False) -> Pipeline | None:
+                     prevent_overlap=False,
+                     parallel_execution_enabled=False, max_parallel_branches=4) -> Pipeline | None:
     """Ne touche pas aux étapes — voir save_steps() pour ça (chantier 5c : écrasement à l'import)."""
     with get_session() as s:
         p = s.get(Pipeline, pipeline_id)
@@ -971,6 +1007,8 @@ def update_pipeline(pipeline_id, name, description=None,
         p.scheduled_time = scheduled_time
         p.scheduled_day = scheduled_day
         p.prevent_overlap = prevent_overlap
+        p.parallel_execution_enabled = parallel_execution_enabled
+        p.max_parallel_branches = max_parallel_branches
     log_audit_event("pipeline_edited", pipeline_id=pipeline_id, pipeline_name=name,
                      detail="Nom/description/planification")
     return p
@@ -1058,7 +1096,8 @@ def create_run(pipeline_id: int) -> PipelineRun:
 
 def finish_run(run_id: int, status: str, rows_exported=None,
                remote_path=None, error_message=None, log_text=None,
-               resumable_state_json=None, resumed_from_run_id=None) -> bool:
+               resumable_state_json=None, resumed_from_run_id=None,
+               failed_step_key=None) -> bool:
     from datetime import datetime
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
@@ -1072,6 +1111,10 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.log_text      = log_text
         run.current_step_label   = None   # run terminé — plus d'étape "en cours" à afficher
         run.current_step_key     = None
+        # failed_step_key (chantier UX éditeur, Lot 1, B1) — contrairement à current_step_key
+        # ci-dessus, JAMAIS remis à None ici : c'est justement la donnée qui doit survivre après
+        # la fin du run, pour un lien "Voir dans le graphe" depuis l'historique.
+        run.failed_step_key      = failed_step_key
         run.resumable_state_json = resumable_state_json
         run.resumed_from_run_id  = resumed_from_run_id
         return True
@@ -1128,6 +1171,45 @@ def get_running_step_keys() -> dict[int, str]:
     for r in rows:
         if r.current_step_key:
             result.setdefault(r.pipeline_id, r.current_step_key)
+    return result
+
+
+def update_run_active_steps(run_id: int, active_steps: dict) -> None:
+    """Écrit l'ensemble des étapes actuellement en cours (chantier parallélisme intra-pipeline) —
+    UNIQUEMENT appelé par core/pipeline.py::_execute_graph_parallel, jamais par les moteurs
+    linéaire/graphe séquentiel qui continuent de ne piloter que current_step_label/
+    current_step_key (update_run_progress ci-dessus, inchangé). `active_steps` :
+    {step_key: {"label": str, "pct": int}}."""
+    import json
+    with get_session() as s:
+        run = s.get(PipelineRun, run_id)
+        if run:
+            run.active_steps_json = json.dumps(active_steps)
+
+
+def get_running_step_keys_multi() -> dict[int, set[str]]:
+    """pipeline_id -> ensemble des step_keys actuellement actifs (chantier parallélisme) — lu
+    depuis active_steps_json, coexiste avec get_running_step_keys() ci-dessus (qui reste la
+    source pour tout run n'ayant jamais emprunté le moteur concurrent, active_steps_json alors
+    NULL). Utilisée par l'éditeur graphique pour surligner plusieurs nœuds à la fois."""
+    import json
+    with get_session() as s:
+        rows = (
+            s.query(PipelineRun)
+            .filter(PipelineRun.status == PipelineStatus.RUNNING,
+                     PipelineRun.active_steps_json.isnot(None))
+            .order_by(PipelineRun.started_at.desc())
+            .all()
+        )
+    result: dict[int, set[str]] = {}
+    for r in rows:
+        if r.pipeline_id in result:
+            continue   # run le plus récent déjà pris pour ce pipeline
+        try:
+            active = json.loads(r.active_steps_json)
+        except (ValueError, TypeError):
+            continue
+        result[r.pipeline_id] = set(active.keys())
     return result
 
 
@@ -1595,18 +1677,79 @@ def get_edges(pipeline_id: int) -> list[PipelineEdge]:
         return s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).all()
 
 
-def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) -> None:
+def get_zones(pipeline_id: int) -> list[PipelineZone]:
+    with get_session() as s:
+        return s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).all()
+
+
+def _diff_pipeline_graph(old_steps: list[tuple[str, str]], new_steps: list[tuple[str, str]],
+                          old_edges: list[tuple], new_edges: list[tuple]) -> str:
+    """Journal des modifications (chantier UX éditeur, Lot 3, B4) : construit une phrase FR
+    décrivant précisément ce qui a changé entre l'état persisté et le nouvel état d'un graphe,
+    pour remplacer le comptage grossier historique ("5 étape(s), 4 arête(s)") dans le `detail` de
+    l'évènement d'audit "pipeline_edited". `old_steps`/`new_steps` : paires (step_key, label) déjà
+    normalisées par l'appelant (label jamais vide — repli sur step_type côté appelant) ;
+    `old_edges`/`new_edges` : tuples (from_step_key, from_port, to_step_key, to_port). Fonction
+    pure, sans accès DB — testable isolément."""
+    def _sort_key(k):
+        return (k is None, k or "")
+
+    old_by_key = dict(old_steps)
+    new_by_key = dict(new_steps)
+    added = [new_by_key[k] for k in sorted(new_by_key.keys() - old_by_key.keys(), key=_sort_key)]
+    removed = [old_by_key[k] for k in sorted(old_by_key.keys() - new_by_key.keys(), key=_sort_key)]
+    renamed = [(old_by_key[k], new_by_key[k])
+               for k in sorted(old_by_key.keys() & new_by_key.keys(), key=_sort_key)
+               if old_by_key[k] != new_by_key[k]]
+    edges_added = set(new_edges) - set(old_edges)
+    edges_removed = set(old_edges) - set(new_edges)
+
+    parts = []
+    if added:
+        parts.append(f"+{len(added)} étape(s) ({', '.join(added)})")
+    if removed:
+        parts.append(f"-{len(removed)} étape(s) ({', '.join(removed)})")
+    if renamed:
+        renamed_str = ", ".join(f"{o} → {n}" for o, n in renamed)
+        parts.append(f"{len(renamed)} renommée(s) ({renamed_str})")
+    if edges_added:
+        parts.append(f"+{len(edges_added)} arête(s)")
+    if edges_removed:
+        parts.append(f"-{len(edges_removed)} arête(s)")
+    if not parts:
+        return "Repositionnement / mise en page uniquement"
+    return " · ".join(parts)
+
+
+def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
+                         zones: list[dict] | None = None) -> None:
     """
     Comme save_steps(), mais persiste aussi la position sur le canevas (pos_x/pos_y, 0 par
-    défaut si absente du dict) et remplace intégralement les PipelineEdge du pipeline.
+    défaut si absente du dict) et remplace intégralement les PipelineEdge/PipelineZone du
+    pipeline.
 
-    N'est appelée que par le futur éditeur graphique (chantier 6b) — save_steps() reste le
-    chemin de l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
+    N'est appelée que par l'éditeur graphique (chantier 6b) et par apply_import()
+    (database/export_import.py, écrasement et création) — save_steps() reste le chemin de
+    l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
 
     Chaque edge dict : {"from_step_key": str, "from_port": str, "to_step_key": str, "to_port": str}.
+    Chaque zone dict : {"name": str, "pos_x": int, "pos_y": int, "width": int, "height": int}
+    (chantier UX éditeur, Lot 2, A4) — `zones=None` (défaut) équivaut à une liste vide, pour tout
+    appelant antérieur à ce chantier.
     """
     import json
+    zones = zones or []
     with get_session() as s:
+        old_steps = [
+            ((json.loads(p.config_json or "{}").get("_step_key")),
+             p.label or getattr(p.step_type, "value", p.step_type))
+            for p in s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).all()
+        ]
+        old_edges = [
+            (e.from_step_key, e.from_port, e.to_step_key, e.to_port)
+            for e in s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).all()
+        ]
+
         s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).delete()
         for i, step in enumerate(steps):
             s.add(PipelineStep(
@@ -1630,11 +1773,32 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict]) 
                 to_step_key=e["to_step_key"],
                 to_port=e.get("to_port") or "input",
             ))
+        s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).delete()
+        for z in zones:
+            s.add(PipelineZone(
+                pipeline_id=pipeline_id,
+                name=z.get("name") or "Nouvelle zone",
+                pos_x=z.get("pos_x", 0),
+                pos_y=z.get("pos_y", 0),
+                width=z.get("width", 240),
+                height=z.get("height", 160),
+            ))
+    new_steps = [
+        ((step.get("config") or {}).get("_step_key"), step.get("label") or step.get("step_type"))
+        for step in steps
+    ]
+    new_edges = [
+        (e["from_step_key"], e.get("from_port") or "output_file",
+         e["to_step_key"], e.get("to_port") or "input")
+        for e in edges
+    ]
+    diff_str = _diff_pipeline_graph(old_steps, new_steps, old_edges, new_edges)
+
     pipeline = get_pipeline(pipeline_id)
     log_audit_event(
         "pipeline_edited", pipeline_id=pipeline_id,
         pipeline_name=pipeline.name if pipeline else None,
-        detail=f"{len(steps)} étape(s), {len(edges)} arête(s) (éditeur graphique)",
+        detail=f"{diff_str} (éditeur graphique)",
     )
 
 

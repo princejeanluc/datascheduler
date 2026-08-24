@@ -42,6 +42,28 @@ class StepContext:
         ts = datetime.utcnow().strftime("%H:%M:%S")
         self.log_lines.append(f"[{ts}] {msg}")
 
+    def fork(self) -> "StepContext":
+        """
+        Copie isolée pour l'exécution concurrente d'une étape (chantier parallélisme
+        intra-pipeline) — son propre dict `artifacts` (copie superficielle : les valeurs sont
+        des `Path`, immuables, donc une copie superficielle suffit à isoler complètement les
+        écritures) et son propre `log_lines`, pour qu'aucune écriture faite par une étape en
+        train de tourner dans un thread n'affecte jamais une autre étape concurrente avant que
+        le coordinateur ne fusionne son résultat après coup — un seul thread (le coordinateur)
+        touche jamais le `StepContext` partagé, voir core/pipeline.py::_execute_graph_parallel.
+
+        `extra` partagé par référence à dessein (lu par les steps — ex: `{error}`/
+        `{failed_step}` dans resolve_tokens — jamais écrit par eux) ; `started_at` copié tel
+        quel (purement informatif, jamais utilisé pour une décision d'exécution).
+        """
+        return StepContext(
+            started_at=self.started_at,
+            artifacts=dict(self.artifacts),
+            rows_count=self.rows_count,
+            log_lines=[],
+            extra=self.extra,
+        )
+
     def resolve_tokens(self, template: str) -> str:
         """Remplace {yyyy}, {MM}, {dd}, {HH}, {mm}, {output_file}, etc."""
         now = datetime.now()
@@ -90,6 +112,23 @@ class BaseStep:
     # Ports de sortie nommés (chantier 6a) — un seul port implicite pour tous les steps
     # existants ; un nœud à ports multiples (ex: ConditionStep) le redéfinit ("true", "false").
     OUTPUT_PORTS: tuple[str, ...] = ("output_file",)
+    # Nœud de routage/jonction (chantier UX éditeur, losange plutôt que rectangle sur le
+    # canevas) — False pour tous les steps existants ; ConditionStep le redéfinit à True, un
+    # futur type GATEWAY en hériterait de même. Centralisé ici (jamais une liste de types en
+    # dur côté rendu Qt) — même principe que OUTPUT_PORTS ci-dessus.
+    IS_ROUTING_NODE: bool = False
+    # Passerelle de jonction ET/OU (chantier Gateway) — False pour tous les steps existants ;
+    # GatewayJoinStep le redéfinit à True. Pilote get_join_mode() (core/steps/__init__.py), qui
+    # à son tour pilote la sémantique ET dans core/pipeline.py (_execute_graph/
+    # _execute_graph_parallel) — jamais un littéral "GATEWAY_JOIN" codé en dur dans le moteur,
+    # même principe d'indirection que IS_ROUTING_NODE/is_routing_node().
+    IS_JOIN_GATEWAY: bool = False
+    # Le fichier produit est une destination PERMANENTE choisie par l'utilisateur (chantier
+    # identité visuelle), pas un scratch intermédiaire — False pour tous les steps existants ;
+    # LocalCopyStep le redéfinit à True. Le nettoyage des fichiers temporaires en fin de
+    # run_pipeline() (core/pipeline.py) exclut ces chemins de sa suppression, sans quoi rendre un
+    # step "chainable" (PRODUCES) le ferait aussi automatiquement balayer par erreur.
+    PRESERVES_OUTPUT: bool = False
 
     def __init__(self, config: dict):
         self.config = config

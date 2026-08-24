@@ -33,8 +33,10 @@ from . import crypto, db_manager as db
 from .models import DbType, FtpProtocol
 from version import __version__
 
-CURRENT_SCHEMA_VERSION = 2   # v2 (chantier 6a/6b) : ajoute "edges" + pos_x/pos_y par étape — un
+CURRENT_SCHEMA_VERSION = 3   # v2 (chantier 6a/6b) : ajoute "edges" + pos_x/pos_y par étape — un
                              # bundle v1 s'importe toujours normalement (edges/positions par défaut)
+                             # v3 (chantier UX éditeur, Lot 2, A4) : ajoute "zones" — un bundle v1
+                             # ou v2 s'importe toujours normalement (zones vides par défaut)
 _KDF_ITERATIONS = 600_000
 
 # ──────────────────────────────────────────────
@@ -60,6 +62,8 @@ _TRANSCRIBERS: dict[int, Callable[[dict], dict]] = {
 _ADDITIVE_VERSION_BUMPS: set[int] = {
     1,   # v1 -> v2 : ajout de "edges" + pos_x/pos_y par étape — voir
          # test_v1_style_bundle_without_edges_key_still_imports (tests/test_import.py).
+    2,   # v2 -> v3 : ajout de "zones" (chantier UX éditeur, Lot 2, A4) — voir
+         # test_v2_style_bundle_without_zones_key_still_imports (tests/test_import.py).
 }
 
 
@@ -416,6 +420,21 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
             for e in edges
         ]
 
+        # Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) — purement décoratives,
+        # ne référencent aucun profil : passage verbatim, comme les arêtes ci-dessus. Liste vide
+        # pour un pipeline sans zone (comportement identique à un bundle v2).
+        zones = db.get_zones(pipeline_id)
+        exported_zones = [
+            {
+                "name":   z.name,
+                "pos_x":  z.pos_x,
+                "pos_y":  z.pos_y,
+                "width":  z.width,
+                "height": z.height,
+            }
+            for z in zones
+        ]
+
         profiles_bundle = {
             category: [_SERIALIZERS[category](obj, fernet) for obj in objs.values()]
             for category, objs in needed.items() if category != "sql_query"
@@ -436,8 +455,11 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "scheduled_time":  pipeline.scheduled_time,
                 "scheduled_day":   pipeline.scheduled_day,
                 "prevent_overlap": pipeline.prevent_overlap,
+                "parallel_execution_enabled": pipeline.parallel_execution_enabled,
+                "max_parallel_branches":      pipeline.max_parallel_branches,
                 "steps":           exported_steps,
                 "edges":           exported_edges,
+                "zones":           exported_zones,
             },
             "profiles":    profiles_bundle,
             "sql_queries": sql_queries_bundle,
@@ -739,6 +761,11 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
         # elles voyagent verbatim. Liste vide pour un bundle v1 ou un pipeline sans graphe.
         translated_edges = list(pipeline_data.get("edges", []))
 
+        # Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) — verbatim comme les
+        # arêtes, aucune référence de profil. .get(..., []) assure la rétrocompatibilité avec
+        # tout bundle v1/v2 sans clé "zones".
+        translated_zones = list(pipeline_data.get("zones", []))
+
         if plan.pipeline_action == "overwrite" and plan.pipeline_existing_id:
             # Choix explicite de l'écran de revue (chantier 5c) — remplace le pipeline local
             # existant en place (même id/UUID, c'est justement pour ça qu'il y avait collision).
@@ -751,8 +778,11 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 scheduled_time=pipeline_data.get("scheduled_time"),
                 scheduled_day=pipeline_data.get("scheduled_day"),
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
+                parallel_execution_enabled=pipeline_data.get("parallel_execution_enabled", False),
+                max_parallel_branches=pipeline_data.get("max_parallel_branches", 4),
             )
-            db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges)
+            db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges,
+                                    zones=translated_zones)
             new_pipeline_id = plan.pipeline_existing_id
         else:
             if plan.pipeline_action == "create":
@@ -772,9 +802,12 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 scheduled_time=pipeline_data.get("scheduled_time"),
                 scheduled_day=pipeline_data.get("scheduled_day"),
                 prevent_overlap=pipeline_data.get("prevent_overlap", False),
+                parallel_execution_enabled=pipeline_data.get("parallel_execution_enabled", False),
+                max_parallel_branches=pipeline_data.get("max_parallel_branches", 4),
                 uuid=pipeline_uuid,
             )
-            db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges)
+            db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges,
+                                    zones=translated_zones)
             new_pipeline_id = new_pipeline.id
 
         # En plus des événements "pipeline_created"/"pipeline_edited" déjà émis ci-dessus par
@@ -833,6 +866,8 @@ def duplicate_pipeline(pipeline_id: int) -> ApplyResult:
             scheduled_time=new_pipeline.scheduled_time,
             scheduled_day=new_pipeline.scheduled_day,
             prevent_overlap=new_pipeline.prevent_overlap,
+            parallel_execution_enabled=new_pipeline.parallel_execution_enabled,
+            max_parallel_branches=new_pipeline.max_parallel_branches,
         )
         db.set_pipeline_active(new_pipeline.id, False)
         db.log_audit_event(

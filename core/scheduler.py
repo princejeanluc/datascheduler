@@ -518,10 +518,19 @@ class PipelineScheduler:
             coalesce=settings.coalesce_missed_runs,
         )
 
-        next_run = self._scheduler.get_job(job_id).next_run_time
+        # add_job() a réussi (le job est planifié) même si le scheduler n'est pas encore
+        # `running` à cet instant précis — APScheduler journalise alors "Adding job
+        # tentatively..." et ne calcule PAS next_run_time tout de suite (Job utilise
+        # __slots__ : lire un attribut jamais assigné lève AttributeError, pas None). Sans
+        # cette garde, ce cas normal-mais-transitoire faisait planter toute la fonction —
+        # le pipeline était donc compté comme "non planifié" et next_run_at n'était jamais mis
+        # à jour en base, alors que le job était en réalité bien enregistré.
+        job = self._scheduler.get_job(job_id)
+        next_run = getattr(job, "next_run_time", None)
         logger.info(
             "Pipeline planifié : %s (%s) → prochaine exéc. : %s",
-            pipeline.name, describe_schedule(pipeline), next_run
+            pipeline.name, describe_schedule(pipeline),
+            next_run or "à déterminer au démarrage du scheduler",
         )
 
         # Mettre à jour next_run_at en DB
