@@ -1682,6 +1682,45 @@ def get_zones(pipeline_id: int) -> list[PipelineZone]:
         return s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).all()
 
 
+def _diff_pipeline_graph(old_steps: list[tuple[str, str]], new_steps: list[tuple[str, str]],
+                          old_edges: list[tuple], new_edges: list[tuple]) -> str:
+    """Journal des modifications (chantier UX éditeur, Lot 3, B4) : construit une phrase FR
+    décrivant précisément ce qui a changé entre l'état persisté et le nouvel état d'un graphe,
+    pour remplacer le comptage grossier historique ("5 étape(s), 4 arête(s)") dans le `detail` de
+    l'évènement d'audit "pipeline_edited". `old_steps`/`new_steps` : paires (step_key, label) déjà
+    normalisées par l'appelant (label jamais vide — repli sur step_type côté appelant) ;
+    `old_edges`/`new_edges` : tuples (from_step_key, from_port, to_step_key, to_port). Fonction
+    pure, sans accès DB — testable isolément."""
+    def _sort_key(k):
+        return (k is None, k or "")
+
+    old_by_key = dict(old_steps)
+    new_by_key = dict(new_steps)
+    added = [new_by_key[k] for k in sorted(new_by_key.keys() - old_by_key.keys(), key=_sort_key)]
+    removed = [old_by_key[k] for k in sorted(old_by_key.keys() - new_by_key.keys(), key=_sort_key)]
+    renamed = [(old_by_key[k], new_by_key[k])
+               for k in sorted(old_by_key.keys() & new_by_key.keys(), key=_sort_key)
+               if old_by_key[k] != new_by_key[k]]
+    edges_added = set(new_edges) - set(old_edges)
+    edges_removed = set(old_edges) - set(new_edges)
+
+    parts = []
+    if added:
+        parts.append(f"+{len(added)} étape(s) ({', '.join(added)})")
+    if removed:
+        parts.append(f"-{len(removed)} étape(s) ({', '.join(removed)})")
+    if renamed:
+        renamed_str = ", ".join(f"{o} → {n}" for o, n in renamed)
+        parts.append(f"{len(renamed)} renommée(s) ({renamed_str})")
+    if edges_added:
+        parts.append(f"+{len(edges_added)} arête(s)")
+    if edges_removed:
+        parts.append(f"-{len(edges_removed)} arête(s)")
+    if not parts:
+        return "Repositionnement / mise en page uniquement"
+    return " · ".join(parts)
+
+
 def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
                          zones: list[dict] | None = None) -> None:
     """
@@ -1701,6 +1740,16 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
     import json
     zones = zones or []
     with get_session() as s:
+        old_steps = [
+            ((json.loads(p.config_json or "{}").get("_step_key")),
+             p.label or getattr(p.step_type, "value", p.step_type))
+            for p in s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).all()
+        ]
+        old_edges = [
+            (e.from_step_key, e.from_port, e.to_step_key, e.to_port)
+            for e in s.query(PipelineEdge).filter_by(pipeline_id=pipeline_id).all()
+        ]
+
         s.query(PipelineStep).filter_by(pipeline_id=pipeline_id).delete()
         for i, step in enumerate(steps):
             s.add(PipelineStep(
@@ -1734,12 +1783,22 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
                 width=z.get("width", 240),
                 height=z.get("height", 160),
             ))
+    new_steps = [
+        ((step.get("config") or {}).get("_step_key"), step.get("label") or step.get("step_type"))
+        for step in steps
+    ]
+    new_edges = [
+        (e["from_step_key"], e.get("from_port") or "output_file",
+         e["to_step_key"], e.get("to_port") or "input")
+        for e in edges
+    ]
+    diff_str = _diff_pipeline_graph(old_steps, new_steps, old_edges, new_edges)
+
     pipeline = get_pipeline(pipeline_id)
     log_audit_event(
         "pipeline_edited", pipeline_id=pipeline_id,
         pipeline_name=pipeline.name if pipeline else None,
-        detail=f"{len(steps)} étape(s), {len(edges)} arête(s), {len(zones)} zone(s) "
-               "(éditeur graphique)",
+        detail=f"{diff_str} (éditeur graphique)",
     )
 
 

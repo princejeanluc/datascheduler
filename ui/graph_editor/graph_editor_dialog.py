@@ -25,6 +25,8 @@ from .zone_item import ZoneItem
 from .minimap_widget import GraphMinimapWidget
 from .tool_rail import EditorToolRail
 from .zoom_widget import ZoomWidget
+from .help_popup import GraphHelpDialog
+from ui.help.content import get_topic
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -336,6 +338,27 @@ class PipelineGraphEditorDialog(QDialog):
         self._layout_snapshot = None
         self._btn_undo_layout.setEnabled(False)
 
+    def _on_arrange_selection(self):
+        """Version ciblée de _on_auto_layout (chantier UX éditeur, Lot 3, A6) : ne repositionne
+        que les étapes actuellement sélectionnées, le reste du graphe sert d'ancrage inchangé —
+        _compute_auto_layout_positions(node_subset=...) supporte déjà ce cas depuis le Lot 1.
+        Réutilise le même snapshot/bouton d'annulation que le rangement complet : une seule
+        action de rangement (complète ou ciblée) peut être annulée à la fois."""
+        keys = {n.step_key for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)}
+        if not keys:
+            return
+        positions = self._compute_auto_layout_positions(node_subset=keys)
+        if positions is None:
+            QMessageBox.warning(
+                self, "Rangement impossible",
+                "Le graphe contient un cycle — impossible de déterminer un ordre de rangement.",
+            )
+            return
+        self._layout_snapshot = {k: n.pos() for k, n in self._scene.nodes.items()}
+        for key, pos in positions.items():
+            self._scene.nodes[key].setPos(pos)
+        self._btn_undo_layout.setEnabled(True)
+
     # ── Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) ────
 
     def _on_add_zone(self):
@@ -359,6 +382,14 @@ class PipelineGraphEditorDialog(QDialog):
         # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
         self._minimap.setVisible(self._minimap.isHidden())
         self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
+
+    def _on_show_help(self):
+        """Aide contextuelle (chantier UX éditeur, Lot 3, C2) — réutilise le même rendu Markdown
+        que l'onglet "Aide" global, seule la rubrique "graph-editor" est affichée ici."""
+        topic = get_topic("graph-editor")
+        if topic is None:
+            return
+        GraphHelpDialog(topic, parent=self).exec()
 
     # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
 

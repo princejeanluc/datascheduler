@@ -78,6 +78,14 @@ class EditorToolRail(QWidget):
         self.btn_auto_layout.clicked.connect(dialog._on_auto_layout)
         layout.addWidget(self.btn_auto_layout)
 
+        self.btn_arrange_selection = _action_btn(
+            "fa5s.object-ungroup", object_name="secondary", size=_BUTTON_SIZE,
+            tooltip="Ranger la sélection — repositionne uniquement les étapes sélectionnées, "
+                    "sans toucher au reste du graphe.",
+        )
+        self.btn_arrange_selection.clicked.connect(dialog._on_arrange_selection)
+        layout.addWidget(self.btn_arrange_selection)
+
         self.btn_undo_layout = _action_btn(
             "fa5s.undo", object_name="secondary", tooltip="Annuler le rangement",
             size=_BUTTON_SIZE,
@@ -95,6 +103,16 @@ class EditorToolRail(QWidget):
         )
         self.btn_toggle_minimap.clicked.connect(dialog._on_toggle_minimap)
         layout.addWidget(self.btn_toggle_minimap)
+
+        layout.addWidget(_separator())
+
+        # Groupe "Aide" (chantier UX éditeur, Lot 3, C2)
+        self.btn_help = _action_btn(
+            "fa5s.question-circle", object_name="secondary", size=_BUTTON_SIZE,
+            tooltip="Aide sur l'éditeur graphique",
+        )
+        self.btn_help.clicked.connect(dialog._on_show_help)
+        layout.addWidget(self.btn_help)
 
     def reposition(self) -> None:
         """Ancré en haut à gauche du viewport, marge fixe — contrairement à la mini-carte (coin
