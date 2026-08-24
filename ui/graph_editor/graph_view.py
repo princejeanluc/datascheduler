@@ -24,6 +24,13 @@ class PipelineGraphView(QGraphicsView):
         # ne les connaît pas, elle se contente de les notifier des évènements pertinents).
         self._minimap = None
         self._rail = None
+        # Pan manuel (chantier identité visuelle) — bouton milieu réservé exclusivement au
+        # panoramique, jamais transmis à PipelineGraphScene (qui ne filtre par bouton nulle
+        # part) : interceptés ici, AVANT tout super()..., le clic gauche existant
+        # (sélection-rectangle, glisser un nœud, glisser-pour-connecter un port) reste
+        # strictement inchangé.
+        self._panning = False
+        self._pan_last_pos = None
 
     def drawBackground(self, painter, rect):
         # Grille de points en coordonnées de SCÈNE (pas d'écran) — chantier identité visuelle,
@@ -52,6 +59,37 @@ class PipelineGraphView(QGraphicsView):
             x += _GRID_SPACING
         if points:
             painter.drawPoints(points)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MiddleButton:
+            self._panning = True
+            self._pan_last_pos = event.position()
+            self.setCursor(Qt.ClosedHandCursor)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._panning:
+            pos = event.position()
+            delta = pos - self._pan_last_pos
+            self._pan_last_pos = pos
+            h = self.horizontalScrollBar()
+            v = self.verticalScrollBar()
+            h.setValue(h.value() - int(delta.x()))
+            v.setValue(v.value() - int(delta.y()))
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MiddleButton and self._panning:
+            self._panning = False
+            self._pan_last_pos = None
+            self.unsetCursor()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
     def wheelEvent(self, event):
         factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
