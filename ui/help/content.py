@@ -17,6 +17,16 @@ class HelpTopic:
     markdown: str
 
 
+def get_topic(key: str) -> "HelpTopic | None":
+    """Recherche par clé (chantier UX éditeur, Lot 3, C2) — évite qu'un appelant contextuel
+    (ex : le bouton `?` de l'éditeur graphique) ait à connaître la structure interne de
+    HELP_TOPICS pour retrouver une seule rubrique précise."""
+    for topic in HELP_TOPICS:
+        if topic.key == key:
+            return topic
+    return None
+
+
 HELP_TOPICS: list[HelpTopic] = [
     HelpTopic(
         key="overview",
@@ -326,6 +336,55 @@ mot de passe pour l'importer.
 C'est normal — le champ mot de passe est toujours vide à l'ouverture d'un profil existant (jamais
 réaffiché en clair). Laissez-le vide pour conserver l'ancien mot de passe ; ne le remplissez que
 pour le changer.
+""",
+    ),
+    HelpTopic(
+        key="graph-editor",
+        title="Éditeur graphique",
+        icon="fa5s.project-diagram",
+        markdown="""# Éditeur graphique
+
+L'éditeur graphique permet de construire un pipeline sous forme de graphe (branches, plusieurs
+sources/destinations en parallèle) plutôt qu'une liste linéaire d'étapes.
+
+## Connecter les étapes
+
+Glissez depuis le petit point de sortie (bord droit d'une étape) vers le point d'entrée d'une
+autre. Une étape peut avoir plusieurs sorties nommées (ex : `true`/`false` pour une Condition,
+`error` pour le port d'erreur générique — toujours placé sous l'étape). Glissez un nœud pour le
+déplacer ; deux nœuds proches s'alignent automatiquement (un guide pointillé apparaît pendant le
+glissé dès que les centres ou les bords s'accordent).
+
+## Passerelles (parallèle et jonction)
+
+- **Passerelle parallèle** — un seul flux entrant se divise en plusieurs branches exécutées
+  simultanément. N'a aucun effet sur les données, purement une synchronisation.
+- **Passerelle de jonction** — recombine plusieurs branches. Deux modes :
+  - **ET** — la suite ne démarre que si *toutes* les branches entrantes ont réussi.
+  - **OU** — la suite démarre dès qu'*au moins une* branche a réussi, les autres sont ignorées.
+  Le glyphe au centre de la passerelle (`+` pour ET, cercle pour OU) reflète le mode configuré,
+  visible sans ouvrir son dialogue. Le champ *Source* de son dialogue désigne quelle branche
+  transmet son fichier en sortie (aucune par défaut — synchronisation seule).
+
+## Zones de regroupement
+
+Le bouton zone (rail d'icônes) ajoute un cadre visuel pour regrouper des étapes liées —
+purement organisationnel, sans aucun effet sur l'exécution. Glisser l'en-tête pour déplacer,
+le coin bas-droit pour redimensionner, double-clic pour renommer.
+
+## Ranger le graphe
+
+- **Ranger automatiquement** — repositionne *toutes* les étapes par rang (colonnes de gauche à
+  droite selon l'ordre du graphe), sans toucher aux connexions.
+- **Ranger la sélection** — même principe, mais limité aux étapes actuellement sélectionnées ; le
+  reste du graphe ne bouge pas.
+- **Annuler le rangement** — restaure les positions d'avant le dernier rangement (complet ou
+  ciblé).
+
+## Naviguer sur le canevas
+
+- **Panoramique** — clic maintenu avec le bouton du milieu de la souris, puis glisser.
+- **Zoom** — molette de la souris, ou le widget +/- flottant en bas à gauche du canevas.
 """,
     ),
 ]

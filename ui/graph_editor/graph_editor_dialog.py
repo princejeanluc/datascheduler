@@ -25,6 +25,8 @@ from .zone_item import ZoneItem
 from .minimap_widget import GraphMinimapWidget
 from .tool_rail import EditorToolRail
 from .zoom_widget import ZoomWidget
+from .help_popup import GraphHelpDialog
+from ui.help.content import get_topic
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -380,6 +382,14 @@ class PipelineGraphEditorDialog(QDialog):
         # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
         self._minimap.setVisible(self._minimap.isHidden())
         self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
+
+    def _on_show_help(self):
+        """Aide contextuelle (chantier UX éditeur, Lot 3, C2) — réutilise le même rendu Markdown
+        que l'onglet "Aide" global, seule la rubrique "graph-editor" est affichée ici."""
+        topic = get_topic("graph-editor")
+        if topic is None:
+            return
+        GraphHelpDialog(topic, parent=self).exec()
 
     # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
 
