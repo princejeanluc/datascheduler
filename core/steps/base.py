@@ -123,6 +123,12 @@ class BaseStep:
     # _execute_graph_parallel) — jamais un littéral "GATEWAY_JOIN" codé en dur dans le moteur,
     # même principe d'indirection que IS_ROUTING_NODE/is_routing_node().
     IS_JOIN_GATEWAY: bool = False
+    # Le fichier produit est une destination PERMANENTE choisie par l'utilisateur (chantier
+    # identité visuelle), pas un scratch intermédiaire — False pour tous les steps existants ;
+    # LocalCopyStep le redéfinit à True. Le nettoyage des fichiers temporaires en fin de
+    # run_pipeline() (core/pipeline.py) exclut ces chemins de sa suppression, sans quoi rendre un
+    # step "chainable" (PRODUCES) le ferait aussi automatiquement balayer par erreur.
+    PRESERVES_OUTPUT: bool = False
 
     def __init__(self, config: dict):
         self.config = config

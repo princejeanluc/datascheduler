@@ -48,6 +48,46 @@ def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
 
 
 # ──────────────────────────────────────────────
+#  Fond de carte teinté par type (chantier identité visuelle) — fonction pure, pas besoin de qapp
+# ──────────────────────────────────────────────
+
+def test_tinted_bg_zero_ratio_returns_base_unchanged(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(36, 34, 32)
+    accent = QColor(255, 121, 0)
+    result = _tinted_bg(base, accent, ratio=0.0)
+    assert (result.red(), result.green(), result.blue()) == (36, 34, 32)
+
+
+def test_tinted_bg_full_ratio_returns_accent_unchanged(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(36, 34, 32)
+    accent = QColor(255, 121, 0)
+    result = _tinted_bg(base, accent, ratio=1.0)
+    assert (result.red(), result.green(), result.blue()) == (255, 121, 0)
+
+
+def test_tinted_bg_interpolates_between_base_and_accent(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(0, 0, 0)
+    accent = QColor(200, 100, 50)
+    result = _tinted_bg(base, accent, ratio=0.5)
+    assert (result.red(), result.green(), result.blue()) == (100, 50, 25)
+
+
+def test_tinted_bg_clamps_out_of_range_ratio(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(10, 10, 10)
+    accent = QColor(200, 200, 200)
+    assert (_tinted_bg(base, accent, ratio=-5).red(),) == (10,)
+    assert (_tinted_bg(base, accent, ratio=5).red(),) == (200,)
+
+
+# ──────────────────────────────────────────────
 #  Nœuds de routage en losange (chantier UX éditeur, Lot 1)
 # ──────────────────────────────────────────────
 
@@ -142,6 +182,71 @@ def test_gateway_parallel_node_is_a_routing_node_diamond():
 def test_gateway_join_node_is_a_routing_node_diamond():
     node = StepNodeItem({"step_type": "GATEWAY_JOIN", "config": {"_step_key": "join"}})
     assert node.is_routing_node is True
+
+
+# ──────────────────────────────────────────────
+#  Glyphes centraux façon BPMN (chantier identité visuelle) — fonction pure, pas besoin de qapp
+# ──────────────────────────────────────────────
+
+def test_gateway_glyph_condition_is_cross():
+    from ui.graph_editor.node_item import _gateway_glyph
+    assert _gateway_glyph("CONDITION", {}) == "cross"
+
+
+def test_gateway_glyph_parallel_is_plus():
+    from ui.graph_editor.node_item import _gateway_glyph
+    assert _gateway_glyph("GATEWAY_PARALLEL", {}) == "plus"
+
+
+def test_gateway_glyph_join_and_mode_is_plus():
+    from ui.graph_editor.node_item import _gateway_glyph
+    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "AND"}) == "plus"
+
+
+def test_gateway_glyph_join_or_mode_or_default_is_circle():
+    from ui.graph_editor.node_item import _gateway_glyph
+    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "OR"}) == "circle"
+    assert _gateway_glyph("GATEWAY_JOIN", {}) == "circle"
+
+
+def test_gateway_glyph_non_routing_type_is_none():
+    from ui.graph_editor.node_item import _gateway_glyph
+    assert _gateway_glyph("DB_EXTRACT", {}) is None
+
+
+# ──────────────────────────────────────────────
+#  Marge basse (chantier identité visuelle) — plus haute pour un losange (légende + glyphe
+#  remplaçant le texte à l'intérieur) qu'un rectangle (texte inchangé, resté à l'intérieur).
+# ──────────────────────────────────────────────
+
+def test_routing_node_bounding_rect_taller_than_regular_node():
+    routing_node = StepNodeItem({"step_type": "CONDITION", "config": {"_step_key": "cond"}})
+    regular_node = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    assert routing_node.boundingRect().height() > regular_node.boundingRect().height()
+
+
+@pytest.mark.parametrize("step_type,config", [
+    ("CONDITION", {"expression": "rows_count > 0"}),
+    ("GATEWAY_PARALLEL", {}),
+    ("GATEWAY_JOIN", {"join_mode": "AND"}),
+    ("GATEWAY_JOIN", {"join_mode": "OR"}),
+])
+def test_routing_node_paint_does_not_crash(qapp, step_type, config):
+    """Fumée — un vrai repaint (QPixmap/QPainter), pas juste un appel direct à paint() avec un
+    contexte incomplet, même réflexe que les autres widgets de ce chantier (mini-carte, fond
+    quadrillé)."""
+    from PySide6.QtGui import QPixmap, QPainter as RealQPainter
+
+    node = StepNodeItem({"step_type": step_type, "label": "légende",
+                          "config": {"_step_key": "n", **config}})
+    rect = node.boundingRect()
+    pixmap = QPixmap(int(rect.width()) + 20, int(rect.height()) + 20)
+    painter = RealQPainter(pixmap)
+    try:
+        painter.translate(-rect.left(), -rect.top())
+        node.paint(painter, None, None)
+    finally:
+        painter.end()
 
 
 def test_regular_step_output_ports_unaffected_by_diamond_change():

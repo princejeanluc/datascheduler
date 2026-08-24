@@ -11,6 +11,17 @@ from .base import BaseStep, StepContext, StepResult
 
 class LocalCopyStep(BaseStep):
     REQUIRES = {"output_file"}
+    # Chainable en aval (chantier identité visuelle) : la copie a une destination connue, un
+    # cas d'usage réel est de s'en servir plus loin dans le pipeline (déplacer un fichier avant
+    # de le consommer ailleurs), pas seulement de terminer la chaîne. Additif — ctx.extra
+    # ["local_path"] reste écrit tel quel juste en dessous (déjà consommé par
+    # core/pipeline.py:1533 pour le résumé de fin de run, jamais retiré).
+    PRODUCES = {"output_file"}
+    # La destination est un emplacement PERMANENT choisi par l'utilisateur (dest_dir), pas un
+    # scratch intermédiaire — sans ce flag, le nettoyage des fichiers temporaires en fin de
+    # run_pipeline() (core/pipeline.py) supprimerait la copie elle-même juste après l'avoir
+    # produite, dès qu'elle apparaît dans ctx.artifacts (nécessaire pour être chainable).
+    PRESERVES_OUTPUT = True
 
     def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
@@ -42,6 +53,7 @@ class LocalCopyStep(BaseStep):
 
             shutil.copy2(source_path, dest_path)
             ctx.extra["local_path"] = str(dest_path)
+            ctx.output_file = dest_path
             ctx.log(f"Copie locale : OK → {dest_path}")
             result.success = True
 

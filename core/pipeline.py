@@ -15,7 +15,7 @@ from pathlib import Path
 from database import db_manager as db
 from core.steps import (
     get_step, get_step_requirements, get_step_output_ports, step_produces_output_file,
-    get_join_mode, StepContext, StepResult,
+    get_join_mode, preserves_output, StepContext, StepResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -1496,6 +1496,17 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             # en amont de deux consommateurs différents) — le set déduplique le cas courant où le
             # même Path apparaît à la fois sous "output_file" et sous une clé d'étape spécifique.
             temp_paths = {p for p in ctx.artifacts.values() if isinstance(p, Path)}
+            # Exclut les destinations PERMANENTES (chantier identité visuelle — ex: LOCAL_COPY) :
+            # rendre un type d'étape chainable (PRODUCES) l'aurait sinon aussi fait balayer ici
+            # par erreur, juste après l'avoir produit — voir preserves_output()/PRESERVES_OUTPUT.
+            for s in steps:
+                s_type = str(s.step_type).replace("StepType.", "")
+                if not preserves_output(s_type):
+                    continue
+                s_key = json.loads(s.config_json or "{}").get("_step_key")
+                s_path = ctx.artifacts.get(s_key) if s_key else None
+                if isinstance(s_path, Path):
+                    temp_paths.discard(s_path)
             for p in temp_paths:
                 if p.exists():
                     try:

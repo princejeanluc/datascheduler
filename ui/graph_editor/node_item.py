@@ -65,6 +65,20 @@ def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -
     return (x, y)
 
 
+def _tinted_bg(base: QColor, accent: QColor, ratio: float = 0.13) -> QColor:
+    """Interpole linéairement, canal par canal, de `base` vers `accent` — chantier identité
+    visuelle : un fond de carte uniforme (bg_card) pour tout type de nœud se détachait à peine
+    du fond du canevas (bg_main, un ton à peine plus sombre) et ne différenciait pas les types
+    entre eux au premier coup d'œil. `ratio=0` retourne `base` inchangé, `ratio=1` retourne
+    `accent` inchangé — QColor n'a pas d'équivalent CSS color-mix(), fonction pure testable sans
+    contexte Qt (même philosophie que _port_visual)."""
+    ratio = max(0.0, min(1.0, ratio))
+    r = base.red()   + (accent.red()   - base.red())   * ratio
+    g = base.green() + (accent.green() - base.green()) * ratio
+    b = base.blue()  + (accent.blue()  - base.blue())  * ratio
+    return QColor(round(r), round(g), round(b))
+
+
 def _error_port_local_pos(width: float, height: float) -> tuple[float, float]:
     """Position LOCALE du port "error" — chantier placement du port d'erreur. Toujours au
     sommet/bord BAS (`width/2, height`), quelle que soit la forme (losange ou rectangle) et quel
@@ -77,6 +91,50 @@ def _error_port_local_pos(width: float, height: float) -> tuple[float, float]:
     est fixe), mais bien un sur un losange (l'axe X y varie avec Y). Aucun précédent BPMN/Dataiku
     à copier ici — la gestion d'erreur générique par port est propre à cette app."""
     return (width / 2, height)
+
+
+# Décalage (depuis HEIGHT) du haut de la légende sous un losange, et hauteur de chaque ligne —
+# chantier identité visuelle. Empilée sous le port d'erreur + son étiquette "!" (déjà là, bord
+# bas) : libellé de type, puis libellé utilisateur s'il existe. Voir boundingRect()/paint().
+_ROUTING_CAPTION_TOP     = 26
+_ROUTING_CAPTION_LINE_H  = 16
+_ROUTING_BOTTOM_MARGIN   = _ROUTING_CAPTION_TOP + 2 * _ROUTING_CAPTION_LINE_H
+
+
+def _gateway_glyph(step_type: str, config: dict) -> str | None:
+    """Glyphe central façon BPMN pour un nœud de routage (chantier identité visuelle, maquette
+    approuvée) — remplace l'icône de coin + le texte à l'intérieur du losange, qui débordaient de
+    son triangle intérieur réel (même constat que pour les ports, voir _error_port_local_pos).
+    "CONDITION" (exclusif, une seule branche) → croix ; "GATEWAY_PARALLEL" (fork, toutes les
+    branches) → plus ; "GATEWAY_JOIN" reflète son propre mode configuré (get_join_mode(),
+    core/steps/__init__.py) : plus en mode ET (même glyphe qu'un fork parallèle — cohérent avec
+    BPMN, où c'est la direction des arêtes qui distingue fork/join, pas le glyphe), cercle en
+    mode OU/défaut — visible sans ouvrir son dialogue de configuration. None pour tout autre type
+    (pas de glyphe dessiné)."""
+    if step_type == "CONDITION":
+        return "cross"
+    if step_type == "GATEWAY_PARALLEL":
+        return "plus"
+    if step_type == "GATEWAY_JOIN":
+        return "plus" if (config or {}).get("join_mode") == "AND" else "circle"
+    return None
+
+
+def _draw_gateway_glyph(painter, glyph: str, cx: float, cy: float, color: str, radius: float = 11) -> None:
+    """Dessine `glyph` ("cross"/"plus"/"circle") centré sur (cx, cy) — trait épais, largement à
+    l'intérieur du losange à ce point précis (hauteur pleine à x=WIDTH/2)."""
+    pen = QPen(QColor(color), 3)
+    pen.setCapStyle(Qt.RoundCap)
+    painter.setPen(pen)
+    painter.setBrush(Qt.NoBrush)
+    if glyph == "cross":
+        painter.drawLine(QPointF(cx - radius, cy - radius), QPointF(cx + radius, cy + radius))
+        painter.drawLine(QPointF(cx + radius, cy - radius), QPointF(cx - radius, cy + radius))
+    elif glyph == "plus":
+        painter.drawLine(QPointF(cx, cy - radius), QPointF(cx, cy + radius))
+        painter.drawLine(QPointF(cx - radius, cy), QPointF(cx + radius, cy))
+    elif glyph == "circle":
+        painter.drawEllipse(QPointF(cx, cy), radius * 0.75, radius * 0.75)
 
 
 class StepNodeItem(QGraphicsObject):
@@ -190,9 +248,13 @@ class StepNodeItem(QGraphicsObject):
         # Marge basse élargie (au-delà du simple PORT_RADIUS des autres côtés) : le port "error"
         # est désormais toujours au bord/sommet bas (_error_port_local_pos), avec son étiquette
         # "!" dessinée EN DESSOUS du point plutôt qu'à côté (voir paint()) — sans cette marge
-        # supplémentaire, l'étiquette déborderait de la zone repeinte par Qt.
+        # supplémentaire, l'étiquette déborderait de la zone repeinte par Qt. Un nœud de routage
+        # (losange) a besoin de nettement plus : le glyphe central (chantier identité visuelle)
+        # remplace le texte à l'intérieur de la forme, qui vit désormais SOUS elle, empilé sous
+        # le port d'erreur + son étiquette.
+        bottom_margin = _ROUTING_BOTTOM_MARGIN if self.is_routing_node else _ERROR_LABEL_MARGIN
         return QRectF(-PORT_RADIUS, -PORT_RADIUS,
-                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + _ERROR_LABEL_MARGIN)
+                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + bottom_margin)
 
     def paint(self, painter, option, widget=None):
         step_type = self.step.get("step_type", "")
@@ -216,7 +278,10 @@ class StepNodeItem(QGraphicsObject):
             path.addRoundedRect(rect, 8, 8)
 
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
+        # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
+        # discrète en plus, jamais un remplacement de la bordure épaisse colorée qui reste le
+        # signal prioritaire pour _is_failed/_is_executing/_is_search_hit (inchangés ci-dessous).
+        painter.setBrush(QBrush(_tinted_bg(QColor(COLORS["bg_card"]), QColor(meta["color"]))))
         if self._is_failed:
             border_color = QColor(COLORS["danger"])
         elif self._is_executing:
@@ -230,23 +295,49 @@ class StepNodeItem(QGraphicsObject):
         painter.setPen(pen)
         painter.drawPath(path)
 
-        painter.setPen(QColor(meta["color"]))
-        font = QFont(); font.setBold(True); font.setPointSize(9)
-        painter.setFont(font)
-        painter.drawText(QRectF(10, 6, self.WIDTH - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                          meta["label"])
-
-        type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
-        if type_icon:
-            painter.drawPixmap(self.WIDTH - 24, 6, type_icon.pixmap(QSize(16, 16)))
-
         user_label = self.step.get("label") or ""
-        if user_label:
-            painter.setPen(QColor(COLORS["text_main"]))
-            font.setBold(False); font.setPointSize(8)
+
+        if routing:
+            # Glyphe central façon BPMN (chantier identité visuelle) — remplace l'icône de coin
+            # + le texte à l'intérieur du losange : ni l'un ni l'autre ne tenaient dans son
+            # triangle intérieur réel (même constat que pour les ports). Le losange redevient
+            # l'identifiant principal ; les libellés vivent désormais SOUS la forme, empilés
+            # sous le port d'erreur + son étiquette "!" (voir _error_port_local_pos/paint()
+            # plus bas).
+            glyph = _gateway_glyph(step_type, self.step.get("config") or {})
+            if glyph:
+                _draw_gateway_glyph(painter, glyph, self.WIDTH / 2, self.HEIGHT / 2, meta["color"])
+
+            painter.setPen(QColor(meta["color"]))
+            font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
-            painter.drawText(QRectF(10, 26, self.WIDTH - 20, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                              user_label)
+            cap_y = self.HEIGHT + _ROUTING_CAPTION_TOP
+            painter.drawText(QRectF(-20, cap_y, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
+                              Qt.AlignCenter, meta["label"])
+            if user_label:
+                painter.setPen(QColor(COLORS["text_main"]))
+                font.setBold(False); font.setPointSize(8)
+                painter.setFont(font)
+                painter.drawText(
+                    QRectF(-20, cap_y + _ROUTING_CAPTION_LINE_H, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
+                    Qt.AlignCenter, user_label)
+        else:
+            painter.setPen(QColor(meta["color"]))
+            font = QFont(); font.setBold(True); font.setPointSize(9)
+            painter.setFont(font)
+            painter.drawText(QRectF(10, 6, self.WIDTH - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
+                              meta["label"])
+
+            type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+            if type_icon:
+                painter.drawPixmap(self.WIDTH - 24, 6, type_icon.pixmap(QSize(16, 16)))
+
+            if user_label:
+                painter.setPen(QColor(COLORS["text_main"]))
+                font.setBold(False); font.setPointSize(8)
+                painter.setFont(font)
+                painter.drawText(QRectF(10, 26, self.WIDTH - 20, 18), Qt.AlignLeft | Qt.AlignVCenter,
+                                  user_label)
 
         # Port d'entrée (toujours dessiné, connecté ou non).
         painter.setBrush(QBrush(QColor(COLORS["text_dim"])))
