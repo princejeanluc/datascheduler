@@ -556,6 +556,98 @@ def test_get_edges_empty_for_pipeline_never_saved_as_graph(test_db):
 
 
 # ──────────────────────────────────────────────
+#  Journal des modifications enrichi (chantier UX éditeur, Lot 3, B4)
+# ──────────────────────────────────────────────
+
+def test_diff_pipeline_graph_reports_added_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[], new_steps=[("a", "Extraction CSV")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "+1 étape(s) (Extraction CSV)"
+
+
+def test_diff_pipeline_graph_reports_removed_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "Ancien filtre")], new_steps=[],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "-1 étape(s) (Ancien filtre)"
+
+
+def test_diff_pipeline_graph_reports_renamed_step():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "Filtre")], new_steps=[("a", "Filtre ventes")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "1 renommée(s) (Filtre → Filtre ventes)"
+
+
+def test_diff_pipeline_graph_reports_added_and_removed_edges():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A"), ("b", "B")], new_steps=[("a", "A"), ("b", "B")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "error")],
+    )
+    assert detail == "+1 arête(s) · -1 arête(s)"
+
+
+def test_diff_pipeline_graph_combines_all_change_kinds():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A"), ("b", "Filtre")],
+        new_steps=[("a", "A"), ("b", "Filtre ventes"), ("c", "Copie locale")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "input"), ("b", "output_file", "c", "input")],
+    )
+    assert detail == "+1 étape(s) (Copie locale) · 1 renommée(s) (Filtre → Filtre ventes) · +1 arête(s)"
+
+
+def test_diff_pipeline_graph_tolerates_missing_step_key():
+    """Une étape sans _step_key (config vide/legacy) donne une clé None — ne doit jamais faire
+    planter le tri (comparaison None/str impossible en Python) mélangé à des clés réelles."""
+    detail = db._diff_pipeline_graph(
+        old_steps=[(None, "Sans clé")], new_steps=[("a", "A"), (None, "Sans clé")],
+        old_edges=[], new_edges=[],
+    )
+    assert detail == "+1 étape(s) (A)"
+
+
+def test_diff_pipeline_graph_falls_back_to_layout_only_message_when_nothing_changed():
+    detail = db._diff_pipeline_graph(
+        old_steps=[("a", "A")], new_steps=[("a", "A")],
+        old_edges=[("a", "output_file", "b", "input")],
+        new_edges=[("a", "output_file", "b", "input")],
+    )
+    assert detail == "Repositionnement / mise en page uniquement"
+
+
+def test_save_pipeline_graph_logs_precise_diff_in_audit_detail(test_db):
+    pipeline = db.create_pipeline(name="GRAPH_DIFF_AUDIT")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "label": "Extraction"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}, "label": "Filtre"},
+    ], edges=[
+        {"from_step_key": "a", "from_port": "output_file", "to_step_key": "b", "to_port": "input"},
+    ])
+
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}, "label": "Extraction"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}, "label": "Filtre ventes"},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "c"}, "label": "Copie locale"},
+    ], edges=[
+        {"from_step_key": "b", "from_port": "output_file", "to_step_key": "c", "to_port": "input"},
+    ])
+
+    events = db.get_audit_events(pipeline_id=pipeline.id)
+    detail = events[0].detail
+    assert "Copie locale" in detail   # étape ajoutée
+    assert "Filtre → Filtre ventes" in detail   # étape renommée
+    assert "-1 arête(s)" in detail   # a->b retirée
+    assert "+1 arête(s)" in detail   # b->c ajoutée
+    assert "(éditeur graphique)" in detail
+
+
+# ──────────────────────────────────────────────
 #  ZONES DE REGROUPEMENT VISUEL (chantier UX éditeur, Lot 2, A4)
 # ──────────────────────────────────────────────
 
