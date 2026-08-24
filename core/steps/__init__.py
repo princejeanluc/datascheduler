@@ -99,6 +99,15 @@ def is_routing_node(step_type: str) -> bool:
     return bool(cls is not None and cls.IS_ROUTING_NODE)
 
 
+def preserves_output(step_type: str) -> bool:
+    """Le fichier produit par ce type d'étape est une destination PERMANENTE (ex: LOCAL_COPY),
+    pas un scratch intermédiaire — le nettoyage des fichiers temporaires en fin de
+    run_pipeline() (core/pipeline.py) doit l'exclure de sa suppression. Faux pour tout type
+    inconnu, même défaut que la classe de base."""
+    cls = _REGISTRY.get(step_type)
+    return bool(cls is not None and cls.PRESERVES_OUTPUT)
+
+
 def get_join_mode(step_type: str, config: dict) -> str | None:
     """Mode de jonction ("AND"/"OR") d'un step passerelle-jonction (chantier Gateway) — None
     pour tout autre type (jamais un littéral "GATEWAY_JOIN" codé en dur dans core/pipeline.py,

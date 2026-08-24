@@ -67,6 +67,13 @@ def test_step_produces_output_file_true_for_static_producer():
     assert step_produces_output_file("DB_EXTRACT", {}) is True
 
 
+def test_step_produces_output_file_true_for_local_copy():
+    """Chantier identité visuelle : LOCAL_COPY devient un producteur statique (comme DB_EXTRACT),
+    pas conditionnel à la config (contrairement à SPARK_SQL) — sa destination est toujours
+    connue dès qu'elle réussit."""
+    assert step_produces_output_file("LOCAL_COPY", {}) is True
+
+
 def test_step_produces_output_file_false_for_non_producer():
     assert step_produces_output_file("EMAIL_NOTIFY", {}) is False
 
@@ -97,6 +104,31 @@ def test_graph_chains_a_dynamic_producer_into_a_consumer(test_db, monkeypatch, t
 
     assert result.success, result.error
     assert (dest_dir / "src.csv").read_text() == "a,b\n1,2\n"
+
+
+def test_local_copy_destination_survives_temp_file_cleanup(test_db, tmp_path):
+    """Régression trouvée pendant le chantier identité visuelle : rendre LOCAL_COPY chainable
+    (PRODUCES) le fait apparaître dans ctx.artifacts, que le nettoyage des fichiers temporaires
+    en fin de run_pipeline() (core/pipeline.py) balayait sans discernement — la copie de
+    l'utilisateur disparaissait juste après avoir été produite. PRESERVES_OUTPUT/
+    preserves_output() exclut désormais sa destination de ce nettoyage."""
+    src = tmp_path / "src.txt"
+    src.write_text("DATA")
+    dest_dir = tmp_path / "dest"
+
+    pipeline = db.create_pipeline(name="local-copy-survives-cleanup")
+    db.save_steps(pipeline.id, [
+        {"step_type": "LOCAL_COPY", "config": {"explicit_path": str(src), "dest_dir": str(dest_dir),
+                                                 "_step_key": "copy"}},
+    ])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    dest_file = dest_dir / "src.txt"
+    assert dest_file.exists()
+    assert dest_file.read_text() == "DATA"
+    assert not any("Fichier temporaire supprimé" in line for line in result.log_lines)
 
 
 def test_graph_dynamic_producer_not_producing_still_reports_missing_source(test_db, monkeypatch, tmp_path):
@@ -132,7 +164,12 @@ def test_linear_explicit_source_targets_a_dynamic_producer(test_db, monkeypatch,
     pipeline = db.create_pipeline(name="linear-dynamic-producer")
     db.save_steps(pipeline.id, [
         {"step_type": "SPARK_SQL", "config": {"path": str(src), "content": "x,y\n9,9\n", "produce": True, "_step_key": "spark"}},
-        {"step_type": "LOCAL_COPY", "config": {"dest_dir": str(dest_dir), "reads_from_step_key": "spark"}},
+        # _step_key réaliste (tout step créé via le vrai dialogue en a toujours un, voir
+        # _BaseStepConfigDialog.result_step()) — nécessaire depuis que LOCAL_COPY est chainable
+        # (chantier identité visuelle) pour que sa destination soit exclue du nettoyage des
+        # temporaires en fin de run (preserves_output(), core/pipeline.py).
+        {"step_type": "LOCAL_COPY", "config": {"dest_dir": str(dest_dir), "reads_from_step_key": "spark",
+                                                 "_step_key": "copy"}},
     ])
 
     result = run_pipeline(pipeline.id)
