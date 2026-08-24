@@ -65,6 +65,20 @@ def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -
     return (x, y)
 
 
+def _tinted_bg(base: QColor, accent: QColor, ratio: float = 0.13) -> QColor:
+    """Interpole linéairement, canal par canal, de `base` vers `accent` — chantier identité
+    visuelle : un fond de carte uniforme (bg_card) pour tout type de nœud se détachait à peine
+    du fond du canevas (bg_main, un ton à peine plus sombre) et ne différenciait pas les types
+    entre eux au premier coup d'œil. `ratio=0` retourne `base` inchangé, `ratio=1` retourne
+    `accent` inchangé — QColor n'a pas d'équivalent CSS color-mix(), fonction pure testable sans
+    contexte Qt (même philosophie que _port_visual)."""
+    ratio = max(0.0, min(1.0, ratio))
+    r = base.red()   + (accent.red()   - base.red())   * ratio
+    g = base.green() + (accent.green() - base.green()) * ratio
+    b = base.blue()  + (accent.blue()  - base.blue())  * ratio
+    return QColor(round(r), round(g), round(b))
+
+
 def _error_port_local_pos(width: float, height: float) -> tuple[float, float]:
     """Position LOCALE du port "error" — chantier placement du port d'erreur. Toujours au
     sommet/bord BAS (`width/2, height`), quelle que soit la forme (losange ou rectangle) et quel
@@ -216,7 +230,10 @@ class StepNodeItem(QGraphicsObject):
             path.addRoundedRect(rect, 8, 8)
 
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setBrush(QBrush(QColor(COLORS["bg_card"])))
+        # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
+        # discrète en plus, jamais un remplacement de la bordure épaisse colorée qui reste le
+        # signal prioritaire pour _is_failed/_is_executing/_is_search_hit (inchangés ci-dessous).
+        painter.setBrush(QBrush(_tinted_bg(QColor(COLORS["bg_card"]), QColor(meta["color"]))))
         if self._is_failed:
             border_color = QColor(COLORS["danger"])
         elif self._is_executing:

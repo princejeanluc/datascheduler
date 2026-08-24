@@ -48,6 +48,46 @@ def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
 
 
 # ──────────────────────────────────────────────
+#  Fond de carte teinté par type (chantier identité visuelle) — fonction pure, pas besoin de qapp
+# ──────────────────────────────────────────────
+
+def test_tinted_bg_zero_ratio_returns_base_unchanged(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(36, 34, 32)
+    accent = QColor(255, 121, 0)
+    result = _tinted_bg(base, accent, ratio=0.0)
+    assert (result.red(), result.green(), result.blue()) == (36, 34, 32)
+
+
+def test_tinted_bg_full_ratio_returns_accent_unchanged(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(36, 34, 32)
+    accent = QColor(255, 121, 0)
+    result = _tinted_bg(base, accent, ratio=1.0)
+    assert (result.red(), result.green(), result.blue()) == (255, 121, 0)
+
+
+def test_tinted_bg_interpolates_between_base_and_accent(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(0, 0, 0)
+    accent = QColor(200, 100, 50)
+    result = _tinted_bg(base, accent, ratio=0.5)
+    assert (result.red(), result.green(), result.blue()) == (100, 50, 25)
+
+
+def test_tinted_bg_clamps_out_of_range_ratio(qapp):
+    from ui.graph_editor.node_item import _tinted_bg
+    from PySide6.QtGui import QColor
+    base = QColor(10, 10, 10)
+    accent = QColor(200, 200, 200)
+    assert (_tinted_bg(base, accent, ratio=-5).red(),) == (10,)
+    assert (_tinted_bg(base, accent, ratio=5).red(),) == (200,)
+
+
+# ──────────────────────────────────────────────
 #  Nœuds de routage en losange (chantier UX éditeur, Lot 1)
 # ──────────────────────────────────────────────
 
