@@ -29,6 +29,68 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.32.0] - 2026-08-25
+
+### Ajouté
+- Passerelles dans l'éditeur graphique — **parallèle** (un flux se divise en plusieurs branches
+  exécutées simultanément, pure synchronisation, aucun effet sur les données) et **de jonction**
+  (recombine plusieurs branches, deux modes : **ET**, la suite ne démarre que si toutes les
+  branches entrantes ont réussi, ou **OU**, dès qu'au moins une a réussi, les autres sont
+  ignorées). Le champ *Source* de la jonction désigne quelle branche transmet son fichier en
+  sortie — aucune par défaut, synchronisation seule.
+- Identité visuelle du canevas de l'éditeur graphique : fond quadrillé (suit le panoramique/zoom
+  comme Figma/Miro), panoramique manuel au clic milieu, widget de zoom flottant, fonds de nœud
+  teintés par type pour plus de contraste, glyphes centraux façon BPMN sur les passerelles et le
+  nœud Condition (remplacent l'icône de coin + texte en ligne, illisibles sur une forme en
+  losange). Le port d'erreur, toujours au bord/sommet bas, ne se mélange plus aux ports normaux
+  d'un nœud. `Copie locale` (`LOCAL_COPY`) devient un producteur chaînable — sa destination peut
+  désormais être choisie comme *Source* par une étape suivante.
+- Suite de l'UX de l'éditeur graphique (Lot 3) :
+  - **Ranger la sélection** — même rangement automatique par rang que "Ranger tout", limité aux
+    étapes actuellement sélectionnées.
+  - **Guides d'alignement** — un nœud glissé s'accroche au nœud le plus proche (centre ou bord,
+    6px) avec un guide pointillé, pendant le glissé interactif seulement (jamais lors d'un
+    rangement automatique).
+  - **Journal des modifications enrichi** — chaque sauvegarde du graphe décrit désormais
+    précisément ce qui a changé (étapes ajoutées/supprimées/renommées, arêtes
+    ajoutées/supprimées) au lieu d'un simple comptage.
+  - **Aide contextuelle** — bouton `?` dans le rail de l'éditeur graphique, ouvre un article
+    dédié sans quitter l'éditeur.
+- Les expressions du nœud Condition acceptent désormais `and` / `or` / `not` et des parenthèses
+  pour combiner plusieurs critères (ex. `rows_count > 0 and artifact:rapport != ""`), au lieu
+  d'une seule comparaison qui obligeait à chaîner deux nœuds pour tout branchement composé.
+  Grammaire toujours volontairement non-`eval()` (tokenizer + parseur en descente récursive,
+  jamais d'exécution de code arbitraire). Un nom d'artefact avec tiret (UUID, cas courant) ou
+  espace (nom personnalisé, à citer entre guillemets) reste supporté.
+- Historique : la section "Fréquence d'exécution" se limite désormais aux 10 pipelines actifs les
+  plus actifs par défaut (au lieu de tous les charger sans limite, une requête d'agrégation par
+  pipeline) ; la recherche déjà existante du tableau des exécutions filtre aussi cette section,
+  plafond levé, pour qu'un pipeline peu actif reste trouvable.
+- Fusion des deux éditeurs de pipeline : "Modifier" ouvrait un éditeur en liste plate qui gérait
+  aussi bien les métadonnées du pipeline que ses étapes via un chemin de sauvegarde qui ne
+  touchait jamais les connexions du graphe — un pipeline construit avec des branches, rouvert et
+  enregistré depuis cet éditeur, pouvait voir ses arêtes silencieusement cassées. L'éditeur
+  graphique est désormais le seul éditeur d'étapes ; un nouveau panneau **"Paramètres du
+  pipeline"** (nom, description, planification, déclenchement conditionnel, plus une case
+  "Pipeline actif" auparavant accessible seulement depuis le menu `⋯` de la liste) ne touche
+  jamais aux étapes ni aux arêtes. Un seul point d'entrée de création ("Nouveau pipeline" : juste
+  un nom, puis directement l'éditeur graphique). L'ancien éditeur en liste est retiré.
+
+### Corrigé
+- L'export/import de pipeline ne capturait pas l'état actif/inactif — un pipeline désactivé,
+  exporté puis réimporté, se réactivait silencieusement. Désormais capturé dans le bundle et
+  restauré à l'import ; un bundle antérieur à ce correctif importe toujours actif, comportement
+  historique inchangé.
+- Le mot de passe d'import fermait tout le flux dès qu'il était incorrect, obligeant à
+  ressélectionner le fichier pour une simple faute de frappe. Le dialogue valide désormais
+  lui-même le mot de passe et affiche l'erreur sur place, sans se fermer. L'écran de revue
+  affiche aussi un aperçu de l'état actif/planification du pipeline entrant, avec un
+  avertissement quand écraser un pipeline local changerait réellement son état actif.
+- Section Aide : le nombre de sections listées dans "Vue d'ensemble" était resté à 6 alors que
+  l'application en compte 8 (Ressources et Paramètres manquaient) ; la description du digest de
+  notifications pointait vers un bouton du Dashboard qui n'ouvre plus de dialogue dédié depuis la
+  refonte de l'écran Paramètres.
+
 ## [0.31.0] - 2026-08-21
 
 ### Ajouté
