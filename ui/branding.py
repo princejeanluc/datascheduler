@@ -4,7 +4,7 @@ Icône de l'application, encodée en base64 plutôt que chargée depuis un fichi
 résolution de chemin sys._MEIPASS dans l'exe gelé, même convention que ui/help/content.py pour
 les rubriques d'aide (embarquées comme chaînes Python, pas comme fichiers .md).
 
-DataScheduler.spec (icon=...) couvre déjà l'icône de l'exécutable lui-même (Explorateur, tuile
+KULU.spec (icon=...) couvre déjà l'icône de l'exécutable lui-même (Explorateur, tuile
 avant lancement). Ça ne couvre PAS la fenêtre une fois affichée : Qt ne reprend pas
 automatiquement l'icône de l'exe pour la barre de titre / le bouton de la barre des tâches
 pendant l'exécution / Alt-Tab — il faut la poser explicitement via QApplication.setWindowIcon().

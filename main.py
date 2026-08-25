@@ -5,7 +5,7 @@ Point d'entrée de l'application.
 Usage :
     python main.py
     ou (après packaging)
-    DataScheduler.exe
+    KULU.exe
 """
 
 import os
@@ -50,7 +50,7 @@ def _configure_logging(log_dir: Path | None = None, log_filename: str = "app.log
     logging.getLogger().addHandler(file_handler)
 
 
-logger = logging.getLogger("DataScheduler")
+logger = logging.getLogger("KULU")
 
 
 def main():
@@ -58,7 +58,7 @@ def main():
     # doit pas, en tant qu'effet de bord, écrire dans le vrai %APPDATA% de la machine —
     # seul un lancement réel de l'app (ce bloc) doit le faire.
     _configure_logging()
-    logger.info("Démarrage DataScheduler")
+    logger.info("Démarrage KULU")
 
     # Initialisation de la base SQLite
     from database.db_manager import init_db
@@ -124,11 +124,11 @@ def main():
 
 def worker_main():
     """Point d'entrée du worker en arrière-plan (chantier exécution en arrière-plan) — lancé via
-    `DataScheduler.exe --worker`, enregistré comme tâche planifiée Windows par
+    `KULU.exe --worker`, enregistré comme tâche planifiée Windows par
     ui/main_window/settings_view.py (voir core/task_scheduler.py). Aucun import ui.* : pas de
     boucle Qt, tourne indépendamment de toute session graphique."""
     _configure_logging(log_filename="worker.log")
-    logger.info("Démarrage du worker DataScheduler (arrière-plan)")
+    logger.info("Démarrage du worker KULU (arrière-plan)")
 
     from database.db_manager import init_db
     init_db()

@@ -616,7 +616,7 @@ class ResourceSample(Base):
     Historique (pas une ligne singleton, contrairement à AppSettings ci-dessus) — un point
     toutes les `AppSettings.resource_sample_interval_s`, purgé au-delà de
     `resource_sample_retention_days` (core/scheduler.py::_sample_resources). CPU/mémoire du
-    PROCESS DataScheduler uniquement — pas une mesure par pipeline, impossible à attribuer
+    PROCESS KULU uniquement — pas une mesure par pipeline, impossible à attribuer
     proprement puisqu'ils tournent en threads dans ce même process (voir la vue Ressources).
     """
     __tablename__ = "resource_samples"

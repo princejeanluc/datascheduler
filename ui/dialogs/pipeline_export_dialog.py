@@ -78,7 +78,7 @@ class PipelineExportDialog(QDialog):
         default_name = f"{self._pipeline.name}.dspipeline"
         path, _ = QFileDialog.getSaveFileName(
             self, "Exporter le pipeline", default_name,
-            "Pipeline DataScheduler (*.dspipeline)",
+            "Pipeline KULU (*.dspipeline)",
         )
         if not path:
             return

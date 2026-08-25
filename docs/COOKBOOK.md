@@ -1,4 +1,4 @@
-# Cookbook — recettes pour faire évoluer DataScheduler
+# Cookbook — recettes pour faire évoluer KULU
 
 Des marches à suivre concrètes, pour les besoins qui reviendront. Chaque recette part du principe
 que vous avez lu `docs/ARCHITECTURE.md` au moins une fois (pour savoir où sont les choses) —
@@ -83,7 +83,7 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
 
 Un script lancé par l'étape `PYTHON_SCRIPT` tourne dans son propre process, avec son propre
 interpréteur/environnement — voulu, pour ne jamais mélanger ses dépendances avec celles de
-DataScheduler. Il n'a donc pas d'accès direct à `ctx` (l'objet Python `StepContext` ne franchit
+KULU. Il n'a donc pas d'accès direct à `ctx` (l'objet Python `StepContext` ne franchit
 jamais la frontière du process). Le pont : deux tokens facultatifs, `{ds_context_in}` et
 `{ds_context_out}`, à placer dans le champ "Arguments" du step exactement comme `{output_file}` ou
 `{yyyy}` — voir `core/steps/python_script.py`, `PythonScriptStep.run()`.
@@ -208,9 +208,9 @@ Les logs (niveau `INFO`) s'affichent dans la console — c'est `main.py` qui con
 ## Recette : construire l'exécutable Windows
 
 ```bash
-pyinstaller DataScheduler.spec
+pyinstaller KULU.spec
 ```
-Le résultat est dans `dist/DataScheduler/`. Si l'`.exe` se lance puis plante immédiatement avec
+Le résultat est dans `dist/KULU/`. Si l'`.exe` se lance puis plante immédiatement avec
 un `ModuleNotFoundError` alors que `python main.py` fonctionne sans problème : une nouvelle
 dépendance a des sous-modules que PyInstaller n'a pas détectés automatiquement (fréquent avec les
 librairies qui font du chargement dynamique de plugins, comme `oracledb` ou `paramiko`).
@@ -238,7 +238,7 @@ supprimez le fichier `datascheduler.db`, relancez — `init_db()` en recrée un 
   directement. **Depuis le chantier "script Python pour un utilisateur inconnu de l'app"**,
   `PythonScriptStep.run()` détecte ce cas précis (`sys.frozen` + `python_executable` résolu ==
   `sys.executable`) et refuse proprement avec un message explicite, plutôt que de relancer une
-  deuxième instance complète de DataScheduler et de bloquer jusqu'au timeout — voir
+  deuxième instance complète de KULU et de bloquer jusqu'au timeout — voir
   `core/steps/python_script.py::_same_executable()`.
 - **`pandas.read_sql()` avec une connexion `oracledb` brute** émet un `UserWarning` — cosmétique,
   pas un bug (voir `docs/LIBRARIES.md`).
@@ -256,7 +256,7 @@ supprimez le fichier `datascheduler.db`, relancez — `init_db()` en recrée un 
 - **`cursor.rowcount` après un bloc PL/SQL (`BEGIN ... END;`) reste à 0 même si des lignes ont
   vraiment été insérées/modifiées** — si le bloc appelle une procédure stockée qui fait le DML en
   interne, oracledb ne remonte que le résultat de l'appel du bloc lui-même, pas les lignes
-  affectées par les instructions exécutées à l'intérieur. Ce n'est pas un bug de DataScheduler,
+  affectées par les instructions exécutées à l'intérieur. Ce n'est pas un bug de KULU,
   c'est un comportement du pilote Oracle. `DB_EXECUTE`
   (`core/steps/db_execute.py`) détecte ce cas via `core.sql_db.is_plsql_block()` (réexporté depuis
   `core.oracle.is_plsql_block()`, seul le connecteur Oracle a cette notion de bloc PL/SQL) et log

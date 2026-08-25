@@ -1,7 +1,7 @@
 """
 DataScheduler — tests/test_branding.py
 Vérifie ui/branding.py::app_icon() — l'icône embarquée en base64 (voir "est-ce qu'en ouvrant
-l'application on voit le logo ?" : l'icône de l'exe, DataScheduler.spec, ne suffit pas, Qt ne la
+l'application on voit le logo ?" : l'icône de l'exe, KULU.spec, ne suffit pas, Qt ne la
 reprend pas automatiquement pour la fenêtre affichée — QApplication.setWindowIcon() est requis).
 """
 

@@ -45,7 +45,7 @@ WATCHDOG_INTERVAL_MINUTES = 5
 def _worker_command_and_args() -> tuple[str, str]:
     """(chemin de l'exécutable, arguments) séparés — la définition XML d'une action <Exec> attend
     <Command>/<Arguments> distincts, contrairement à la ligne `/tr` d'un `schtasks /create`
-    classique. Fonctionne aussi bien pour l'exe gelé (sys.executable = DataScheduler.exe) que
+    classique. Fonctionne aussi bien pour l'exe gelé (sys.executable = KULU.exe) que
     pour un lancement depuis les sources (sys.executable = python.exe, main.py passé en argument).
     Chemins toujours ABSOLUS (`os.path.abspath`) : le Planificateur de tâches Windows n'hérite pas
     forcément du répertoire de travail courant au déclenchement — un chemin relatif comme

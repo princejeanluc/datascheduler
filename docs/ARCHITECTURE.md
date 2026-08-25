@@ -1,4 +1,4 @@
-# Architecture de DataScheduler
+# Architecture de KULU
 
 > Public visé : vous, dans 6 mois, quand vous aurez oublié pourquoi c'est fait comme ça.
 > Ce document explique **comment le projet est construit**, pas ce qu'il fait pour l'utilisateur
@@ -83,7 +83,7 @@ Pipeline ───────────────────────�
 
 ## Le cœur du système : les steps
 
-C'est l'idée qui a transformé DataScheduler d'un outil à fonction unique (Oracle→FTP) en petit
+C'est l'idée qui a transformé KULU d'un outil à fonction unique (Oracle→FTP) en petit
 moteur d'orchestration générique. Trois pièces :
 
 **1. `BaseStep` et `StepContext`** ([core/steps/base.py](../core/steps/base.py))
@@ -190,8 +190,8 @@ Deux fonctions de migration au démarrage méritent une mention, toutes deux dan
 
 ## Packaging
 
-[DataScheduler.spec](../DataScheduler.spec) pilote PyInstaller en mode **one-folder**
-(`dist/DataScheduler/DataScheduler.exe` + un dossier `_internal/`), pas one-file — plus rapide au
+[KULU.spec](../KULU.spec) pilote PyInstaller en mode **one-folder**
+(`dist/KULU/KULU.exe` + un dossier `_internal/`), pas one-file — plus rapide au
 démarrage, plus facile à déboguer si un import manque.
 
 Point notable : `oracledb` tourne en **mode thin** — un pilote Oracle 100% Python, qui ne
@@ -229,7 +229,7 @@ ui/
   step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
   dialogs.py               Dialogues de profils (DB unifié/FTP/SMTP) + requêtes SQL + run/log
   styles.py                Palette de couleurs + feuilles de style Qt (QSS)
-DataScheduler.spec         Configuration PyInstaller
+KULU.spec                  Configuration PyInstaller
 requirements.txt           Dépendances Python
 docs/                      Vous êtes ici
 ```

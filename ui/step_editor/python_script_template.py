@@ -7,23 +7,23 @@ sans avoir à deviner le contrat (arguments, code de sortie, échange de donnée
 """
 
 PYTHON_SCRIPT_TEMPLATE = '''"""
-Modèle de script pour une étape "Script Python" DataScheduler.
+Modèle de script pour une étape "Script Python" KULU.
 
-Ce script tourne dans SON PROPRE processus Python — indépendant de DataScheduler (son propre
-interpréteur, ses propres dépendances). Aucun import de DataScheduler n'est possible ni requis :
+Ce script tourne dans SON PROPRE processus Python — indépendant de KULU (son propre
+interpréteur, ses propres dépendances). Aucun import de KULU n'est possible ni requis :
 ce fichier n'a besoin que de la bibliothèque standard pour fonctionner tel quel.
 
-Comment DataScheduler communique avec ce script :
+Comment KULU communique avec ce script :
   - Arguments (argv) : configurés UN PAR LIGNE dans le champ "Arguments" de l'étape. Chaque ligne
     devient un élément d'argv, tel quel — pas d'interprétation façon shell (pas de découpage sur
     les espaces, pas de guillemets à gérer).
   - Code de sortie : 0 = succès, tout code non nul = échec de l'étape. C'est le SEUL signal de
-    réussite/échec que DataScheduler regarde.
+    réussite/échec que KULU regarde.
   - stdout / stderr : capturés et journalisés dans l'historique d'exécution, utiles pour le
     débogage. La dernière ligne de stderr est reprise dans le message d'erreur si le script
     échoue.
   - Champ "Exécutable Python" de l'étape : DOIT pointer vers le python.exe de ce script (son
-    propre venv/conda) — jamais laissé vide, jamais celui de DataScheduler.
+    propre venv/conda) — jamais laissé vide, jamais celui de KULU.
 
 Échange de données avec les autres étapes du pipeline (facultatif) — voir les jetons
 {ds_context_in} / {ds_context_out} du champ "Arguments" :
@@ -42,9 +42,9 @@ import sys
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Exemple de script DataScheduler")
+    parser = argparse.ArgumentParser(description="Exemple de script KULU")
     # Vos propres arguments métier, tels que configurés dans le champ "Arguments" de l'étape.
-    # Exemple : {yyyyMMdd} est résolu par DataScheduler avant d'être passé au script.
+    # Exemple : {yyyyMMdd} est résolu par KULU avant d'être passé au script.
     parser.add_argument("--date", help="Exemple d'argument métier (ex : {yyyyMMdd})")
     # Les deux arguments suivants ne servent que si {ds_context_in}/{ds_context_out} ont été
     # ajoutés au champ "Arguments" de l'étape — supprimez-les sinon.
@@ -76,7 +76,7 @@ def main():
         print(f"Résultat publié pour l'étape suivante : {result_path}")
 
     print("Traitement terminé avec succès.")
-    sys.exit(0)  # tout code non nul est traité comme un échec par DataScheduler
+    sys.exit(0)  # tout code non nul est traité comme un échec par KULU
 
 
 if __name__ == "__main__":

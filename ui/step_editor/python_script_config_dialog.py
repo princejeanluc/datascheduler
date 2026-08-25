@@ -81,13 +81,13 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
         sw = QWidget(); sw.setLayout(script_row)
         form.addRow(self._lbl("Script * (.py)"), sw)
 
-        # Python exe — obligatoire : DataScheduler n'a pas de "Python par défaut" utilisable pour
+        # Python exe — obligatoire : KULU n'a pas de "Python par défaut" utilisable pour
         # lancer un script une fois packagé en .exe (voir tooltip). Champ jamais pré-rempli
         # automatiquement pour éviter de suggérer une valeur qui n'existe pas.
         self.inp_py_exe = self._input("ex : C:/mon_projet/venv/Scripts/python.exe")
         self.inp_py_exe.setToolTip(
             "Chemin complet vers le python.exe du script (son propre venv/conda — jamais celui "
-            "de DataScheduler, qui n'existe pas en tant qu'interpréteur autonome une fois "
+            "de KULU, qui n'existe pas en tant qu'interpréteur autonome une fois "
             "l'application packagée en .exe). Chaque étape peut pointer vers un environnement "
             "différent si vos scripts viennent de projets distincts."
         )
@@ -233,7 +233,7 @@ class _PythonScriptConfigDialog(_BaseStepConfigDialog):
             QMessageBox.warning(
                 self, "Champ requis",
                 "Saisir le chemin de l'exécutable Python (python.exe du venv/conda du script) — "
-                "DataScheduler n'a pas d'interpréteur par défaut utilisable pour ça une fois "
+                "KULU n'a pas d'interpréteur par défaut utilisable pour ça une fois "
                 "packagé en .exe.",
             )
             return

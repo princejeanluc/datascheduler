@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — DataScheduler
-# Génère : dist/DataScheduler/DataScheduler.exe (mode one-folder)
+# PyInstaller spec — KULU
+# Génère : dist/KULU/KULU.exe (mode one-folder)
 
 from PyInstaller.utils.hooks import collect_data_files, collect_all, collect_submodules
 
@@ -144,7 +144,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='DataScheduler',
+    name='KULU',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -166,5 +166,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='DataScheduler',
+    name='KULU',
 )

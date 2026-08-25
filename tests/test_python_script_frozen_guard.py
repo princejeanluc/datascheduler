@@ -1,7 +1,7 @@
 """
 DataScheduler — tests/test_python_script_frozen_guard.py
 Piège réel documenté dans docs/COOKBOOK.md ("Pièges déjà rencontrés") : dans un .exe PyInstaller,
-sys.executable est le chemin de DataScheduler.exe lui-même, pas un interpréteur Python — le
+sys.executable est le chemin de KULU.exe lui-même, pas un interpréteur Python — le
 dialogue de config le pré-remplissait comme valeur par défaut avec un tooltip qui la présentait
 comme sûre. Sans garde-fou, une étape PYTHON_SCRIPT gardant ce défaut ne lance pas le script :
 elle relance une deuxième instance complète de l'application et bloque jusqu'au timeout.
@@ -39,12 +39,12 @@ def test_frozen_and_default_python_exe_refuses_cleanly(monkeypatch, tmp_path):
     step = PythonScriptStep({
         "script_path": str(tmp_path / "never_run.py"),
         # pas de python_executable configuré -> tombe sur le défaut sys.executable, exactement
-        # le piège : dans un .exe gelé, sys.executable EST DataScheduler.exe.
+        # le piège : dans un .exe gelé, sys.executable EST KULU.exe.
     })
     result = step.run(StepContext())
 
     assert result.success is False
-    assert "DataScheduler.exe" in result.error
+    assert "KULU.exe" in result.error
     assert "Exécutable Python" in result.error
 
 
@@ -53,7 +53,7 @@ def test_frozen_with_explicit_different_python_exe_is_not_blocked(monkeypatch, t
     # de config pointe explicitement vers le vrai interpréteur dev — un choix légitime distinct,
     # qui ne doit jamais être bloqué par le garde-fou.
     real_python = sys.executable
-    fake_frozen_exe = str(tmp_path / "DataScheduler.exe")
+    fake_frozen_exe = str(tmp_path / "KULU.exe")
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", fake_frozen_exe)
 

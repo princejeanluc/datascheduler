@@ -2,7 +2,7 @@
 DataScheduler — tests/test_python_script_config_dialog_required_exe.py
 Le champ "Exécutable Python" de PYTHON_SCRIPT (chantier "script pour un utilisateur inconnu de
 l'app") ne se pré-remplit plus avec sys.executable — un défaut trompeur qui, dans l'.exe
-packagé, pointe vers DataScheduler.exe lui-même (voir H.1). Devenu un champ obligatoire, comme
+packagé, pointe vers KULU.exe lui-même (voir H.1). Devenu un champ obligatoire, comme
 le chemin du script.
 """
 
