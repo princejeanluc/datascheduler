@@ -82,6 +82,18 @@ def test_export_includes_execution_policy(test_db):
     assert step["timeout_s"] == 600
 
 
+def test_export_includes_is_active(test_db):
+    """Correctif : is_active n'était pas du tout capturé par le bundle — un pipeline désactivé
+    exporté puis réimporté se réactivait silencieusement (create_pipeline() par défaut actif,
+    jamais touché par apply_import())."""
+    pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
+    db.set_pipeline_active(pipeline.id, False)
+
+    result = export_pipeline(pipeline.id)
+
+    assert result.bundle["pipeline"]["is_active"] is False
+
+
 def test_export_translates_profile_references_to_uuid(test_db):
     pipeline, profile, query = _make_pipeline_with_oracle_extract(test_db)
 
