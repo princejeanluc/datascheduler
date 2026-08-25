@@ -5,6 +5,7 @@ Dialogue de configuration d'une étape EMAIL_NOTIFY.
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QMessageBox, QDoubleSpinBox,
+    QWidget, QScrollArea, QFrame,
 )
 from PySide6.QtGui import QFont
 from ui.styles import COLORS, FONT_MONO
@@ -27,7 +28,21 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         self._prefill()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        # Beaucoup de champs (SMTP + destinataires/sujet + corps + pièce jointe conditionnelle) —
+        # même patron de QScrollArea que le dialogue Script Python : `root` reste le layout du
+        # contenu défilant, Annuler/Valider restent fixes en pied de fenêtre.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        root = QVBoxLayout(content); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
         title = QLabel("Envoi d'un email de notification")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
@@ -106,7 +121,11 @@ class _EmailNotifyConfigDialog(_BaseStepConfigDialog):
         _toggle_attach_fields(self.chk_attach.isChecked())
 
         root.addStretch()
-        self._buttons(root)
+
+        footer = QVBoxLayout()
+        footer.setContentsMargins(28, 0, 28, 20)
+        self._buttons(footer)
+        outer.addLayout(footer)
 
     def _prefill(self):
         c = self._config

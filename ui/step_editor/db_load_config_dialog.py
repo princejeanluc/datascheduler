@@ -5,7 +5,7 @@ Dialogue de configuration d'une étape DB_LOAD.
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QSpinBox, QCheckBox,
-    QFileDialog, QMessageBox,
+    QFileDialog, QMessageBox, QScrollArea, QFrame,
 )
 from ui.styles import COLORS
 from .base_config_dialog import _BaseStepConfigDialog
@@ -27,7 +27,21 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         self._prefill()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        # Beaucoup de champs (profil + source + chemin explicite avec parcourir/astuce + table +
+        # note + truncate + taille chunk) — même patron de QScrollArea que le dialogue Script
+        # Python : `root` reste le layout du contenu défilant, Annuler/Valider restent fixes.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        root = QVBoxLayout(content); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
         title = QLabel("Chargement CSV → table")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
@@ -82,7 +96,11 @@ class _DbLoadConfigDialog(_BaseStepConfigDialog):
         form.addRow(self._lbl("Taille chunk"), self.inp_chunk)
         root.addLayout(form)
         root.addStretch()
-        self._buttons(root)
+
+        footer = QVBoxLayout()
+        footer.setContentsMargins(28, 0, 28, 20)
+        self._buttons(footer)
+        outer.addLayout(footer)
 
     def _browse_source_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Choisir le fichier source")
