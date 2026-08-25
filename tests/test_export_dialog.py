@@ -37,6 +37,66 @@ def test_import_password_dialog_opens_without_error(qapp):
     assert dlg.password() == ""
 
 
+def test_import_password_dialog_without_verify_accepts_unconditionally(qapp):
+    """Comportement historique préservé pour tout appelant qui ne passe pas verify=."""
+    from PySide6.QtWidgets import QDialog
+
+    dlg = PipelineImportPasswordDialog(None)
+    dlg.inp_password.setText("peu importe")
+
+    dlg._on_validate()
+
+    assert dlg.result() == QDialog.Accepted
+
+
+def test_import_password_dialog_accepts_on_successful_verify(qapp):
+    from PySide6.QtWidgets import QDialog
+    from database.export_import import ImportPlan
+
+    fake_plan = ImportPlan(success=True)
+    dlg = PipelineImportPasswordDialog(None, verify=lambda pwd: fake_plan)
+    dlg.inp_password.setText("bon-mot-de-passe")
+
+    dlg._on_validate()
+
+    assert dlg.result() == QDialog.Accepted
+    assert dlg.plan is fake_plan
+
+
+def test_import_password_dialog_shows_error_and_stays_open_on_failed_verify(qapp):
+    """Correctif friction d'import : un mot de passe incorrect ne doit plus fermer le
+    dialogue — juste afficher l'erreur sur place, pour une nouvelle tentative immédiate."""
+    from PySide6.QtWidgets import QDialog
+    from database.export_import import ImportPlan
+
+    dlg = PipelineImportPasswordDialog(
+        None, verify=lambda pwd: ImportPlan(success=False, error="Mot de passe incorrect."),
+    )
+    dlg.inp_password.setText("mauvais-mot-de-passe")
+
+    dlg._on_validate()
+
+    assert dlg.result() != QDialog.Accepted
+    assert dlg.plan is None
+    assert not dlg.lbl_error.isHidden()
+    assert dlg.lbl_error.text() == "Mot de passe incorrect."
+
+
+def test_import_password_dialog_clears_error_when_retyping(qapp):
+    from database.export_import import ImportPlan
+
+    dlg = PipelineImportPasswordDialog(
+        None, verify=lambda pwd: ImportPlan(success=False, error="Mot de passe incorrect."),
+    )
+    dlg.inp_password.setText("mauvais")
+    dlg._on_validate()
+    assert not dlg.lbl_error.isHidden()
+
+    dlg.inp_password.setText("mauvais2")
+
+    assert dlg.lbl_error.isHidden()
+
+
 def test_import_review_dialog_opens_and_confirm_mutates_plan(qapp, test_db):
     from database import db_manager as db
     from database.export_import import export_pipeline, plan_import
@@ -62,6 +122,87 @@ def test_import_review_dialog_opens_and_confirm_mutates_plan(qapp, test_db):
     dlg._on_confirm()
 
     assert plan.pipeline_action == "overwrite"
+
+
+def test_review_dialog_shows_active_pill_and_schedule(qapp, test_db):
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(
+        name="preview-active-test", frequency="DAILY", scheduled_time="07:30",
+    )
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+
+    assert dlg.lbl_active_pill.text() == "Actif"
+    assert dlg.lbl_schedule_preview.text() == "Quotidien 07:30"
+
+
+def test_review_dialog_shows_inactive_pill(qapp, test_db):
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="preview-inactive-test")
+    db.set_pipeline_active(pipeline.id, False)
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+
+    assert dlg.lbl_active_pill.text() == "Inactif"
+
+
+def test_review_dialog_shows_transition_warning_when_active_state_differs_on_overwrite(qapp, test_db):
+    """Correctif friction d'import : depuis que is_active est réellement restauré à l'import
+    (voir database/export_import.py), un écrasement peut changer l'état actif du pipeline local
+    sans que rien ne le signale avant de confirmer — cet avertissement comble ça."""
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="preview-transition-test")   # actif par défaut
+    export_result = export_pipeline(pipeline.id)   # le bundle capture "actif"
+    db.set_pipeline_active(pipeline.id, False)      # le pipeline local devient inactif après coup
+
+    plan = plan_import(export_result.bundle)
+    assert plan.pipeline_action == "collision"
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+
+    assert not dlg.lbl_transition_warning.isHidden()
+    assert "Inactif" in dlg.lbl_transition_warning.text()
+    assert "Actif" in dlg.lbl_transition_warning.text()
+
+
+def test_review_dialog_no_transition_warning_when_active_states_match(qapp, test_db):
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="preview-no-transition-test")
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+    assert plan.pipeline_action == "collision"
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+
+    assert dlg.lbl_transition_warning.isHidden()
+
+
+def test_review_dialog_no_transition_warning_for_fresh_pipeline(qapp, test_db):
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="preview-fresh-test")
+    export_result = export_pipeline(pipeline.id)
+    db.delete_pipeline(pipeline.id)   # plus de collision possible
+
+    plan = plan_import(export_result.bundle)
+    assert plan.pipeline_action == "create"
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+
+    assert dlg.lbl_transition_warning.isHidden()
 
 
 def test_import_review_dialog_handles_ssh_kerberos_elevation_categories(qapp, test_db):
