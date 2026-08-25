@@ -342,7 +342,7 @@ class PipelineScheduler:
         logger.info("Échantillonnage des ressources planifié (toutes les %ds).", interval)
 
     def _sample_resources(self) -> None:
-        """Cible du job d'échantillonnage — mesure CPU/mémoire du process DataScheduler
+        """Cible du job d'échantillonnage — mesure CPU/mémoire du process KULU
         (jamais par pipeline : ils tournent en threads dans ce même process, impossible à
         attribuer proprement, voir ui/main_window/resources_view.py) puis purge les échantillons
         expirés selon la rétention courante, dans le même appel plutôt qu'un job de purge

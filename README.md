@@ -1,4 +1,8 @@
-# DataScheduler
+# KULU
+
+*(anciennement DataScheduler — le nom du dépôt, du dossier de données `%APPDATA%` et du service
+d'identification Windows reste `DataScheduler` en interne pour ne pas casser les installations
+existantes ; seul le nom visible de l'application change.)*
 
 Application de bureau Windows permettant d'automatiser des pipelines de données : extraction et
 exécution SQL multi-SGBD (Oracle, MySQL, PostgreSQL, SQL Server), transferts FTP/FTPS/SFTP,
@@ -140,7 +144,7 @@ DataScheduler/
 ├── docs/                       # Architecture, librairies, concepts, cookbook d'extension
 ├── tests/                      # Suite pytest (pas de dépendance à la vraie base %APPDATA%)
 ├── requirements.txt
-├── DataScheduler.spec          # Configuration PyInstaller
+├── KULU.spec                   # Configuration PyInstaller
 └── .gitignore
 ```
 
@@ -207,8 +211,8 @@ Exemple : `chemin = /export/{yyyy}/{MM}/`  ·  `fichier = employes_{yyyyMMdd}.cs
 ## Packaging Windows (exécutable)
 
 ```bash
-pyinstaller DataScheduler.spec
-# → dist/DataScheduler/DataScheduler.exe
+pyinstaller KULU.spec
+# → dist/KULU/KULU.exe
 ```
 
 ---

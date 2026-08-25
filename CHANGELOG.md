@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+### Modifié
+- L'application est désormais nommée **KULU** (anciennement DataScheduler) dans toute
+  l'interface, l'exécutable (`KULU.exe`, généré depuis `KULU.spec`) et la documentation.
+  Rebrand purement visuel : le dossier de données `%APPDATA%\DataScheduler\`, le service
+  d'identification Windows (DPAPI/keyring) utilisé pour la clé de chiffrement des mots de passe,
+  et le nom de la tâche planifiée du worker (`DataSchedulerWorker`) restent inchangés en interne
+  pour ne rien casser sur les installations existantes (base de données, mots de passe déjà
+  chiffrés, worker en arrière-plan déjà enregistré).
+
 ## [0.31.0] - 2026-08-21
 
 ### Ajouté

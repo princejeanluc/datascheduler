@@ -26,7 +26,7 @@ class HelpView(QWidget):
         header = QHBoxLayout()
         title_col = QVBoxLayout(); title_col.setSpacing(2)
         title_col.addWidget(_make_title("Aide"))
-        title_col.addWidget(_make_subtitle("Guide d'utilisation de DataScheduler"))
+        title_col.addWidget(_make_subtitle("Guide d'utilisation de KULU"))
         header.addLayout(title_col); header.addStretch()
         self.inp_search = _make_search_input("Rechercher une rubrique…")
         self.inp_search.textChanged.connect(self._on_search_changed)

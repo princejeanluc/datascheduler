@@ -104,7 +104,7 @@ def nav_icon(key: str, color: str, size: int = 64) -> QIcon:
 
 
 def logo_icon(color: str, size: int = 64) -> QIcon:
-    """Logo DataScheduler ("flux de pipelines"), à afficher en haut de la barre de navigation."""
+    """Logo KULU ("flux de pipelines"), à afficher en haut de la barre de navigation."""
     return _render_svg(_LOGO_SVG.format(color=color), size)
 
 

@@ -1,4 +1,4 @@
-# Les librairies de DataScheduler — à quoi chacune sert vraiment
+# Les librairies de KULU — à quoi chacune sert vraiment
 
 Ce document ne remplace pas la documentation officielle de chaque librairie — il vous donne
 juste assez pour savoir **pourquoi elle est là** et **où regarder dans ce repo** pour voir un
@@ -14,7 +14,7 @@ Liste complète des versions figées : [requirements.txt](../requirements.txt).
 manuscrite (`"SELECT * FROM pipelines WHERE ..."`), fragile et pénible à maintenir dès que le
 schéma évolue.
 
-**Comment DataScheduler l'utilise** : le mode "ORM" (Object-Relational Mapping — voir
+**Comment KULU l'utilise** : le mode "ORM" (Object-Relational Mapping — voir
 `docs/CONCEPTS.md`). Chaque table est une classe Python ([database/models.py](../database/models.py)) :
 ```python
 class Pipeline(Base):
@@ -52,9 +52,9 @@ selon `db_type`, SQLAlchemy s'occupe de charger le bon pilote (`pymysql`, `psyco
 **Le problème qu'elle résout** : historiquement, parler à Oracle depuis Python demandait
 d'installer le lourd "Oracle Instant Client" sur chaque machine. `oracledb` (le successeur de
 `cx_Oracle`) sait fonctionner en **mode thin** : un pilote 100% Python, zéro dépendance système.
-C'est ce qui permet à DataScheduler d'être un simple `.exe` sans installation préalable.
+C'est ce qui permet à KULU d'être un simple `.exe` sans installation préalable.
 
-**Comment DataScheduler l'utilise** : [core/oracle.py](../core/oracle.py), classe
+**Comment KULU l'utilise** : [core/oracle.py](../core/oracle.py), classe
 `OracleConnector`. Le DSN (l'adresse d'une base Oracle) se construit avec `oracledb.makedsn(...)`,
 la connexion avec `oracledb.connect(...)`.
 
@@ -71,7 +71,7 @@ DBAPI2 par moteur. C'est ce que fournissent ces quatre paquets, chacun pour un m
 en a même deux : `pyodbc` s'il trouve un pilote ODBC installé sur la machine, sinon repli sur
 `pymssql`, qui parle le protocole TDS directement en Python sans rien installer côté système).
 
-**Comment DataScheduler l'utilise** : jamais directement — [core/sql_db.py](../core/sql_db.py),
+**Comment KULU l'utilise** : jamais directement — [core/sql_db.py](../core/sql_db.py),
 `SqlConnector`, construit une URL SQLAlchemy (`create_engine(...)`) dont le préfixe change selon
 `db_type` (`mysql+pymysql://`, `postgresql+psycopg2://`, `mssql+pyodbc://` ou
 `mssql+pymssql://`) ; c'est SQLAlchemy qui choisit et charge le bon pilote ensuite. Oracle est le
@@ -84,7 +84,7 @@ généralisation multi-SGBD), pas via SQLAlchemy.
 **Le problème qu'elle résout** : charger 2 millions de lignes d'un coup en RAM avant de les
 écrire en CSV serait dangereux sur une machine bureautique.
 
-**Comment DataScheduler l'utilise** : `chunksize=` partout où un gros volume est en jeu —
+**Comment KULU l'utilise** : `chunksize=` partout où un gros volume est en jeu —
 [core/oracle.py](../core/oracle.py) (`OracleExporter`/`OracleLoader`, spécifique Oracle) et
 [core/sql_db.py](../core/sql_db.py) (`SqlExporter`/`SqlLoader`, générique multi-moteur), tous en
 `pd.read_sql(..., chunksize=...)` / `pd.read_csv(..., chunksize=...)`. Le résultat n'est plus un
@@ -96,7 +96,7 @@ et on les jette, la mémoire reste plate quel que soit le volume total.
 **Le problème qu'elle résout** : construire une fenêtre native Windows avec des menus, tableaux,
 formulaires, sans réinventer le rendu graphique.
 
-**Comment DataScheduler l'utilise** : partout dans `ui/`. Trois idées à connaître avant de
+**Comment KULU l'utilise** : partout dans `ui/`. Trois idées à connaître avant de
 modifier quoi que ce soit ici :
 1. **Widgets emboîtés** : une fenêtre est un arbre de `QWidget` (boutons, labels, tableaux...),
    organisés par des `QLayout` (`QVBoxLayout`/`QHBoxLayout`/`QFormLayout`) qui gèrent
@@ -117,7 +117,7 @@ modifier quoi que ce soit ici :
 que FTP/FTPS, pas SFTP (qui passe par SSH, un protocole complètement différent). `paramiko`
 implémente SSH et son sous-protocole SFTP.
 
-**Comment DataScheduler l'utilise** : [core/ftp.py](../core/ftp.py), `FtpUploader._upload_sftp` /
+**Comment KULU l'utilise** : [core/ftp.py](../core/ftp.py), `FtpUploader._upload_sftp` /
 `_download_sftp` — ouvre un `paramiko.Transport`, puis un `SFTPClient` par-dessus.
 
 ## requests — appeler une API HTTP
@@ -126,7 +126,7 @@ implémente SSH et son sous-protocole SFTP.
 verbeuse (gérer soi-même l'encodage JSON, les en-têtes, les erreurs). `requests` est l'équivalent
 "ergonomique" devenu standard de facto dans l'écosystème Python.
 
-**Comment DataScheduler l'utilise** : [core/steps/http_request.py](../core/steps/http_request.py),
+**Comment KULU l'utilise** : [core/steps/http_request.py](../core/steps/http_request.py),
 un seul appel `requests.request(method, url, headers=..., data=..., files=...)` qui couvre GET,
 POST, et l'envoi de fichier en multipart.
 
@@ -136,7 +136,7 @@ POST, et l'envoi de fichier en multipart.
 au serveur SMTP) et `email.message.EmailMessage` (construire le message, pièces jointes
 comprises) font partie de Python lui-même, pas besoin d'`pip install` quoi que ce soit.
 
-**Comment DataScheduler l'utilise** : [core/email.py](../core/email.py), classe `EmailSender`.
+**Comment KULU l'utilise** : [core/email.py](../core/email.py), classe `EmailSender`.
 
 ## APScheduler — exécuter des tâches selon un planning (cron-like)
 
@@ -144,7 +144,7 @@ comprises) font partie de Python lui-même, pas besoin d'`pip install` quoi que 
 "réveille-toi et appelle cette fonction au bon moment", en tâche de fond, sans bloquer le reste
 du programme.
 
-**Comment DataScheduler l'utilise** : [core/scheduler.py](../core/scheduler.py),
+**Comment KULU l'utilise** : [core/scheduler.py](../core/scheduler.py),
 `PipelineScheduler` encapsule un `BackgroundScheduler` — il tourne sur son propre thread pendant
 toute la durée de vie de l'application (démarré dans `main.py`, arrêté à la fermeture).
 `CronTrigger` traduit la fréquence choisie par l'utilisateur (DAILY/WEEKLY/MONTHLY/CUSTOM) en
@@ -154,8 +154,8 @@ expression cron réelle (`build_cron_trigger`).
 
 **Le problème qu'elle résout** : un utilisateur final n'a pas Python installé, ni les
 dépendances du projet — PyInstaller regroupe l'interpréteur Python, toutes les dépendances, et le
-code du projet dans un dossier autonome (`dist/DataScheduler/`).
+code du projet dans un dossier autonome (`dist/KULU/`).
 
-**Comment DataScheduler l'utilise** : [DataScheduler.spec](../DataScheduler.spec) est le fichier
+**Comment KULU l'utilise** : [KULU.spec](../KULU.spec) est le fichier
 de configuration (quels fichiers inclure, quels modules "cachés" forcer). Voir la section
 Packaging de `docs/ARCHITECTURE.md` et la recette correspondante dans `docs/COOKBOOK.md`.

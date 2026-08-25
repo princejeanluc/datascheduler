@@ -297,7 +297,7 @@ class PipelinesView(QWidget):
         from ui.dialogs import PipelineImportPasswordDialog, PipelineImportReviewDialog
 
         path, _ = QFileDialog.getOpenFileName(
-            self, "Importer un pipeline", "", "Pipeline DataScheduler (*.dspipeline)",
+            self, "Importer un pipeline", "", "Pipeline KULU (*.dspipeline)",
         )
         if not path:
             return

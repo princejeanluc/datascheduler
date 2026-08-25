@@ -27,7 +27,7 @@ from .settings_view import SettingsView
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(f"DataScheduler v{__version__}")
+        self.setWindowTitle(f"KULU v{__version__}")
         self.setMinimumSize(1100, 680)
         self.resize(1280, 760)
         self._build_ui()
@@ -98,7 +98,7 @@ class MainWindow(QMainWindow):
         # Statut bar
         status = QStatusBar()
         status.setStyleSheet(f"background: {COLORS['bg_panel']}; color: {COLORS['text_dim']}; border-top: 1px solid {COLORS['border']};")
-        status.showMessage("  DataScheduler  •  Prêt")
+        status.showMessage("  KULU  •  Prêt")
         self.setStatusBar(status)
 
         self._navigate(0)   # Dashboard par défaut
@@ -144,7 +144,7 @@ class MainWindow(QMainWindow):
         logo_icon.setFixedSize(22, 22)
         logo_icon.setPixmap(_logo_icon(COLORS["accent"], size=22).pixmap(22, 22))
         logo_icon.setStyleSheet("background: transparent; border: none;")
-        logo_lbl = QLabel("DataScheduler")
+        logo_lbl = QLabel("KULU")
         logo_lbl.setStyleSheet(
             f"color: {COLORS['accent']}; font-size: 14px; font-weight: 700; "
             f"background: transparent; border: none; letter-spacing: 0.5px;"
@@ -227,7 +227,7 @@ def run():
 
     app.setStyleSheet(GLOBAL_STYLE)
 
-    # DataScheduler.spec (icon=...) couvre l'icône de l'exécutable (Explorateur, tuile avant
+    # KULU.spec (icon=...) couvre l'icône de l'exécutable (Explorateur, tuile avant
     # lancement) — Qt ne la reprend pas automatiquement pour la fenêtre une fois affichée
     # (barre de titre, bouton de la barre des tâches pendant l'exécution, Alt-Tab).
     from ui.branding import app_icon

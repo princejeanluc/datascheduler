@@ -591,7 +591,7 @@ def plan_import(bundle: dict, password: str | None = None) -> ImportPlan:
             return ImportPlan(success=False, error=(
                 f"Ce fichier a été exporté avec une version plus récente du format "
                 f"(v{schema_version}, seule la v{CURRENT_SCHEMA_VERSION} est supportée par cette "
-                "version de l'application) — mettez à jour DataScheduler avant de l'importer."
+                "version de l'application) — mettez à jour KULU avant de l'importer."
             ))
         if schema_version < CURRENT_SCHEMA_VERSION:
             bundle = _transcribe_bundle(bundle, schema_version)
@@ -612,7 +612,7 @@ def plan_import(bundle: dict, password: str | None = None) -> ImportPlan:
             return ImportPlan(success=False, error=(
                 "Ce fichier utilise un ou plusieurs types d'étape non reconnus par cette "
                 f"version de l'application ({', '.join(unknown_step_types)}) — mettez à jour "
-                "DataScheduler avant de l'importer."
+                "KULU avant de l'importer."
             ))
 
         unknown_categories = sorted(
@@ -622,7 +622,7 @@ def plan_import(bundle: dict, password: str | None = None) -> ImportPlan:
             return ImportPlan(success=False, error=(
                 "Ce fichier référence un ou plusieurs types de profil non reconnus par cette "
                 f"version de l'application ({', '.join(unknown_categories)}) — mettez à jour "
-                "DataScheduler avant de l'importer."
+                "KULU avant de l'importer."
             ))
 
         fernet = None

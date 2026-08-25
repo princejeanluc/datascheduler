@@ -23,7 +23,7 @@ pandas==2.2.3
 # Planificateur de tâches
 apscheduler==3.10.4
 
-# Mesure CPU/mémoire de l'application (vue Ressources) — extension C, voir DataScheduler.spec
+# Mesure CPU/mémoire de l'application (vue Ressources) — extension C, voir KULU.spec
 # pour le traitement collect_all() correspondant (même famille de dépendance qu'oracledb/numpy/
 # pandas, déjà bitten plusieurs fois par un simple hiddenimports insuffisant).
 psutil==7.2.2

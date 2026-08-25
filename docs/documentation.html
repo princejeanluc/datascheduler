@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DataScheduler — Documentation technique</title>
+<title>KULU — Documentation technique</title>
 <style>
   :root {
     --bg: #f7f5f2;
@@ -234,7 +234,7 @@
     <div class="rail-brand">
       <div>
         <div class="eyebrow">Documentation portable</div>
-        <h1>DataScheduler</h1>
+        <h1>KULU</h1>
       </div>
       <button class="theme-toggle" id="theme-toggle" title="Changer de thème">◐</button>
     </div>
@@ -248,7 +248,7 @@
   <main>
     <div class="doc-header">
       <div class="eyebrow">Référence technique</div>
-      <h1>Comprendre, faire évoluer et maintenir DataScheduler</h1>
+      <h1>Comprendre, faire évoluer et maintenir KULU</h1>
       <p class="lede">
         Quatre documents en un seul fichier portable : ouvrez-le dans n'importe quel navigateur,
         hors-ligne, sans dépendance. Architecture d'abord, puis les librairies, les concepts, et
@@ -260,7 +260,7 @@
 
     <!-- ══════════════════════════ 1. ARCHITECTURE ══════════════════════════ -->
     <section class="doc" id="architecture" data-doc-title="Architecture">
-      <h2 class="doc-title"><span class="idx">01</span> Architecture de DataScheduler</h2>
+      <h2 class="doc-title"><span class="idx">01</span> Architecture de KULU</h2>
       <div class="doc-intro">
         <blockquote>
           <p>Public visé : vous, dans 6 mois, quand vous aurez oublié pourquoi c'est fait comme ça.</p>
@@ -340,7 +340,7 @@ Pipeline ───────────────────────�
 
         <h3 class="sub" id="arch-steps">Le cœur du système : les steps</h3>
         <p>
-          C'est l'idée qui a transformé DataScheduler d'un outil à fonction unique (Oracle→FTP) en
+          C'est l'idée qui a transformé KULU d'un outil à fonction unique (Oracle→FTP) en
           petit moteur d'orchestration générique. Trois pièces :
         </p>
         <p><strong>1. <code>BaseStep</code> et <code>StepContext</code></strong> (<span class="ref">core/steps/base.py</span>)</p>
@@ -455,8 +455,8 @@ run_pipeline(pipeline_id)          core/pipeline.py
 
         <h3 class="sub" id="arch-packaging">Packaging</h3>
         <p>
-          <span class="ref">DataScheduler.spec</span> pilote PyInstaller en mode
-          <strong>one-folder</strong> (<code>dist/DataScheduler/DataScheduler.exe</code> + un dossier
+          <span class="ref">KULU.spec</span> pilote PyInstaller en mode
+          <strong>one-folder</strong> (<code>dist/KULU/KULU.exe</code> + un dossier
           <code>_internal/</code>), pas one-file — plus rapide au démarrage, plus facile à déboguer
           si un import manque.
         </p>
@@ -497,7 +497,7 @@ ui/
   step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
   dialogs.py               Dialogues de profils (Oracle/FTP/SMTP) + requêtes SQL + run/log
   styles.py                Palette de couleurs + feuilles de style Qt (QSS)
-DataScheduler.spec         Configuration PyInstaller
+KULU.spec                  Configuration PyInstaller
 requirements.txt           Dépendances Python
 docs/                      Vous êtes ici</code></pre></div>
       </article>
@@ -521,7 +521,7 @@ docs/                      Vous êtes ici</code></pre></div>
         <h3 class="sub" id="lib-sqlalchemy">SQLAlchemy — parler à la base sans écrire de SQL à la main</h3>
         <p><strong>Le problème qu'elle résout</strong> : sans elle, chaque lecture/écriture en base
           serait une chaîne SQL manuscrite, fragile et pénible à maintenir dès que le schéma évolue.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : le mode « ORM » (voir <a href="#concept-orm">Concepts</a>).
+        <p><strong>Comment KULU l'utilise</strong> : le mode « ORM » (voir <a href="#concept-orm">Concepts</a>).
           Chaque table est une classe Python (<span class="ref">database/models.py</span>) :</p>
         <pre><code>class Pipeline(Base):
     __tablename__ = "pipelines"
@@ -545,7 +545,7 @@ docs/                      Vous êtes ici</code></pre></div>
           demandait d'installer le lourd « Oracle Instant Client » sur chaque machine.
           <code>oracledb</code> (le successeur de <code>cx_Oracle</code>) sait fonctionner en
           <strong>mode thin</strong> : un pilote 100% Python, zéro dépendance système.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/oracle.py</span>,
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">core/oracle.py</span>,
           classe <code>OracleConnector</code>. Le DSN se construit avec <code>oracledb.makedsn(...)</code>,
           la connexion avec <code>oracledb.connect(...)</code>.</p>
         <p><strong>Gotcha déjà rencontré dans ce projet</strong> : <code>pandas.read_sql()</code> attend
@@ -557,7 +557,7 @@ docs/                      Vous êtes ici</code></pre></div>
         <h3 class="sub" id="lib-pandas">pandas — lire un gros résultat SQL/CSV sans exploser la mémoire</h3>
         <p><strong>Le problème qu'elle résout</strong> : charger 2 millions de lignes d'un coup en RAM
           avant de les écrire en CSV serait dangereux sur une machine bureautique.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <code>chunksize=</code> partout où un
+        <p><strong>Comment KULU l'utilise</strong> : <code>chunksize=</code> partout où un
           gros volume est en jeu — <span class="ref">core/oracle.py</span>,
           <code>OracleExporter.export()</code> et <code>OracleLoader.load()</code>. Le résultat n'est
           plus un seul <code>DataFrame</code> mais un itérateur de petits <code>DataFrame</code> (les
@@ -567,7 +567,7 @@ docs/                      Vous êtes ici</code></pre></div>
         <h3 class="sub" id="lib-pyside6">PySide6 (Qt pour Python) — toute l'interface graphique</h3>
         <p><strong>Le problème qu'elle résout</strong> : construire une fenêtre native Windows avec
           des menus, tableaux, formulaires, sans réinventer le rendu graphique.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : partout dans <code>ui/</code>. Trois idées à connaître :</p>
+        <p><strong>Comment KULU l'utilise</strong> : partout dans <code>ui/</code>. Trois idées à connaître :</p>
         <ol>
           <li><strong>Widgets emboîtés</strong> : une fenêtre est un arbre de <code>QWidget</code>,
             organisés par des <code>QLayout</code> qui gèrent l'espacement.</li>
@@ -582,27 +582,27 @@ docs/                      Vous êtes ici</code></pre></div>
         <p><strong>Le problème qu'elle résout</strong> : <code>ftplib</code> (bibliothèque standard) ne
           sait faire que FTP/FTPS, pas SFTP (qui passe par SSH). <code>paramiko</code> implémente SSH
           et son sous-protocole SFTP.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/ftp.py</span>,
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">core/ftp.py</span>,
           <code>FtpUploader._upload_sftp</code> / <code>_download_sftp</code>.</p>
 
         <h3 class="sub" id="lib-requests">requests — appeler une API HTTP</h3>
         <p><strong>Le problème qu'elle résout</strong> : <code>urllib.request</code> existe déjà mais
           son API est verbeuse. <code>requests</code> est l'équivalent ergonomique devenu standard de
           facto.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/steps/http_request.py</span>,
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">core/steps/http_request.py</span>,
           un seul appel <code>requests.request(method, url, headers=..., data=..., files=...)</code>.</p>
 
         <h3 class="sub" id="lib-smtplib">smtplib / email — envoyer un mail (bibliothèque standard)</h3>
         <p><strong>Le problème qu'elle résout</strong> : notifier par email sans dépendance externe —
           <code>smtplib</code> et <code>email.message.EmailMessage</code> font partie de Python
           lui-même.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/email.py</span>, classe <code>EmailSender</code>.</p>
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">core/email.py</span>, classe <code>EmailSender</code>.</p>
 
         <h3 class="sub" id="lib-apscheduler">APScheduler — exécuter des tâches selon un planning</h3>
         <p><strong>Le problème qu'elle résout</strong> : traduire « tous les jours à 6h » en « réveille-toi
           et appelle cette fonction au bon moment », en tâche de fond, sans bloquer le reste du
           programme.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">core/scheduler.py</span>,
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">core/scheduler.py</span>,
           <code>PipelineScheduler</code> encapsule un <code>BackgroundScheduler</code>.
           <code>CronTrigger</code> traduit la fréquence (DAILY/WEEKLY/MONTHLY/CUSTOM) en expression
           cron réelle.</p>
@@ -610,7 +610,7 @@ docs/                      Vous êtes ici</code></pre></div>
         <h3 class="sub" id="lib-pyinstaller">PyInstaller — transformer le projet Python en .exe</h3>
         <p><strong>Le problème qu'elle résout</strong> : un utilisateur final n'a pas Python installé —
           PyInstaller regroupe l'interpréteur, les dépendances et le code dans un dossier autonome.</p>
-        <p><strong>Comment DataScheduler l'utilise</strong> : <span class="ref">DataScheduler.spec</span> —
+        <p><strong>Comment KULU l'utilise</strong> : <span class="ref">KULU.spec</span> —
           voir <a href="#arch-packaging">Packaging</a> et <a href="#recipe-build-exe">la recette</a>.</p>
       </article>
     </section>
@@ -802,7 +802,7 @@ class SendResult:
 
     <!-- ══════════════════════════ 4. COOKBOOK ══════════════════════════ -->
     <section class="doc" id="cookbook" data-doc-title="Cookbook">
-      <h2 class="doc-title"><span class="idx">04</span> Cookbook — recettes pour faire évoluer DataScheduler</h2>
+      <h2 class="doc-title"><span class="idx">04</span> Cookbook — recettes pour faire évoluer KULU</h2>
       <div class="doc-intro">
         <p>
           Des marches à suivre concrètes, pour les besoins qui reviendront. Chaque recette part du
@@ -938,9 +938,9 @@ python main.py</code></pre>
         </p>
 
         <h3 class="sub" id="recipe-build-exe">Recette : construire l'exécutable Windows</h3>
-        <pre><code>pyinstaller DataScheduler.spec</code></pre>
+        <pre><code>pyinstaller KULU.spec</code></pre>
         <p>
-          Le résultat est dans <code>dist/DataScheduler/</code>. Si l'<code>.exe</code> se lance puis
+          Le résultat est dans <code>dist/KULU/</code>. Si l'<code>.exe</code> se lance puis
           plante immédiatement avec un <code>ModuleNotFoundError</code> alors que
           <code>python main.py</code> fonctionne : une nouvelle dépendance a des sous-modules que
           PyInstaller n'a pas détectés automatiquement. Ajoutez le module manquant à
@@ -982,7 +982,7 @@ print(db.get_pipelines())</code></pre>
             reste à 0 même si des lignes ont vraiment été insérées/modifiées</strong> — si le bloc
             appelle une procédure stockée qui fait le DML en interne, oracledb ne remonte que le
             résultat de l'appel du bloc lui-même, pas les lignes affectées par les instructions
-            exécutées à l'intérieur. Ce n'est pas un bug de DataScheduler, c'est un comportement du
+            exécutées à l'intérieur. Ce n'est pas un bug de KULU, c'est un comportement du
             pilote Oracle. <code>ORACLE_EXECUTE</code> détecte ce cas via
             <code>core.oracle.is_plsql_block()</code> et log un message honnête au lieu d'afficher
             un « 0 ligne(s) affectée(s) » trompeur. Pour obtenir le nombre réel de lignes affectées

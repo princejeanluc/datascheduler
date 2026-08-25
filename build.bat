@@ -3,7 +3,7 @@ setlocal EnableDelayedExpansion
 
 echo.
 echo  ================================================
-echo   DataScheduler — Build executable Windows
+echo   KULU — Build executable Windows
 echo  ================================================
 echo.
 
@@ -21,8 +21,8 @@ if not exist "%PYTHON%" (
     pause & exit /b 1
 )
 
-if not exist "%ROOT%DataScheduler.spec" (
-    echo [ERREUR] Fichier DataScheduler.spec introuvable dans %ROOT%
+if not exist "%ROOT%KULU.spec" (
+    echo [ERREUR] Fichier KULU.spec introuvable dans %ROOT%
     pause & exit /b 1
 )
 
@@ -48,7 +48,7 @@ echo       OK.
 REM ── Compilation ────────────────────────────────
 echo [3/4] Compilation (peut prendre 2-5 minutes)...
 echo.
-"%PYTHON%" -m PyInstaller "%ROOT%DataScheduler.spec" --noconfirm --log-level WARN
+"%PYTHON%" -m PyInstaller "%ROOT%KULU.spec" --noconfirm --log-level WARN
 if errorlevel 1 (
     echo.
     echo [ERREUR] La compilation a echoue. Relancer avec --log-level DEBUG pour plus de details.
@@ -58,17 +58,17 @@ if errorlevel 1 (
 REM ── Résultat ───────────────────────────────────
 echo.
 echo [4/4] Verification du resultat...
-set "EXE=%ROOT%dist\DataScheduler\DataScheduler.exe"
+set "EXE=%ROOT%dist\KULU\KULU.exe"
 if exist "%EXE%" (
     echo.
     echo  ================================================
     echo   BUILD REUSSI^^!
     echo  ================================================
     echo.
-    echo   Executable  : dist\DataScheduler\DataScheduler.exe
-    echo   Dossier     : dist\DataScheduler\
+    echo   Executable  : dist\KULU\KULU.exe
+    echo   Dossier     : dist\KULU\
     echo.
-    echo   Pour partager : zipper le dossier dist\DataScheduler\
+    echo   Pour partager : zipper le dossier dist\KULU\
     echo   Clic droit -^> Envoyer vers -^> Dossier compresse
     echo.
 ) else (

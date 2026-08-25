@@ -1,4 +1,4 @@
-# Concepts et paradigmes utilisés dans DataScheduler
+# Concepts et paradigmes utilisés dans KULU
 
 Ce document explique les idées de programmation derrière le code — pas les librairies qui les
 implémentent (ça, c'est `docs/LIBRARIES.md`). L'objectif : que vous reconnaissiez ces patterns la

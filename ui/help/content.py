@@ -34,7 +34,7 @@ HELP_TOPICS: list[HelpTopic] = [
         icon="fa5s.info-circle",
         markdown="""# Vue d'ensemble
 
-DataScheduler orchestre des **pipelines de données planifiés** : extraire depuis une base de
+KULU orchestre des **pipelines de données planifiés** : extraire depuis une base de
 données ou un serveur FTP, transformer via un script, charger vers une autre base ou diffuser un
 fichier, puis notifier par email si besoin — le tout automatiquement, à l'heure que vous choisissez.
 
@@ -138,7 +138,7 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 - **Spark SQL (`SPARK_SQL`)** — exécute une requête sur un cluster Hadoop via un nœud edge :
   connexion SSH, authentification Kerberos, puis exécution de la requête. Case *Récupérer le
   résultat* pour choisir entre une exécution simple (ex : `INSERT`, rafraîchissement de cache)
-  et un résultat rapatrié en fichier. `spark-sql` ne produit qu'un texte brut tabulé — DataScheduler
+  et un résultat rapatrié en fichier. `spark-sql` ne produit qu'un texte brut tabulé — KULU
   le remet en forme en CSV véritable, avec les mêmes réglages que l'étape Extraction base de
   données (séparateur, encodage, guillemets), en-tête de colonnes toujours inclus. Nécessite un
   profil SSH et un profil Kerberos, configurés dans **Connexions**.

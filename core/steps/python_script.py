@@ -54,7 +54,7 @@ class PythonScriptStep(BaseStep):
             timeout     = int(self.config.get("timeout", 300))
 
             # Piège réel (voir docs/COOKBOOK.md, "Pièges déjà rencontrés") : dans un .exe
-            # PyInstaller, sys.executable est le chemin de DataScheduler.exe lui-même, pas un
+            # PyInstaller, sys.executable est le chemin de KULU.exe lui-même, pas un
             # interpréteur Python — ce n'est vrai qu'en lançant `python main.py` directement. Un
             # step qui garde ce défaut (ou le reçoit via un ancien config_json/import) ne lance
             # pas le script : il relance une deuxième instance complète de l'application, qui
@@ -62,7 +62,7 @@ class PythonScriptStep(BaseStep):
             # refusé ici plutôt que de laisser ce piège silencieux se reproduire.
             if getattr(sys, "frozen", False) and _same_executable(python_exe, sys.executable):
                 result.error = (
-                    "L'exécutable Python configuré pointe vers DataScheduler.exe lui-même, pas "
+                    "L'exécutable Python configuré pointe vers KULU.exe lui-même, pas "
                     "vers un interpréteur Python — impossible d'exécuter le script. Renseignez "
                     "explicitement le chemin d'un python.exe (venv/conda du script) dans le "
                     "champ « Exécutable Python » de cette étape."
