@@ -515,6 +515,46 @@ def test_history_view_shows_frequency_row_per_active_pipeline(qapp, test_db):
     assert "freq-inactive" not in names
 
 
+def _freq_row_names(view) -> list[str]:
+    return [
+        view._freq_rows_layout.itemAt(i).widget().findChild(QLabel).toolTip()
+        for i in range(view._freq_rows_layout.count())
+    ]
+
+
+def test_history_view_frequency_section_caps_at_ten_by_default(qapp, test_db):
+    """Passage à l'échelle — sans recherche, la section ne montre que les 10 pipelines actifs les
+    plus actifs, pas tous (voir db.get_most_active_pipelines)."""
+    from ui.main_window.history_view import HistoryView
+
+    for i in range(15):
+        db.create_pipeline(name=f"freq-scale-{i}")
+
+    view = HistoryView()
+    assert len(_freq_row_names(view)) == 10
+
+
+def test_history_view_search_reveals_pipeline_excluded_by_default_cap(qapp, test_db):
+    """Un pipeline peu actif, hors du top 10 par défaut, doit redevenir visible dans la section
+    fréquence dès qu'on le cherche par nom — c'est tout l'objet du câblage recherche <-> fréquence."""
+    from ui.main_window.history_view import HistoryView
+
+    target = db.create_pipeline(name="freq-search-target")
+    for i in range(12):
+        busy = db.create_pipeline(name=f"freq-search-noise-{i}")
+        run = db.create_run(busy.id)
+        db.finish_run(run.id, status="SUCCESS")
+
+    view = HistoryView()
+    assert "freq-search-target" not in _freq_row_names(view)
+
+    view.inp_search.setText("freq-search-target")
+    assert _freq_row_names(view) == ["freq-search-target"]
+
+    view.inp_search.setText("")
+    assert "freq-search-target" not in _freq_row_names(view)
+
+
 def test_dashboard_runs_table_groups_multiple_runs_of_the_same_pipeline_into_one_row(qapp, test_db):
     """Dernières exécutions regroupées par pipeline (chantier identité, vague 3, idée 7) — un
     pipeline avec plusieurs runs récents n'occupe qu'une ligne, avec une bande de pastilles pour

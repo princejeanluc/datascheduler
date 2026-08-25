@@ -1357,6 +1357,55 @@ def get_run_counts_by_day(days: int = 30, pipeline_id: int | None = None) -> lis
     return result
 
 
+def get_most_active_pipelines(limit: int | None = 10, days: int = 90,
+                               name_filter: str | None = None) -> list[Pipeline]:
+    """
+    Historique, section "Fréquence d'exécution" (passage à l'échelle) : classe les pipelines
+    actifs par nombre d'exécutions sur les `days` derniers jours (même fenêtre que le calendrier
+    lui-même, get_run_counts_by_day) au lieu de tous les charger sans limite — une seule requête
+    d'agrégation, plutôt qu'une requête par pipeline suivie d'un tri en Python (qui rechargerait
+    exactement le problème que cette fonction existe pour éviter). `limit=None` désactive le
+    plafond — utilisé quand `name_filter` est renseigné, pour qu'une recherche puisse révéler un
+    pipeline peu actif que le plafond par défaut exclurait sinon. `name_filter` filtre au niveau
+    SQL (ilike), pas en Python après coup — même raison : ne jamais charger l'ensemble complet
+    juste pour le filtrer ensuite.
+    """
+    from datetime import date, datetime, timedelta
+
+    from sqlalchemy import func
+
+    today      = date.today()
+    start_date = today - timedelta(days=days - 1)
+    start_dt   = datetime.combine(start_date, datetime.min.time())
+
+    with get_session() as s:
+        run_counts = (
+            s.query(PipelineRun.pipeline_id, func.count(PipelineRun.id).label("cnt"))
+             .filter(PipelineRun.started_at >= start_dt)
+             .group_by(PipelineRun.pipeline_id)
+             .subquery()
+        )
+        cnt_col = func.coalesce(run_counts.c.cnt, 0)
+        q = (
+            s.query(Pipeline, cnt_col)
+             .options(
+                 joinedload(Pipeline.oracle_profile),
+                 joinedload(Pipeline.ftp_profile),
+                 joinedload(Pipeline.sql_query),
+                 joinedload(Pipeline.steps),
+                 joinedload(Pipeline.trigger_after_pipeline),
+             )
+             .outerjoin(run_counts, run_counts.c.pipeline_id == Pipeline.id)
+             .filter(Pipeline.is_active.is_(True))
+        )
+        if name_filter:
+            q = q.filter(Pipeline.name.ilike(f"%{name_filter}%"))
+        q = q.order_by(cnt_col.desc(), Pipeline.name)
+        if limit is not None:
+            q = q.limit(limit)
+        return [p for p, _cnt in q.all()]
+
+
 # ──────────────────────────────────────────────
 #  PARAMÈTRES DE NOTIFICATION (digest manager)
 # ──────────────────────────────────────────────
