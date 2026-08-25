@@ -17,6 +17,11 @@ from .widgets import (
 )
 
 _HEATMAP_DAYS = 90
+# Plafond par défaut de la section "Fréquence d'exécution" (passage à l'échelle — au-delà, une
+# requête d'agrégation par pipeline devenait sensible au nombre total de pipelines actifs, pas
+# seulement à l'activité réelle). Désactivé (aucun plafond) dès qu'une recherche est en cours,
+# pour qu'un pipeline peu actif reste trouvable — voir _refresh_frequency().
+_MAX_FREQUENCY_ROWS = 10
 
 _STATUS_FILTER_OPTIONS = [
     ("Tous les statuts", None),
@@ -69,7 +74,7 @@ class HistoryView(QWidget):
         self.cb_status.currentIndexChanged.connect(self._apply_filters)
         header.addWidget(self.cb_status)
         self.inp_search = _make_search_input("Rechercher…")
-        self.inp_search.textChanged.connect(self._apply_filters)
+        self.inp_search.textChanged.connect(self._on_search_changed)
         header.addWidget(self.inp_search)
         layout.addLayout(header)
 
@@ -145,6 +150,14 @@ class HistoryView(QWidget):
                     haystack.append(badge.text().lower())
             self.table.setRowHidden(row, needle not in " ".join(haystack))
 
+    def _on_search_changed(self, text: str):
+        """La recherche filtre à la fois le tableau des exécutions (déjà couvert par
+        _apply_filters) et la section "Fréquence d'exécution", qui ne montre par défaut que les
+        pipelines les plus actifs — une recherche doit pouvoir en révéler un moins actif, exclu
+        de ce plafond par défaut."""
+        self._apply_filters()
+        self._refresh_frequency(search=text.strip())
+
     def set_status_filter(self, status: str):
         idx = self.cb_status.findData(status)
         if idx >= 0:
@@ -152,9 +165,13 @@ class HistoryView(QWidget):
         else:
             self._apply_filters()
 
-    def _refresh_frequency(self):
+    def _refresh_frequency(self, search: str = ""):
         """Une ligne (nom + calendrier de fréquence) par pipeline actif — pipelines désactivés
-        exclus, leur historique n'étant plus d'actualité opérationnelle."""
+        exclus, leur historique n'étant plus d'actualité opérationnelle. Sans recherche, plafonné
+        aux `_MAX_FREQUENCY_ROWS` pipelines les plus actifs (get_most_active_pipelines fait le tri
+        et le plafond en une seule requête d'agrégation — jamais un chargement de tous les
+        pipelines suivi d'un tri en Python, qui redeviendrait sensible à leur nombre total).
+        Recherche active -> plafond levé, filtré par nom au niveau SQL."""
         from database import db_manager as db
 
         while self._freq_rows_layout.count():
@@ -163,7 +180,10 @@ class HistoryView(QWidget):
             if w:
                 w.deleteLater()
 
-        pipelines = db.get_pipelines(active_only=True)
+        if search:
+            pipelines = db.get_most_active_pipelines(limit=None, name_filter=search)
+        else:
+            pipelines = db.get_most_active_pipelines(limit=_MAX_FREQUENCY_ROWS)
         self._freq_empty_label.setVisible(not pipelines)
         for p in pipelines:
             counts = db.get_run_counts_by_day(days=_HEATMAP_DAYS, pipeline_id=p.id)
@@ -263,7 +283,7 @@ class HistoryView(QWidget):
 
     def refresh(self):
         from database import db_manager as db
-        self._refresh_frequency()
+        self._refresh_frequency(search=self.inp_search.text().strip())
         runs = db.get_recent_runs(limit=100)
         self._run_ids = [r.id for r in runs]
         self.table.setVisible(bool(runs))
