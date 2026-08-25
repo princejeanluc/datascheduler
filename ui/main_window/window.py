@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QStackedWidget, QFrame, QStatusBar,
 )
-from PySide6.QtCore import QSize
+from PySide6.QtCore import QSize, QTimer
 from PySide6.QtGui import QColor, QPalette, QShortcut, QKeySequence
 from ui.styles import COLORS
 from .widgets import _icon, NavButton, NAV_WIDTH, HEADER_H, GLOBAL_STYLE
@@ -47,6 +47,14 @@ class MainWindow(QMainWindow):
             )
         except RuntimeError:
             pass
+
+        # Rattrapage des pipelines manqués (chantier dédié) — affiché une seule fois, après que
+        # la fenêtre principale soit réellement peinte (QTimer.singleShot(0, ...), jamais avant
+        # window.show() dans run()). core.missed_runs a déjà été peuplé dans main.py, avant
+        # init_scheduler() — cette fenêtre se contente de le consulter, comme toute autre vue.
+        from core.missed_runs import get_pending
+        if get_pending():
+            QTimer.singleShot(0, self._show_missed_pipelines_dialog)
 
     def _build_ui(self):
         central = QWidget()
@@ -102,6 +110,18 @@ class MainWindow(QMainWindow):
         if hasattr(view, "refresh"):
             view.refresh()
         self.statusBar().showMessage("  Vue actualisée", 2_000)
+
+    def _show_missed_pipelines_dialog(self):
+        from core.missed_runs import get_pending
+        from ui.dialogs import MissedPipelinesDialog
+
+        missed = get_pending()
+        if not missed:
+            return
+        MissedPipelinesDialog(self, missed).exec()
+        # Rafraîchit le Dashboard immédiatement — reflète ce qui a été lancé (résolu) vs laissé
+        # en attente (bandeau), sans attendre son propre cycle de rafraîchissement périodique.
+        self._views[0].refresh()
 
     def _build_nav(self) -> QWidget:
         panel = QWidget()
