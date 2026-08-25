@@ -92,6 +92,19 @@ def main():
                 "l'application).", n_reconciled,
             )
 
+        # Détection des pipelines manqués (chantier rattrapage au démarrage) — DOIT s'exécuter
+        # avant init_scheduler() ci-dessous : celui-ci recalcule next_run_at pour chaque
+        # pipeline actif dès qu'il reconstruit les jobs, effaçant la trace de toute occurrence
+        # manquée pendant que l'app était fermée. Sans jobstore persistant, c'est la seule
+        # fenêtre où next_run_at reflète encore la session précédente.
+        from core.missed_runs import detect_missed_runs
+        missed = detect_missed_runs(app_settings)
+        if missed:
+            logger.warning(
+                "%d pipeline(s) ont manqué leur exécution planifiée pendant l'arrêt de "
+                "l'application.", len(missed),
+            )
+
         from core.scheduler import init_scheduler
         scheduler = init_scheduler()
         logger.info("Scheduler démarré (%d pipeline(s) planifié(s))",

@@ -101,6 +101,55 @@ class DashboardView(QWidget):
         self._onboarding_banner.setVisible(False)
         layout.addWidget(self._onboarding_banner)
 
+        # Bandeau "pipelines manqués" (chantier rattrapage au démarrage) — même patron que
+        # _onboarding_banner ci-dessus, accent warning au lieu de accent. Ce que le dialogue de
+        # démarrage (MissedPipelinesDialog) n'a pas résolu (décoché, ou "Plus tard") atterrit
+        # ici, une puce par pipeline, jusqu'à lancement ou "Ignorer" explicite — jamais un
+        # simple masquage qui laisserait le bandeau réapparaître au prochain refresh().
+        self._missed_banner = QFrame()
+        self._missed_banner.setStyleSheet(
+            f"QFrame {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+            f"border-left: 3px solid {COLORS['warning']}; border-radius: 6px; }}"
+        )
+        missed_outer = QVBoxLayout(self._missed_banner)
+        missed_outer.setContentsMargins(16, 12, 16, 12)
+        missed_outer.setSpacing(8)
+
+        missed_head = QHBoxLayout()
+        missed_head.setSpacing(4)
+        self._lbl_missed_title = QLabel("")
+        self._lbl_missed_title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        missed_head.addWidget(self._lbl_missed_title)
+        missed_head.addStretch()
+
+        btn_missed_launch_all = self._link_button("Lancer tout", COLORS["accent"])
+        btn_missed_launch_all.clicked.connect(self._on_missed_launch_all)
+        missed_head.addWidget(btn_missed_launch_all)
+
+        btn_missed_ignore_all = self._link_button("Ignorer tout", COLORS["text_muted"])
+        btn_missed_ignore_all.clicked.connect(self._on_missed_ignore_all)
+        missed_head.addWidget(btn_missed_ignore_all)
+
+        btn_missed_dismiss = self._link_button("✕", COLORS["text_muted"])
+        btn_missed_dismiss.setToolTip("Ignorer tout — même effet que \"Ignorer tout\"")
+        # Même sémantique que "Ignorer tout" (résout tout), jamais un simple masquage — sinon le
+        # bandeau réapparaîtrait au prochain refresh() tant que les pipelines restent en attente.
+        btn_missed_dismiss.clicked.connect(self._on_missed_ignore_all)
+        missed_head.addWidget(btn_missed_dismiss)
+        missed_outer.addLayout(missed_head)
+
+        self._missed_chips = QWidget()
+        self._missed_chips_layout = QVBoxLayout(self._missed_chips)
+        self._missed_chips_layout.setContentsMargins(0, 0, 0, 0)
+        self._missed_chips_layout.setSpacing(6)
+        missed_outer.addWidget(self._missed_chips)
+
+        self._missed_banner.setVisible(False)
+        layout.addWidget(self._missed_banner)
+
         # Rail "Prochaines & en cours" — remplace la carte isolée "Prochaine exéc." : les
         # pipelines sont planifiés, ce qui tourne/va tourner mérite d'être vu en premier plutôt
         # que noyé dans une case au même rang que les autres (chantier identité, vague 1).
@@ -252,6 +301,7 @@ class DashboardView(QWidget):
         pipelines = db.get_pipelines()
         self._card_active.set_value(str(len(pipelines)))
         self._onboarding_banner.setVisible(not pipelines)
+        self._refresh_missed_banner()
 
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
         all_runs = db.get_recent_runs(limit=500)
@@ -442,6 +492,121 @@ class DashboardView(QWidget):
         )
         hl.addWidget(sub_lbl)
         return chip
+
+    def _link_button(self, text: str, color: str) -> QPushButton:
+        """Petit bouton "lien" plat (pas de bordure/fond) utilisé par le bandeau des pipelines
+        manqués — aucun objectName dédié n'existe dans ui/styles.py pour ce style, seulement
+        "secondary"/"danger" (boutons pleins)."""
+        btn = QPushButton(text)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; color: {color}; "
+            f"font-size: 11px; font-weight: 600; padding: 2px 4px; }}"
+            f"QPushButton:hover {{ color: {COLORS['text_main']}; }}"
+        )
+        return btn
+
+    def _refresh_missed_banner(self):
+        """Bascule la visibilité du bandeau + reconstruit ses puces à chaque refresh() (même
+        réflexe que _refresh_rail ci-dessus et HistoryView._refresh_frequency : vider puis
+        repeupler plutôt que de tenter un diff)."""
+        from core.missed_runs import get_pending
+
+        pending = get_pending()
+        self._missed_banner.setVisible(bool(pending))
+        if not pending:
+            return
+
+        while self._missed_chips_layout.count():
+            item = self._missed_chips_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        plural = "s" if len(pending) > 1 else ""
+        self._lbl_missed_title.setText(
+            f"{len(pending)} pipeline{plural} manqué{plural} son{plural} exécution pendant "
+            f"l'arrêt de l'application"
+        )
+        for m in pending:
+            self._missed_chips_layout.addWidget(self._make_missed_chip(m))
+
+    def _make_missed_chip(self, missed: dict) -> QFrame:
+        from ui.dialogs.missed_pipelines_dialog import _format_late
+
+        chip = QFrame()
+        chip.setStyleSheet(
+            f"QFrame {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 6px; }}"
+        )
+        hl = QHBoxLayout(chip)
+        hl.setContentsMargins(10, 6, 10, 6)
+        hl.setSpacing(8)
+
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {COLORS['warning']}; font-size: 9px; background: transparent; border: none;")
+        hl.addWidget(dot)
+
+        name_lbl = QLabel(missed["name"])
+        name_lbl.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        hl.addWidget(name_lbl)
+
+        when_lbl = QLabel(
+            f"prévu à {missed['expected_at'].strftime('%H:%M')} — manqué depuis "
+            f"{_format_late(missed['late_minutes'])}"
+        )
+        when_lbl.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10.5px; font-family: {FONT_MONO_STACK}; "
+            f"background: transparent; border: none;"
+        )
+        hl.addWidget(when_lbl, stretch=1)
+
+        btn_launch = QPushButton("▶")
+        btn_launch.setFixedSize(24, 24)
+        btn_launch.setCursor(Qt.PointingHandCursor)
+        btn_launch.setToolTip(f"Lancer {missed['name']} maintenant")
+        btn_launch.setStyleSheet(
+            f"QPushButton {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 12px; color: {COLORS['accent']}; font-size: 10px; }}"
+            f"QPushButton:hover {{ background: {COLORS['accent']}; color: #000000; }}"
+        )
+        btn_launch.clicked.connect(
+            lambda checked=False, pid=missed["pipeline_id"]: self._on_missed_launch_one(pid)
+        )
+        hl.addWidget(btn_launch)
+
+        return chip
+
+    def _on_missed_launch_one(self, pipeline_id: int):
+        from core.missed_runs import resolve
+        try:
+            from core.scheduler import get_scheduler
+            get_scheduler().trigger_now(pipeline_id)
+        except RuntimeError:
+            pass
+        resolve(pipeline_id)
+        self.refresh()
+
+    def _on_missed_launch_all(self):
+        from core.missed_runs import get_pending, resolve
+        try:
+            from core.scheduler import get_scheduler
+            scheduler = get_scheduler()
+        except RuntimeError:
+            scheduler = None
+        for m in get_pending():
+            if scheduler is not None:
+                scheduler.trigger_now(m["pipeline_id"])
+            resolve(m["pipeline_id"])
+        self.refresh()
+
+    def _on_missed_ignore_all(self):
+        from core.missed_runs import get_pending, resolve
+        for m in get_pending():
+            resolve(m["pipeline_id"])
+        self.refresh()
 
     def _on_notifications(self):
         self.navigate_to_settings.emit("notifications")

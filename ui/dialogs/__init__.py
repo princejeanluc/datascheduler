@@ -25,6 +25,7 @@ from .connection_health_dialog import ConnectionHealthDialog
 from .ssh_profile_dialog import SshTestThread, SshProfileDialog
 from .kerberos_profile_dialog import KerberosTestThread, KerberosProfileDialog
 from .elevation_profile_dialog import ElevationTestThread, ElevationProfileDialog
+from .missed_pipelines_dialog import MissedPipelinesDialog
 
 __all__ = [
     "OracleTestThread", "OracleDialog",
@@ -42,4 +43,5 @@ __all__ = [
     "SshTestThread", "SshProfileDialog",
     "KerberosTestThread", "KerberosProfileDialog",
     "ElevationTestThread", "ElevationProfileDialog",
+    "MissedPipelinesDialog",
 ]
