@@ -37,6 +37,66 @@ def test_import_password_dialog_opens_without_error(qapp):
     assert dlg.password() == ""
 
 
+def test_import_password_dialog_without_verify_accepts_unconditionally(qapp):
+    """Comportement historique préservé pour tout appelant qui ne passe pas verify=."""
+    from PySide6.QtWidgets import QDialog
+
+    dlg = PipelineImportPasswordDialog(None)
+    dlg.inp_password.setText("peu importe")
+
+    dlg._on_validate()
+
+    assert dlg.result() == QDialog.Accepted
+
+
+def test_import_password_dialog_accepts_on_successful_verify(qapp):
+    from PySide6.QtWidgets import QDialog
+    from database.export_import import ImportPlan
+
+    fake_plan = ImportPlan(success=True)
+    dlg = PipelineImportPasswordDialog(None, verify=lambda pwd: fake_plan)
+    dlg.inp_password.setText("bon-mot-de-passe")
+
+    dlg._on_validate()
+
+    assert dlg.result() == QDialog.Accepted
+    assert dlg.plan is fake_plan
+
+
+def test_import_password_dialog_shows_error_and_stays_open_on_failed_verify(qapp):
+    """Correctif friction d'import : un mot de passe incorrect ne doit plus fermer le
+    dialogue — juste afficher l'erreur sur place, pour une nouvelle tentative immédiate."""
+    from PySide6.QtWidgets import QDialog
+    from database.export_import import ImportPlan
+
+    dlg = PipelineImportPasswordDialog(
+        None, verify=lambda pwd: ImportPlan(success=False, error="Mot de passe incorrect."),
+    )
+    dlg.inp_password.setText("mauvais-mot-de-passe")
+
+    dlg._on_validate()
+
+    assert dlg.result() != QDialog.Accepted
+    assert dlg.plan is None
+    assert not dlg.lbl_error.isHidden()
+    assert dlg.lbl_error.text() == "Mot de passe incorrect."
+
+
+def test_import_password_dialog_clears_error_when_retyping(qapp):
+    from database.export_import import ImportPlan
+
+    dlg = PipelineImportPasswordDialog(
+        None, verify=lambda pwd: ImportPlan(success=False, error="Mot de passe incorrect."),
+    )
+    dlg.inp_password.setText("mauvais")
+    dlg._on_validate()
+    assert not dlg.lbl_error.isHidden()
+
+    dlg.inp_password.setText("mauvais2")
+
+    assert dlg.lbl_error.isHidden()
+
+
 def test_import_review_dialog_opens_and_confirm_mutates_plan(qapp, test_db):
     from database import db_manager as db
     from database.export_import import export_pipeline, plan_import

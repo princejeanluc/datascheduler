@@ -17,10 +17,19 @@ from ui.styles import COLORS, DIALOG_STYLE
 # ──────────────────────────────────────────────
 
 class PipelineImportPasswordDialog(QDialog):
-    """Prompt du mot de passe nécessaire pour déchiffrer un bundle .dspipeline importé."""
+    """Prompt du mot de passe nécessaire pour déchiffrer un bundle .dspipeline importé.
 
-    def __init__(self, parent=None):
+    `verify` (facultatif) : Callable[[str], ImportPlan] appelé au clic sur "Valider" — un échec
+    (`plan.success is False`) affiche l'erreur sur place et laisse le dialogue ouvert pour une
+    nouvelle tentative, au lieu de forcer l'appelant à tout redémarrer (resélection du fichier
+    comprise). `self.plan` porte le résultat réussi, prêt à être lu par l'appelant après
+    `exec()`. `verify=None` (défaut) préserve le comportement historique — accepter
+    inconditionnellement — pour tout appelant qui n'en a pas besoin."""
+
+    def __init__(self, parent=None, verify=None):
         super().__init__(parent)
+        self._verify = verify
+        self.plan = None
         self.setWindowTitle("Mot de passe requis")
         self.setMinimumWidth(420)
         self.setStyleSheet(DIALOG_STYLE)
@@ -52,17 +61,46 @@ class PipelineImportPasswordDialog(QDialog):
         self.inp_password.setEchoMode(QLineEdit.Password)
         self.inp_password.setFixedHeight(34)
         self.inp_password.setStyleSheet(self._input_style())
+        self.inp_password.textChanged.connect(self._clear_error)
         form.addRow(self._label("Mot de passe"), self.inp_password)
         root.addLayout(form)
+
+        self.lbl_error = QLabel("")
+        self.lbl_error.setStyleSheet(f"color: {COLORS['danger']}; font-size: 11px;")
+        self.lbl_error.setWordWrap(True)
+        self.lbl_error.setVisible(False)
+        root.addWidget(self.lbl_error)
 
         root.addWidget(self._sep())
         btn_row = QHBoxLayout(); btn_row.setSpacing(10); btn_row.addStretch()
         btn_cancel = QPushButton("Annuler"); btn_cancel.setObjectName("secondary")
         btn_cancel.setFixedHeight(36); btn_cancel.clicked.connect(self.reject)
         btn_ok = QPushButton("Valider")
-        btn_ok.setFixedHeight(36); btn_ok.clicked.connect(self.accept)
+        btn_ok.setFixedHeight(36); btn_ok.clicked.connect(self._on_validate)
         btn_row.addWidget(btn_cancel); btn_row.addWidget(btn_ok)
         root.addLayout(btn_row)
+
+    def _clear_error(self):
+        # isHidden() plutôt qu'isVisible() : ce dernier dépend aussi de la visibilité des
+        # parents (donc toujours False tant que le dialogue n'a jamais été réellement affiché,
+        # comme dans les tests), alors qu'isHidden() ne reflète que l'état explicitement demandé
+        # sur ce widget précis (même piège déjà rencontré sur PipelinesView._on_toggle_minimap).
+        if not self.lbl_error.isHidden():
+            self.lbl_error.setVisible(False)
+            self.inp_password.setStyleSheet(self._input_style())
+
+    def _on_validate(self):
+        if self._verify is None:
+            self.accept()
+            return
+        plan = self._verify(self.inp_password.text())
+        if not plan.success:
+            self.inp_password.setStyleSheet(self._input_style(error=True))
+            self.lbl_error.setText(plan.error or "Mot de passe incorrect.")
+            self.lbl_error.setVisible(True)
+            return
+        self.plan = plan
+        self.accept()
 
     def password(self) -> str:
         return self.inp_password.text()
