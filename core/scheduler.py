@@ -31,9 +31,20 @@ logger = logging.getLogger(__name__)
 #  CALCUL DES EXPRESSIONS CRON
 # ──────────────────────────────────────────────
 
-def build_cron_trigger(pipeline) -> CronTrigger:
+def build_cron_trigger(pipeline, tz: str | None = None) -> CronTrigger:
     """
     Construit un CronTrigger APScheduler depuis la config d'un Pipeline.
+
+    `tz` : fuseau horaire (nom IANA, ex. "Europe/Paris") dans lequel évaluer hour/minute —
+    DOIT être passé explicitement. Un CronTrigger sans `timezone=` ne reprend PAS le fuseau du
+    BackgroundScheduler qui l'exécute (celui-ci ne s'applique qu'aux triggers construits depuis
+    une chaîne 'cron', jamais à un objet CronTrigger déjà instancié comme ici — voir
+    apscheduler.schedulers.base.BaseScheduler._create_trigger) : APScheduler retombe alors sur
+    le fuseau LOCAL DE L'OS, silencieusement différent de AppSettings.timezone dès que les deux
+    ne coïncident pas (ex. réglage "UTC" par défaut sur une machine réglée sur Europe/Paris) —
+    l'exécution elle-même reste à l'heure murale OS exacte, mais next_run_at (recalculé dans ce
+    fuseau OS puis stocké naïf, réinterprété ailleurs comme s'il était dans AppSettings.timezone,
+    voir core/missed_runs.py) affiche alors un décalage d'1h à 2h selon la saison DST.
 
     Fréquences supportées :
         DAILY    → tous les jours à scheduled_time (HH:MM)
@@ -63,19 +74,19 @@ def build_cron_trigger(pipeline) -> CronTrigger:
             raise ValueError(f"Expression cron invalide : '{expr}' (attendu 5 champs)")
         return CronTrigger(
             minute=parts[0], hour=parts[1],
-            day=parts[2], month=parts[3], day_of_week=parts[4],
+            day=parts[2], month=parts[3], day_of_week=parts[4], timezone=tz,
         )
 
     if freq == "DAILY":
-        return CronTrigger(hour=hour, minute=minute)
+        return CronTrigger(hour=hour, minute=minute, timezone=tz)
 
     if freq == "WEEKLY":
         dow = int(day_) if day_ is not None else 0   # 0 = lundi
-        return CronTrigger(day_of_week=dow, hour=hour, minute=minute)
+        return CronTrigger(day_of_week=dow, hour=hour, minute=minute, timezone=tz)
 
     if freq == "MONTHLY":
         dom = int(day_) if day_ is not None else 1
-        return CronTrigger(day=dom, hour=hour, minute=minute)
+        return CronTrigger(day=dom, hour=hour, minute=minute, timezone=tz)
 
     raise ValueError(f"Fréquence inconnue : {freq}")
 
@@ -146,7 +157,8 @@ class PipelineScheduler:
             timezone = db.get_app_settings().timezone
         except RuntimeError:
             timezone = "UTC"
-        self._scheduler      = BackgroundScheduler(timezone=timezone)
+        self.timezone         = timezone   # voir build_cron_trigger() : doit être passé explicitement à chaque CronTrigger
+        self._scheduler       = BackgroundScheduler(timezone=timezone)
         self._on_job_success = on_job_success
         self._on_job_error   = on_job_error
         self._lock           = threading.Lock()
@@ -230,9 +242,9 @@ class PipelineScheduler:
 
         if settings.digest_frequency == "WEEKLY":
             dow = settings.digest_day_of_week if settings.digest_day_of_week is not None else 0
-            trigger = CronTrigger(day_of_week=dow, hour=hour, minute=minute)
+            trigger = CronTrigger(day_of_week=dow, hour=hour, minute=minute, timezone=self.timezone)
         else:
-            trigger = CronTrigger(hour=hour, minute=minute)
+            trigger = CronTrigger(hour=hour, minute=minute, timezone=self.timezone)
 
         self._scheduler.add_job(
             func=self._run_digest,
@@ -502,7 +514,7 @@ class PipelineScheduler:
     def _schedule_pipeline(self, pipeline) -> None:
         """Ajoute ou remplace le job APScheduler pour ce pipeline."""
         job_id  = self._job_id(pipeline.id)
-        trigger = build_cron_trigger(pipeline)
+        trigger = build_cron_trigger(pipeline, self.timezone)
         settings = db.get_app_settings()
 
         # add_job avec replace_existing=True pour la mise à jour à chaud
