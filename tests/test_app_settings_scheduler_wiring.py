@@ -39,6 +39,39 @@ def test_scheduler_defaults_to_utc_timezone(test_db):
         sched.stop()
 
 
+def test_schedule_pipeline_uses_app_settings_timezone_not_os_local(test_db):
+    """Bug réel signalé par l'utilisateur : un CronTrigger construit sans timezone= retombe
+    silencieusement sur le fuseau local de l'OS (voir apscheduler.triggers.cron.CronTrigger.
+    __init__), pas sur AppSettings.timezone — même si BackgroundScheduler(timezone=...) a bien
+    reçu la bonne valeur, ce réglage ne s'applique jamais à un trigger déjà construit. Les
+    pipelines s'exécutaient donc à l'heure OS exacte, mais next_run_at (recalculé dans ce
+    fuseau OS) était ensuite réinterprété ailleurs (ex. core/missed_runs.py) comme s'il était
+    dans AppSettings.timezone, d'où un décalage d'1h à 2h quand les deux fuseaux diffèrent."""
+    db.update_app_settings(timezone="Europe/Paris")
+
+    p = db.create_pipeline(name="tz-trigger-test")
+    sched = PipelineScheduler()
+    try:
+        sched._schedule_pipeline(p)
+        job = sched._scheduler.get_job(sched._job_id(p.id))
+        assert str(job.trigger.timezone) == "Europe/Paris"
+    finally:
+        sched.stop()
+
+
+def test_digest_job_uses_app_settings_timezone(test_db):
+    db.update_app_settings(timezone="Europe/Paris")
+
+    sched = PipelineScheduler()
+    try:
+        db.update_notification_settings(digest_enabled=True)
+        sched.refresh_digest_job()
+        job = sched._scheduler.get_job(sched.DIGEST_JOB_ID)
+        assert str(job.trigger.timezone) == "Europe/Paris"
+    finally:
+        sched.stop()
+
+
 def test_schedule_pipeline_uses_app_settings_misfire_and_coalesce(test_db):
     db.update_app_settings(misfire_grace_time_min=15, coalesce_missed_runs=False)
 
