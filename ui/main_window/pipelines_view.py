@@ -494,7 +494,7 @@ class PipelinesView(QWidget):
         """(Re)planifie immédiatement auprès d'APScheduler — même patron défensif que
         _on_toggle_pipeline() ci-dessous (RuntimeError silencieuse : scheduler non initialisé
         dans les tests qui construisent une vue directement). Utilisé partout où un pipeline
-        actif est créé/modifié en dehors de PipelineEditorDialog._on_save() (qui gère déjà son
+        actif est créé/modifié en dehors de PipelineSettingsDialog._on_save() (qui gère déjà son
         propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet. En
         mode exécution en arrière-plan, délègue au worker (core/execution_mode.py) plutôt que de
         toucher un scheduler local qui n'existe pas dans ce mode."""

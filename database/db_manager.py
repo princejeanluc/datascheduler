@@ -1729,8 +1729,8 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
     pipeline.
 
     N'est appelée que par l'éditeur graphique (chantier 6b) et par apply_import()
-    (database/export_import.py, écrasement et création) — save_steps() reste le chemin de
-    l'éditeur linéaire existant (PipelineEditorDialog), inchangé.
+    (database/export_import.py, écrasement et création) — save_steps() reste une fonction
+    distincte, réutilisée telle quelle par les tests qui n'ont besoin que d'étapes sans graphe.
 
     Chaque edge dict : {"from_step_key": str, "from_port": str, "to_step_key": str, "to_port": str}.
     Chaque zone dict : {"name": str, "pos_x": int, "pos_y": int, "width": int, "height": int}

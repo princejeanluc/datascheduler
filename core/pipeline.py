@@ -339,9 +339,10 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                      skip_step_keys: frozenset = frozenset()) -> tuple:
     """
     Boucle d'exécution actuelle, extraite telle quelle de run_pipeline() — chemin emprunté
-    pour tout pipeline sans arête explicite (`db.get_edges()` vide), donc pour tous les
-    pipelines existants et pour l'éditeur linéaire (PipelineEditorDialog), inchangés par le
-    chantier 6a. Retourne (pipeline_failed, pipeline_cancelled, completed_step_keys, {}) — le
+    pour tout pipeline sans arête explicite (`db.get_edges()` vide) : pipelines antérieurs au
+    chantier 6a, ou pipeline construit dans l'éditeur graphique (chantier fusion des éditeurs)
+    sans jamais y connecter d'étape. Retourne (pipeline_failed, pipeline_cancelled,
+    completed_step_keys, {}) — le
     4e élément (ports actifs) est toujours vide en mode linéaire, présent uniquement pour un
     type de retour uniforme avec _execute_graph (chantier J.2).
 
@@ -1044,9 +1045,9 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
 
 def validate_pipeline_graph(steps: list[dict], edges: list[dict]) -> tuple[list[str], list[str]]:
     """
-    Équivalent graphe de validate_step_sequence(), pour le futur éditeur graphique (6b) — steps
-    et edges en dicts en mémoire, avant toute sauvegarde en base (même moment d'appel que
-    validate_step_sequence() dans PipelineEditorDialog._on_save()).
+    Équivalent graphe de validate_step_sequence(), pour l'éditeur graphique (6b) — steps
+    et edges en dicts en mémoire, avant toute sauvegarde en base ; réutilisée aussi par
+    dry_run_pipeline() pour la validation à blanc.
 
     Détecte les cycles (algorithme de Kahn — si tous les nœuds n'atteignent pas un in-degree de
     0, cycle) puis vérifie que chaque étape dont REQUIRES est non vide a au moins une arête
@@ -1172,8 +1173,7 @@ class DryRunResult:
 
 
 def _steps_to_dicts(pipeline_id: int) -> list[dict]:
-    """Même conversion ORM → dict que PipelineEditorDialog._fill_fields()
-    (ui/step_editor/pipeline_editor_dialog.py) — la forme attendue par validate_step_sequence()/
+    """Conversion ORM → dict — la forme attendue par validate_step_sequence()/
     validate_pipeline_graph() et par _STEP_REFERENCES (database/export_import.py)."""
     return [
         {
