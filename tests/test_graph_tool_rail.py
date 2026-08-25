@@ -179,16 +179,16 @@ def test_rail_toggle_minimap_button_click_flips_visibility(qapp, test_db):
     assert not dlg._minimap.isHidden()
 
 
-def test_schedule_button_click_reaches_the_handler(qapp, test_db, monkeypatch):
-    """Le bouton "Planification & déclenchement…" reste un bouton texte dans la barre du haut
-    (pas dans le rail) — le comportement complet de _on_open_schedule_dialog() est déjà couvert
-    par test_schedule_button_opens_linear_editor_and_refreshes_title
+def test_settings_button_click_reaches_the_handler(qapp, test_db, monkeypatch):
+    """Le bouton "Paramètres du pipeline" reste un bouton texte dans la barre du haut (pas dans
+    le rail) — le comportement complet de _on_open_settings_dialog() est déjà couvert par
+    test_settings_button_opens_settings_dialog_and_refreshes_title
     (tests/test_graph_editor_dialog.py) ; ici on vérifie juste que le clic RÉEL sur le bouton
     atteint bien ce gestionnaire, pas seulement l'appel direct de la méthode."""
     from PySide6.QtWidgets import QDialog, QPushButton
     import ui.step_editor as step_editor_module
 
-    pipeline = db.create_pipeline(name="rail-schedule-click-test")
+    pipeline = db.create_pipeline(name="rail-settings-click-test")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
 
     opened = []
@@ -201,12 +201,12 @@ def test_schedule_button_click_reaches_the_handler(qapp, test_db, monkeypatch):
             opened.append(True)
             return QDialog.Rejected
 
-    monkeypatch.setattr(step_editor_module, "PipelineEditorDialog", _FakeEditor)
+    monkeypatch.setattr(step_editor_module, "PipelineSettingsDialog", _FakeEditor)
 
-    schedule_btn = next(
-        b for b in dlg.findChildren(QPushButton) if "Planification" in b.text()
+    settings_btn = next(
+        b for b in dlg.findChildren(QPushButton) if "Paramètres" in b.text()
     )
-    schedule_btn.click()
+    settings_btn.click()
 
     assert opened == [True]
 

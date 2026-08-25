@@ -614,34 +614,34 @@ def test_on_add_step_passes_all_scene_steps_as_prior_steps(qapp, test_db, monkey
     assert [s["config"]["_step_key"] for s in captured["prior_steps"]] == ["a"]
 
 
-def test_schedule_button_opens_linear_editor_and_refreshes_title(qapp, test_db, monkeypatch):
-    """Raccourci ajouté après le chantier de déclenchement conditionnel — évite l'aller-retour
-    "fermer, retrouver la ligne, cliquer Modifier" juste pour la planification/le déclenchement,
-    que ce dialogue ne gère pas lui-même."""
+def test_settings_button_opens_settings_dialog_and_refreshes_title(qapp, test_db, monkeypatch):
+    """Raccourci vers les métadonnées du pipeline (chantier déclenchement conditionnel, puis
+    fusion des éditeurs) — évite l'aller-retour "fermer, retrouver la ligne, cliquer Paramètres"
+    juste pour la planification/le déclenchement, que ce dialogue ne gère pas lui-même."""
     from PySide6.QtWidgets import QDialog
     import ui.step_editor as step_editor_module
 
-    pipeline = db.create_pipeline(name="schedule-shortcut-test")
+    pipeline = db.create_pipeline(name="settings-shortcut-test")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
 
     captured = {}
-    class _FakeLinearEditor:
+    class _FakeSettingsDialog:
         def __init__(self, parent, pipeline):
             captured["pipeline_id"] = pipeline.id
 
         def exec(self):
-            # Simule un renommage effectué dans l'éditeur classique, comme le ferait un vrai
-            # PipelineEditorDialog._on_save().
-            db.update_pipeline(pipeline.id, name="renamed-via-linear-editor")
+            # Simule un renommage effectué dans le panneau Paramètres, comme le ferait un vrai
+            # PipelineSettingsDialog._on_save().
+            db.update_pipeline(pipeline.id, name="renamed-via-settings-dialog")
             return QDialog.Accepted
 
-    monkeypatch.setattr(step_editor_module, "PipelineEditorDialog", _FakeLinearEditor)
+    monkeypatch.setattr(step_editor_module, "PipelineSettingsDialog", _FakeSettingsDialog)
 
-    dlg._on_open_schedule_dialog()
+    dlg._on_open_settings_dialog()
 
     assert captured["pipeline_id"] == pipeline.id
-    assert dlg._pipeline.name == "renamed-via-linear-editor"
-    assert "renamed-via-linear-editor" in dlg.windowTitle()
+    assert dlg._pipeline.name == "renamed-via-settings-dialog"
+    assert "renamed-via-settings-dialog" in dlg.windowTitle()
 
 
 # ──────────────────────────────────────────────

@@ -7,6 +7,7 @@ la factory `_open_config_dialog()`, même principe que core/steps/__init__.py.
 
 from .common import STEP_META
 from .pipeline_editor_dialog import PipelineEditorDialog
+from .pipeline_settings_dialog import PipelineSettingsDialog
 from .base_config_dialog import _BaseStepConfigDialog
 from .db_extract_config_dialog import _DbExtractConfigDialog
 from .ftp_upload_config_dialog import _FtpUploadConfigDialog
@@ -24,7 +25,7 @@ from .sqoop_export_config_dialog import _SqoopExportConfigDialog
 from .gateway_parallel_config_dialog import _GatewayParallelConfigDialog
 from .gateway_join_config_dialog import _GatewayJoinConfigDialog
 
-__all__ = ["STEP_META", "PipelineEditorDialog", "_open_config_dialog"]
+__all__ = ["STEP_META", "PipelineEditorDialog", "PipelineSettingsDialog", "_open_config_dialog"]
 
 
 def _open_config_dialog(step_type: str, config: dict, parent,

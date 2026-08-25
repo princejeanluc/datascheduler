@@ -1,9 +1,10 @@
 """
 DataScheduler — ui/graph_editor/graph_editor_dialog.py
-Dialogue principal de l'éditeur graphique (chantier 6b) : édite uniquement les étapes + leurs
-connexions d'un pipeline déjà existant. Nom/description/planification restent gérés par
-PipelineEditorDialog ("Modifier"), inchangé — les deux dialogues restent interopérables sur le
-même pipeline (voir docs/ARCHITECTURE.md).
+Dialogue principal de l'éditeur graphique (chantier 6b) : édite les étapes + leurs connexions
+d'un pipeline déjà existant — désormais le SEUL éditeur d'étapes de l'app (chantier fusion des
+éditeurs). Nom/description/planification/déclenchement/actif vivent dans le panneau séparé
+PipelineSettingsDialog ("Paramètres du pipeline", raccourci dans la barre d'outils ci-dessous) —
+qui ne touche jamais aux étapes/arêtes, contrairement à l'ancien PipelineEditorDialog retiré.
 """
 
 from PySide6.QtCore import QPointF, QSize, QTimer
@@ -159,18 +160,17 @@ class PipelineGraphEditorDialog(QDialog):
         self.inp_search.returnPressed.connect(self._on_search_jump)
         toolbar.addWidget(self.inp_search)
 
-        btn_schedule = QPushButton("  Planification & déclenchement…")
-        btn_schedule.setObjectName("secondary")
-        btn_schedule.setFixedHeight(32)
-        btn_schedule.setIcon(_icon("fa5s.clock", COLORS["text_main"]))
-        btn_schedule.setIconSize(QSize(14, 14))
-        btn_schedule.setToolTip(
-            "Ouvre l'éditeur classique pour le nom, la planification et le déclenchement "
-            "conditionnel — enregistrez d'abord vos modifications du graphe si besoin, les deux "
-            "éditeurs ne partagent pas leurs changements non enregistrés."
+        btn_settings = QPushButton("  Paramètres du pipeline")
+        btn_settings.setObjectName("secondary")
+        btn_settings.setFixedHeight(32)
+        btn_settings.setIcon(_icon("fa5s.cog", COLORS["text_main"]))
+        btn_settings.setIconSize(QSize(14, 14))
+        btn_settings.setToolTip(
+            "Nom, description, planification, déclenchement conditionnel et actif/inactif — "
+            "n'affecte jamais les étapes ni les connexions de ce graphe."
         )
-        btn_schedule.clicked.connect(self._on_open_schedule_dialog)
-        toolbar.addWidget(btn_schedule)
+        btn_settings.clicked.connect(self._on_open_settings_dialog)
+        toolbar.addWidget(btn_settings)
 
         root.addLayout(toolbar)
 
@@ -473,14 +473,15 @@ class PipelineGraphEditorDialog(QDialog):
             elif isinstance(item, ZoneItem):
                 self._scene.remove_zone(item)
 
-    def _on_open_schedule_dialog(self):
-        """Raccourci vers l'éditeur classique pour le nom/planification/déclenchement
-        conditionnel (chantier P) — ce dialogue ne les gère pas lui-même (voir docstring du
-        module) ; évite l'aller-retour "fermer, retrouver la ligne, cliquer Modifier"."""
+    def _on_open_settings_dialog(self):
+        """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif,
+        chantier P puis fusion des éditeurs) — ce dialogue ne les gère pas lui-même (voir
+        docstring du module) ; évite l'aller-retour "fermer, retrouver la ligne, cliquer
+        Paramètres"."""
         from database import db_manager as db
-        from ui.step_editor import PipelineEditorDialog
+        from ui.step_editor import PipelineSettingsDialog
 
-        if PipelineEditorDialog(self, pipeline=self._pipeline).exec():
+        if PipelineSettingsDialog(self, pipeline=self._pipeline).exec():
             refreshed = db.get_pipeline(self._pipeline.id)
             if refreshed:
                 self._pipeline = refreshed
