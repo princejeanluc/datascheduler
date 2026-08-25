@@ -5,6 +5,7 @@ Dialogue de configuration d'une étape SPARK_SQL.
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QLabel, QComboBox, QPlainTextEdit, QCheckBox, QSpinBox, QMessageBox,
+    QWidget, QScrollArea, QFrame,
 )
 from PySide6.QtGui import QFont
 from ui.styles import COLORS, FONT_MONO
@@ -34,7 +35,21 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self._prefill()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        # Beaucoup de champs (SSH + Kerberos + requête + timeout + résultat CSV + conf Spark) —
+        # même patron de QScrollArea que le dialogue Script Python (le plus long des dialogues
+        # d'étape) : `root` reste le layout du contenu défilant, Annuler/Valider restent fixes.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        root = QVBoxLayout(content); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
         title = QLabel("Requête Spark SQL (nœud edge + Kerberos)")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
@@ -136,7 +151,11 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         _toggle_fetch_fields(self.chk_fetch.isChecked())
 
         root.addStretch()
-        self._buttons(root)
+
+        footer = QVBoxLayout()
+        footer.setContentsMargins(28, 0, 28, 20)
+        self._buttons(footer)
+        outer.addLayout(footer)
 
     def _new_ssh_profile(self, cb: QComboBox):
         from ui.dialogs import SshProfileDialog

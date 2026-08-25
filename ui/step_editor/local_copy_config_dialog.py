@@ -5,7 +5,7 @@ Dialogue de configuration d'une étape LOCAL_COPY.
 
 from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget, QFileDialog,
-    QMessageBox,
+    QMessageBox, QScrollArea, QFrame,
 )
 from ui.styles import COLORS, FONT_MONO_STACK
 from .base_config_dialog import _BaseStepConfigDialog
@@ -25,7 +25,21 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         self._prefill()
 
     def _build_ui(self):
-        root = QVBoxLayout(self); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
+        # Beaucoup de champs (source + chemin explicite avec parcourir/astuce + dossier dest. +
+        # nom fichier + nom de sortie + aperçu) — même patron de QScrollArea que le dialogue
+        # Script Python : `root` reste le layout du contenu défilant, Annuler/Valider fixes.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+        content = QWidget()
+        scroll.setWidget(content)
+        outer.addWidget(scroll, stretch=1)
+
+        root = QVBoxLayout(content); root.setContentsMargins(28, 24, 28, 20); root.setSpacing(16)
         title = QLabel("Copie locale")
         title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title); root.addWidget(self._sep())
@@ -81,7 +95,11 @@ class _LocalCopyConfigDialog(_BaseStepConfigDialog):
         form.addRow(self._lbl("Aperçu"), self.lbl_preview)
         root.addLayout(form)
         root.addStretch()
-        self._buttons(root)
+
+        footer = QVBoxLayout()
+        footer.setContentsMargins(28, 0, 28, 20)
+        self._buttons(footer)
+        outer.addLayout(footer)
 
     def _browse_dir(self):
         path = QFileDialog.getExistingDirectory(self, "Choisir le dossier de destination")
