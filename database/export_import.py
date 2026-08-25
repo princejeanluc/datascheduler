@@ -37,6 +37,11 @@ CURRENT_SCHEMA_VERSION = 3   # v2 (chantier 6a/6b) : ajoute "edges" + pos_x/pos_
                              # bundle v1 s'importe toujours normalement (edges/positions par défaut)
                              # v3 (chantier UX éditeur, Lot 2, A4) : ajoute "zones" — un bundle v1
                              # ou v2 s'importe toujours normalement (zones vides par défaut)
+                             # "is_active" (chantier fusion des éditeurs, correctif) : ajouté sans
+                             # bump — purement additif comme parallel_execution_enabled, lu via
+                             # .get(..., True) pour qu'un bundle antérieur à ce correctif importe
+                             # toujours actif, comportement identique à avant (un pipeline exporté
+                             # DÉSACTIVÉ se réactivait silencieusement à l'import, jamais capturé)
 _KDF_ITERATIONS = 600_000
 
 # ──────────────────────────────────────────────
@@ -457,6 +462,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "prevent_overlap": pipeline.prevent_overlap,
                 "parallel_execution_enabled": pipeline.parallel_execution_enabled,
                 "max_parallel_branches":      pipeline.max_parallel_branches,
+                "is_active":       pipeline.is_active,
                 "steps":           exported_steps,
                 "edges":           exported_edges,
                 "zones":           exported_zones,
@@ -783,6 +789,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             )
             db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges,
                                     zones=translated_zones)
+            db.set_pipeline_active(plan.pipeline_existing_id, pipeline_data.get("is_active", True))
             new_pipeline_id = plan.pipeline_existing_id
         else:
             if plan.pipeline_action == "create":
@@ -808,6 +815,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             )
             db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges,
                                     zones=translated_zones)
+            db.set_pipeline_active(new_pipeline.id, pipeline_data.get("is_active", True))
             new_pipeline_id = new_pipeline.id
 
         # En plus des événements "pipeline_created"/"pipeline_edited" déjà émis ci-dessus par

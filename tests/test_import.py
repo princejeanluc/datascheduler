@@ -231,6 +231,59 @@ def test_v1_style_bundle_without_parallel_fields_still_imports_with_safe_default
         db._SessionFactory = None
 
 
+def test_import_preserves_deactivated_state_on_fresh_db(tmp_path):
+    """Correctif : is_active n'était pas capturé par le bundle — un pipeline désactivé exporté
+    puis réimporté se réactivait silencieusement (create_pipeline() par défaut actif, jamais
+    touché par apply_import()). Doit maintenant survivre à l'aller-retour, comme prevent_overlap."""
+    db.init_db(tmp_path / "a.db")
+    pipeline, _, _ = _make_pipeline_with_oracle_extract()
+    db.set_pipeline_active(pipeline.id, False)
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    bundle = export_result.bundle
+    assert bundle["pipeline"]["is_active"] is False
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        reloaded = db.get_pipeline(result.pipeline_id)
+        assert reloaded.is_active is False
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_bundle_without_is_active_key_still_imports_active(tmp_path):
+    """Un bundle antérieur à ce correctif (pas de clé "is_active" dans le dict pipeline) doit
+    toujours s'importer normalement — actif par défaut, comportement historique inchangé,
+    jamais un KeyError."""
+    db.init_db(tmp_path / "a.db")
+    pipeline, _, _ = _make_pipeline_with_oracle_extract()
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    bundle = export_result.bundle
+    del bundle["pipeline"]["is_active"]
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        reloaded = db.get_pipeline(result.pipeline_id)
+        assert reloaded.is_active is True
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
 def test_wrong_password_fails_cleanly(test_db):
     pipeline, profile, query = _make_pipeline_with_oracle_extract()
     export_result = export_pipeline(pipeline.id, password="correct password")
