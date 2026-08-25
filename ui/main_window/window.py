@@ -245,6 +245,13 @@ def run():
     palette.setColor(QPalette.Highlight,       QColor(COLORS["accent"]))
     palette.setColor(QPalette.HighlightedText, QColor("#000000"))
     palette.setColor(QPalette.Link,            QColor(COLORS["accent"]))
+    # ToolTipBase/ToolTipText jamais définis auparavant — sur certaines machines, QToolTip
+    # retombe alors sur le chrome natif de l'OS (thème sombre/clair Windows) au lieu de la
+    # palette de l'appli, texte et fond pouvant venir de deux sources différentes et se
+    # confondre. Défini ici en complément de la règle QSS QToolTip (GLOBAL_STYLE) — la palette
+    # est le filet de sécurité si un widget échappait au style sheet.
+    palette.setColor(QPalette.ToolTipBase,     QColor(COLORS["bg_card"]))
+    palette.setColor(QPalette.ToolTipText,     QColor(COLORS["text_main"]))
     app.setPalette(palette)
 
     window = MainWindow()
