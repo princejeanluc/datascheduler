@@ -34,7 +34,7 @@ Concrètement, un import typique :
 from database import db_manager as db      # ✅ core → database
 from core.sql_db import SqlConnector        # ✅ core → core
 
-# ui/main_window.py
+# ui/main_window/window.py
 from database import db_manager as db      # ✅ ui → database
 from core.scheduler import get_scheduler    # ✅ ui → core
 ```
@@ -138,7 +138,8 @@ run_pipeline(pipeline_id)          core/pipeline.py
 
 La différence entre les deux déclencheurs est **qui** appelle `run_pipeline` et **sur quel
 thread** :
-- Un clic UI passe par [ui/dialogs.py](../ui/dialogs.py) `RunProgressDialog`, qui lance
+- Un clic UI passe par [ui/dialogs/run_progress_dialog.py](../ui/dialogs/run_progress_dialog.py)
+  `RunProgressDialog`, qui lance
   l'exécution dans un `QThread` dédié — sinon l'interface se figerait pendant toute la durée du
   pipeline (surtout gênant pour un `DB_EXTRACT` de plusieurs minutes).
 - Un déclenchement planifié passe par `PipelineScheduler` ([core/scheduler.py](../core/scheduler.py)),
@@ -151,7 +152,8 @@ thread qui n'est pas le thread principal — ça plante ou ça corrompt l'affich
 imprévisible. Or le scheduler tourne sur son propre thread et doit prévenir l'UI qu'un run vient
 de se terminer (pour rafraîchir les tableaux, afficher un message).
 
-La solution, dans [ui/main_window.py](../ui/main_window.py) (`SchedulerNotifier`) : une classe
+La solution, dans [ui/main_window/scheduler_bridge.py](../ui/main_window/scheduler_bridge.py)
+(`SchedulerNotifier`) : une classe
 `QObject` avec des signaux Qt (`job_success`, `job_error`). Le scheduler appelle un simple
 callback Python (`on_job_success(pipeline_id, path)`) depuis son thread ; ce callback ne fait
 qu'`emit` un signal Qt. Qt garantit que le code connecté à ce signal (`_on_scheduler_success`)
@@ -218,16 +220,22 @@ core/
                             utilisé par les steps DB_EXTRACT/DB_EXECUTE/DB_LOAD
   ftp.py                   Upload/download FTP-FTPS-SFTP
   email.py                 Envoi SMTP
-  pipeline.py              run_pipeline() — l'exécuteur séquentiel de steps
+  pipeline.py              run_pipeline() — exécuteur linéaire, DAG séquentiel ou DAG parallèle
+                            (branches indépendantes, opt-in par pipeline)
   scheduler.py             PipelineScheduler — wrapper APScheduler
   steps/
     base.py                BaseStep, StepContext, StepResult
     __init__.py             Le registre _REGISTRY + get_step()
-    <nom>.py                Une classe par type d'étape (9 aujourd'hui)
+    <nom>.py                Une classe par type d'étape (15 aujourd'hui)
 ui/
-  main_window.py           Fenêtre principale, navigation, les 5 vues (Dashboard, Pipelines, ...)
-  step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
-  dialogs.py               Dialogues de profils (DB unifié/FTP/SMTP) + requêtes SQL + run/log
+  main_window/             Fenêtre principale, navigation (8 entrées), 7 vues (Dashboard,
+                            Pipelines, Connexions, Requêtes SQL, Historique, Ressources,
+                            Paramètres) — la 8e, Aide, vit dans ui/help/ (voir ci-dessous)
+  step_editor/              Éditeur de pipeline : liste d'étapes + dialogues de config par type
+  graph_editor/              Éditeur graphique Qt (QGraphicsView/Scene) — nœuds, arêtes, DAG
+  dialogs/                   Dialogues de profils (DB unifié/FTP/SMTP/SSH/Kerberos/élévation) +
+                            requêtes SQL + run/log + export/import
+  help/                      Section Aide intégrée (rubriques pédagogiques)
   styles.py                Palette de couleurs + feuilles de style Qt (QSS)
 KULU.spec                  Configuration PyInstaller
 requirements.txt           Dépendances Python

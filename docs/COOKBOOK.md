@@ -47,7 +47,7 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
    _REGISTRY["MON_NOUVEAU_STEP"] = MonNouveauStep
    ```
 
-4. **`ui/step_editor/`** — package (un fichier par dialogue, voir `docs/ARCHITECTURE.md`), 5 endroits
+4. **`ui/step_editor/`** — package (un fichier par dialogue, voir `docs/ARCHITECTURE.md`), 4 endroits
    à toucher, tous mécaniques :
    - `common.py`, `STEP_META` : label affiché + couleur du badge.
    - `step_type_chooser_dialog.py`, `StepTypeChooserDialog._build_ui`, dictionnaire `descriptions` :
@@ -62,8 +62,6 @@ patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajo
      signature (le plus simple, voir `_LocalCopyConfigDialog`), soit lister explicitement tous les
      paramètres du dict (`prior_steps` compris). Une signature explicite qui en oublie un lève un
      `TypeError: unexpected keyword argument` à la première ouverture du dialogue.
-   - `pipeline_editor_dialog.py`, `_step_summary()` : la ligne résumée affichée dans la liste des
-     étapes du pipeline.
    - `__init__.py` : importer votre nouveau fichier et enregistrer la classe dans le dictionnaire
      `mapping` de `_open_config_dialog()`.
 

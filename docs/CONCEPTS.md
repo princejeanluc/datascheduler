@@ -23,14 +23,14 @@ def get_step(step_type: str, config: dict) -> BaseStep:
     return _REGISTRY[step_type](config)
 ```
 L'exécuteur ([core/pipeline.py](../core/pipeline.py)) ne connaît qu'une seule ligne :
-`get_step(step_type, config)`. Il n'a jamais besoin de savoir que 9 types d'étapes existent, ni
-lesquels. Ajouter un dixième type = ajouter une ligne au dictionnaire, zéro ligne changée dans
+`get_step(step_type, config)`. Il n'a jamais besoin de savoir que 15 types d'étapes existent, ni
+lesquels. Ajouter un seizième type = ajouter une ligne au dictionnaire, zéro ligne changée dans
 l'exécuteur. C'est l'essence du **principe ouvert/fermé** (une des idées derrière "SOLID") :
 ouvert à l'extension (on peut ajouter des types), fermé à la modification (le code qui les
 utilise n'a pas à changer).
 
-**Où le revoir ailleurs dans ce projet** : `ui/step_editor.py`, `_open_config_dialog()` fait
-exactement la même chose côté UI — un dictionnaire `step_type → classe de dialogue`.
+**Où le revoir ailleurs dans ce projet** : `ui/step_editor/__init__.py`, `_open_config_dialog()`
+fait exactement la même chose côté UI — un dictionnaire `step_type → classe de dialogue`.
 
 **Où vous le recroiserez** : c'est le même principe derrière les "plugins" de n'importe quel
 outil (extensions VS Code, middlewares Django, providers Terraform...). Dès que vous voyez
@@ -159,7 +159,7 @@ deux choses en boucle : dessiner l'écran, et réagir aux clics/frappes clavier.
 l'application entière se fige pendant ces 10 secondes — aucun redessin, aucun clic pris en compte.
 
 La solution : déplacer le travail long dans un `QThread` séparé (voir `OracleTestThread`,
-`FtpTestThread`, `_OracleExecuteTestThread` dans `ui/dialogs.py` et `ui/step_editor.py`), et
+`FtpTestThread` dans `ui/dialogs/` et les threads de test similaires dans `ui/step_editor/`), et
 laisser le thread principal libre de continuer à rafraîchir l'écran pendant ce temps. Le résultat
 revient ensuite via... un signal Qt (encore le même pattern). Retenez la règle simple : **toute
 opération qui peut prendre plus qu'un instant perceptible (réseau, disque, calcul lourd) ne doit
