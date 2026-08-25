@@ -136,8 +136,8 @@ pour fusionner MySQL/PostgreSQL/SQL Server en une seule table plutôt qu'une par
 4. **`ui/main_window/connections_view.py`**, `ConnectionsView` — un panneau de plus (copier
    `_build_smtp_panel`/`_refresh_smtp`/callbacks), et l'ajouter à la pile verticale dans
    `_build_ui`.
-5. **`ui/step_editor/pipeline_editor_dialog.py`**, `PipelineEditorDialog._load_profiles()` — charger
-   la nouvelle liste de profils et la propager partout où `smtp_profiles` circule déjà
+5. **`ui/graph_editor/graph_editor_dialog.py`**, `PipelineGraphEditorDialog._load_profiles()` —
+   charger la nouvelle liste de profils et la propager partout où `smtp_profiles` circule déjà
    (`_open_config_dialog`, les dialogues de config qui en ont besoin).
 
 ## Recette : ajouter une migration de schéma

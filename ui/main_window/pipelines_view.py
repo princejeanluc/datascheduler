@@ -47,19 +47,12 @@ class PipelinesView(QWidget):
         btn_import.setIconSize(QSize(13, 13))
         btn_import.clicked.connect(self._on_import_pipeline)
         header.addWidget(btn_import)
-        btn_new_graph = QPushButton("  Nouveau (graphique)"); btn_new_graph.setObjectName("secondary")
-        btn_new_graph.setFixedHeight(36)
-        btn_new_graph.setIcon(_icon("fa5s.project-diagram", COLORS["text_main"]))
-        btn_new_graph.setIconSize(QSize(13, 13))
-        btn_new_graph.setToolTip(
-            "Créer un pipeline directement dans l'éditeur graphique — sans passer par "
-            "l'éditeur classique (nom + planification restent modifiables ensuite via "
-            "« Modifier »)."
-        )
-        btn_new_graph.clicked.connect(self._on_new_pipeline_graph)
-        header.addWidget(btn_new_graph)
         btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
         btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
+        btn_new.setToolTip(
+            "Juste un nom, puis directement l'éditeur graphique — planification/déclenchement/"
+            "actif restent modifiables ensuite via « Paramètres »."
+        )
         btn_new.clicked.connect(self._on_new_pipeline)
         header.addWidget(btn_new)
         layout.addLayout(header)
@@ -78,7 +71,7 @@ class PipelinesView(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
         self.table.setColumnWidth(1, 130)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table.setColumnWidth(5, 118)
+        self.table.setColumnWidth(5, 156)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
@@ -197,13 +190,18 @@ class PipelinesView(QWidget):
             aw  = QWidget(); al = QHBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
             btn_run = _action_btn("fa5s.play", tooltip="Exécuter maintenant",
                                   icon_color="#000000")
-            btn_edit   = _action_btn(
-                "fa5s.pencil-alt", object_name="secondary",
-                tooltip="Modifier — nom, planification, liste des étapes",
+            btn_open = _action_btn(
+                "fa5s.project-diagram", object_name="secondary",
+                tooltip="Ouvrir l'éditeur — étapes et connexions",
+            )
+            btn_settings = _action_btn(
+                "fa5s.cog", object_name="secondary",
+                tooltip="Paramètres du pipeline — nom, planification, déclenchement, actif",
             )
             btn_more = _action_btn("fa5s.ellipsis-h", object_name="secondary", tooltip="Plus d'actions")
             btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
-            btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_pipeline(i))
+            btn_open.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
+            btn_settings.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_settings(i))
 
             # Actions secondaires (moins fréquentes) regroupées dans un menu — même patron que
             # le bouton "+ Artefact" de ui/step_editor/base_config_dialog.py, pour ne pas garder
@@ -219,8 +217,6 @@ class PipelinesView(QWidget):
                 )
             act_toggle = menu.addAction("Désactiver" if is_active else "Activer")
             act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
-            act_graph = menu.addAction("Éditeur graphique")
-            act_graph.triggered.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
             act_validate = menu.addAction("Valider (à blanc)")
             act_validate.triggered.connect(lambda _, i=pid, n=pname: self._on_validate_pipeline(i, n))
             resumable_run = db.get_last_resumable_run(pid)
@@ -238,23 +234,20 @@ class PipelinesView(QWidget):
             act_del.triggered.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             btn_more.setMenu(menu)
 
-            al.addWidget(btn_run); al.addWidget(btn_edit); al.addWidget(btn_more); al.addStretch()
+            al.addWidget(btn_run); al.addWidget(btn_open); al.addWidget(btn_settings)
+            al.addWidget(btn_more); al.addStretch()
             self.table.setCellWidget(r_idx, 5, aw)
             self.table.setRowHeight(r_idx, 52)
 
         self._on_search_changed(self.inp_search.text())
 
     def _on_new_pipeline(self):
-        from ui.step_editor import PipelineEditorDialog
-        if PipelineEditorDialog(self).exec():
-            self.refresh()
-
-    def _on_new_pipeline_graph(self):
-        """Créer un pipeline sans passer par l'éditeur classique — celui-ci imposait au moins
-        une étape avant d'enregistrer, ce qui forçait un aller-retour même pour qui ne veut
-        travailler qu'en graphe. Ici : juste un nom, puis directement l'éditeur graphique
-        (nom/planification restent modifiables ensuite via « Modifier »)."""
-        name, ok = QInputDialog.getText(self, "Nouveau pipeline (éditeur graphique)", "Nom du pipeline :")
+        """Un seul point d'entrée de création (chantier fusion des éditeurs — l'ancien dialogue
+        lourd imposait au moins une étape avant d'enregistrer, ET toute la planification d'un
+        coup, avant même d'avoir pu tester le pipeline). Juste un nom, puis directement l'éditeur
+        graphique — planification/déclenchement/actif restent modifiables ensuite via
+        « Paramètres »."""
+        name, ok = QInputDialog.getText(self, "Nouveau pipeline", "Nom du pipeline :")
         name = (name or "").strip()
         if not ok or not name:
             return
@@ -343,11 +336,11 @@ class PipelinesView(QWidget):
             self._schedule_if_possible(result.pipeline_id)
         self.refresh()
 
-    def _on_edit_pipeline(self, pipeline_id: int):
+    def _on_edit_pipeline_settings(self, pipeline_id: int):
         from database import db_manager as db
-        from ui.step_editor import PipelineEditorDialog
+        from ui.step_editor import PipelineSettingsDialog
         p = db.get_pipeline(pipeline_id)
-        if p and PipelineEditorDialog(self, pipeline=p).exec():
+        if p and PipelineSettingsDialog(self, pipeline=p).exec():
             self.refresh()
 
     def _on_edit_pipeline_graph(self, pipeline_id: int):
@@ -501,7 +494,7 @@ class PipelinesView(QWidget):
         """(Re)planifie immédiatement auprès d'APScheduler — même patron défensif que
         _on_toggle_pipeline() ci-dessous (RuntimeError silencieuse : scheduler non initialisé
         dans les tests qui construisent une vue directement). Utilisé partout où un pipeline
-        actif est créé/modifié en dehors de PipelineEditorDialog._on_save() (qui gère déjà son
+        actif est créé/modifié en dehors de PipelineSettingsDialog._on_save() (qui gère déjà son
         propre cas), pour ne jamais dépendre d'un redémarrage de l'app pour prendre effet. En
         mode exécution en arrière-plan, délègue au worker (core/execution_mode.py) plutôt que de
         toucher un scheduler local qui n'existe pas dans ce mode."""

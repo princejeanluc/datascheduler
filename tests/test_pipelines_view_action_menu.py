@@ -1,9 +1,10 @@
 """
 DataScheduler — tests/test_pipelines_view_action_menu.py
-Fumée (offscreen Qt) : la colonne "Actions" de PipelinesView (chantier UX ergonomie, E.3) ne
-garde en accès direct que "Exécuter"/"Modifier" — les 6 actions secondaires (Activer/Désactiver,
-Éditeur graphique, Valider, Dupliquer, Exporter, Supprimer) sont regroupées dans un QMenu
-attaché au bouton "⋯", et chacune reste câblée sur le bon callback.
+Fumée (offscreen Qt) : la colonne "Actions" de PipelinesView (chantier UX ergonomie E.3, puis
+fusion des éditeurs) garde en accès direct "Exécuter"/"Ouvrir l'éditeur"/"Paramètres du
+pipeline" — les 5 actions secondaires (Activer/Désactiver, Valider, Dupliquer, Exporter,
+Supprimer) sont regroupées dans un QMenu attaché au bouton "⋯", et chacune reste câblée sur le
+bon callback. "Éditeur graphique" a été retiré du menu — redondant avec le bouton direct.
 """
 
 import os
@@ -31,20 +32,20 @@ def _get_more_button_and_menu(view, row: int):
     raise AssertionError("Aucun bouton avec menu trouvé dans la cellule Actions.")
 
 
-def test_actions_column_has_only_three_buttons(qapp, test_db):
+def test_actions_column_has_only_four_buttons(qapp, test_db):
     from ui.main_window.pipelines_view import PipelinesView
 
     db.create_pipeline(name="menu-count-test")
     view = PipelinesView()
     cell = view.table.cellWidget(0, 5)
     buttons = cell.findChildren(QPushButton)
-    assert len(buttons) == 3
+    assert len(buttons) == 4
 
 
 def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
     """Régression : la colonne Actions avait sa largeur posée via setColumnWidth() mais son mode
     de redimensionnement laissé à ResizeToContents (hérité de _configure_columns) — Qt
-    recalculait alors une largeur trop étroite pour les 3 boutons compacts, qui se chevauchaient
+    recalculait alors une largeur trop étroite pour les boutons compacts, qui se chevauchaient
     visuellement dans l'exe réel. Doit rester en mode Fixed, comme la colonne "Statut" juste
     au-dessus dans le code."""
     from ui.main_window.pipelines_view import PipelinesView
@@ -53,7 +54,7 @@ def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
     view = PipelinesView()
     mode = view.table.horizontalHeader().sectionResizeMode(5)
     assert mode == QHeaderView.Fixed
-    assert view.table.columnWidth(5) >= 100   # assez large pour 3 boutons + marges/espacements
+    assert view.table.columnWidth(5) >= 140   # assez large pour 4 boutons + marges/espacements
 
 
 def test_overflow_menu_contains_expected_actions(qapp, test_db):
@@ -63,7 +64,7 @@ def test_overflow_menu_contains_expected_actions(qapp, test_db):
     view = PipelinesView()
     _, menu = _get_more_button_and_menu(view, 0)
     labels = [a.text() for a in menu.actions() if not a.isSeparator()]
-    assert labels == ["Désactiver", "Éditeur graphique", "Valider (à blanc)", "Dupliquer", "Exporter", "Supprimer"]
+    assert labels == ["Désactiver", "Valider (à blanc)", "Dupliquer", "Exporter", "Supprimer"]
 
 
 def test_overflow_menu_toggle_action_triggers_callback(qapp, test_db, monkeypatch):

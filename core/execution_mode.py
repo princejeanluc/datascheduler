@@ -2,7 +2,7 @@
 DataScheduler — core/execution_mode.py
 Point de décision unique "cette action doit-elle s'exécuter localement, ou être déléguée au
 worker en arrière-plan ?" (chantier exécution en arrière-plan). Centralise la lecture
-d'AppSettings.execution_mode pour que chaque appelant (PipelinesView, PipelineEditorDialog,
+d'AppSettings.execution_mode pour que chaque appelant (PipelinesView, PipelineSettingsDialog,
 SettingsView…) n'ait pas à connaître le détail du canal de coordination (WorkerCommand).
 """
 
