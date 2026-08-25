@@ -3,13 +3,15 @@ DataScheduler — ui/dialogs/pipeline_import_dialogs.py
 Dialogues du flux d'import : prompt du mot de passe et écran de revue.
 """
 
+from types import SimpleNamespace
+
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QLineEdit, QRadioButton, QButtonGroup, QPushButton, QFrame, QTableWidget,
     QTableWidgetItem,
 )
 from PySide6.QtCore import Qt
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 
 
 # ──────────────────────────────────────────────
@@ -168,8 +170,11 @@ class PipelineImportReviewDialog(QDialog):
         pipeline_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13px; font-weight: 600;")
         root.addWidget(pipeline_lbl)
 
+        existing = (db.get_pipeline(self.plan.pipeline_existing_id)
+                    if self.plan.pipeline_action == "collision" else None)
+        root.addWidget(self._build_settings_preview(pipeline_data, existing))
+
         if self.plan.pipeline_action == "collision":
-            existing = db.get_pipeline(self.plan.pipeline_existing_id)
             existing_name = existing.name if existing else "?"
             self.rb_rename = QRadioButton("Importer comme copie renommée")
             self.rb_rename.setChecked(True)
@@ -241,6 +246,67 @@ class PipelineImportReviewDialog(QDialog):
         btn_ok.setFixedHeight(36); btn_ok.clicked.connect(self._on_confirm)
         btn_row.addWidget(btn_cancel); btn_row.addWidget(btn_ok)
         root.addLayout(btn_row)
+
+    def _build_settings_preview(self, pipeline_data: dict, existing) -> QFrame:
+        """Aperçu actif/planification du pipeline entrant (correctif friction d'import) —
+        invisible avant que is_active soit réellement restauré par apply_import() (voir
+        database/export_import.py), puisqu'un import réactivait jusque-là toujours le pipeline
+        sans que rien ne le montre. `existing` (le pipeline local en collision, ou None pour un
+        import sans collision) sert uniquement à détecter un changement d'état actif à
+        l'écrasement — jamais utilisé pour la planification, qui affiche toujours celle du
+        bundle entrant, pas celle de l'existant."""
+        from core.scheduler import describe_schedule
+
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"QFrame {{ background: {COLORS['bg_main']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 8px; }}"
+        )
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(8)
+
+        heading = QLabel("RÉGLAGES DU PIPELINE IMPORTÉ")
+        heading.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10.5px; font-weight: 700; "
+            f"letter-spacing: 0.5px;"
+        )
+        layout.addWidget(heading)
+
+        is_active = pipeline_data.get("is_active", True)
+        row = QHBoxLayout(); row.setSpacing(14)
+
+        self.lbl_active_pill = QLabel("Actif" if is_active else "Inactif")
+        pill_color = COLORS["success"] if is_active else COLORS["text_dim"]
+        self.lbl_active_pill.setStyleSheet(
+            f"background: {pill_color}26; color: {pill_color}; border-radius: 999px; "
+            f"padding: 3px 10px; font-size: 11px; font-weight: 700;"
+        )
+        row.addWidget(self.lbl_active_pill)
+
+        self.lbl_schedule_preview = QLabel(describe_schedule(SimpleNamespace(**pipeline_data)))
+        self.lbl_schedule_preview.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-family: {FONT_MONO_STACK};"
+        )
+        row.addWidget(self.lbl_schedule_preview)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self.lbl_transition_warning = QLabel("")
+        self.lbl_transition_warning.setStyleSheet(
+            f"color: {COLORS['warning']}; font-size: 10.5px; font-style: italic;"
+        )
+        self.lbl_transition_warning.setVisible(False)
+        if existing is not None and bool(existing.is_active) != is_active:
+            state_from = "Actif" if existing.is_active else "Inactif"
+            state_to = "Actif" if is_active else "Inactif"
+            self.lbl_transition_warning.setText(
+                f"En écrasant, l'état actif changera : {state_from} → {state_to}"
+            )
+            self.lbl_transition_warning.setVisible(True)
+        layout.addWidget(self.lbl_transition_warning)
+
+        return frame
 
     def _on_confirm(self):
         if self.rb_overwrite is not None and self.rb_overwrite.isChecked():
