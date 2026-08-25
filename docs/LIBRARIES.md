@@ -109,7 +109,7 @@ modifier quoi que ce soit ici :
    dialogues.
 
 **qtawesome** est une petite librairie complémentaire qui fournit les icônes (Font Awesome) —
-`_icon("fa5s.plus", couleur)` dans `ui/main_window.py`.
+`_icon("fa5s.plus", couleur)` dans `ui/main_window/widgets.py`.
 
 ## paramiko — SFTP (SSH File Transfer Protocol)
 

@@ -276,9 +276,9 @@
         <h3 class="sub" id="arch-phrase">En une phrase</h3>
         <p>
           Une appli desktop Windows (PySide6, packagée en <code>.exe</code> via PyInstaller) qui
-          exécute des <strong>pipelines</strong> — des suites d'étapes configurables (Oracle, FTP,
-          email, HTTP, scripts…) — à la demande ou selon une planification, avec un historique
-          complet en SQLite.
+          exécute des <strong>pipelines</strong> — des suites d'étapes configurables (base de données
+          multi-SGBD, FTP, email, HTTP, scripts…) — à la demande ou selon une planification, avec un
+          historique complet en SQLite.
         </p>
 
         <h3 class="sub" id="arch-couches">Les 4 couches, et la règle qui les tient ensemble</h3>
@@ -296,19 +296,20 @@ database/      ← persistance : modèles SQLAlchemy + CRUD SQLite</code></pre><
           directement en script Python, sans lancer l'UI).
         </p>
         <p>Concrètement, un import typique :</p>
-        <pre><code># core/steps/oracle_execute.py
+        <pre><code># core/steps/db_execute.py
 from database import db_manager as db      # ✅ core → database
-from core.oracle import OracleConnector     # ✅ core → core
+from core.sql_db import SqlConnector        # ✅ core → core
 
-# ui/main_window.py
+# ui/main_window/window.py
 from database import db_manager as db      # ✅ ui → database
 from core.scheduler import get_scheduler    # ✅ ui → core</code></pre>
 
         <h3 class="sub" id="arch-modele">Le modèle de données</h3>
         <p>Tables SQLite (définies dans <span class="ref">database/models.py</span>), toutes gérées par SQLAlchemy :</p>
-        <div class="diagram"><pre><code>OracleProfile ──┐
-FtpProfile     ──┼──&lt; SqlQuery (optionnel, lié à un OracleProfile)
-SmtpProfile    ──┘
+        <div class="diagram"><pre><code>OracleProfile     ──┐
+DatabaseProfile    ──┼──&lt; SqlQuery (optionnel, lié à un OracleProfile)
+FtpProfile         ──┤
+SmtpProfile        ──┘
                                     ┌──&lt; PipelineStep (step_type, config_json)
 Pipeline ───────────────────────────┤
                                     └──&lt; PipelineRun (historique d'exécution)</code></pre></div>
@@ -317,6 +318,14 @@ Pipeline ───────────────────────�
             réutilisables entre plusieurs pipelines (host/port/user/password + spécificités par
             protocole). Trois classes quasi identiques, volontairement : c'est plus simple à lire
             que de les factoriser derrière une abstraction commune pour trois lignes de différence.</li>
+          <li><strong>DatabaseProfile</strong> — le profil de connexion <strong>générique</strong> pour
+            les moteurs non-Oracle (MySQL/PostgreSQL/SQL Server), ajouté avec la généralisation
+            multi-SGBD des steps <code>DB_*</code>. Oracle garde volontairement sa propre table
+            (<code>OracleProfile</code>) : ses champs <code>service_name</code>/<code>sid</code>/
+            <code>auth_mode</code> sont trop spécifiques pour être généralisés proprement. Dans l'UI,
+            les deux profils sont fusionnés en une liste unique et légère (page « Connexions », voir
+            <code>db_manager.list_all_db_profiles()</code>), mais restent deux tables distinctes en
+            base.</li>
           <li><strong>SqlQuery</strong> — une requête SQL/PLSQL nommée et réutilisable, rattachée
             (optionnellement) à un profil Oracle par défaut.</li>
           <li><strong>Pipeline</strong> — le conteneur nommé, planifié (<code>frequency</code>,
@@ -347,16 +356,17 @@ Pipeline ───────────────────────�
         <p>Chaque étape est une classe qui hérite de <code>BaseStep</code> et implémente une seule méthode :</p>
         <pre><code>def run(self, ctx: StepContext, on_progress=None) -> StepResult: ...</code></pre>
         <p>
-          <code>StepContext</code> est l'état partagé qui voyage d'étape en étape : le fichier produit
-          par l'étape précédente (<code>ctx.output_file</code>), le nombre de lignes, un dictionnaire
-          libre <code>ctx.extra</code> pour tout ce qui ne rentre pas ailleurs, et un log
-          (<code>ctx.log(...)</code>). Une étape lit ce que la précédente y a mis, et y écrit ce que
-          la suivante pourra lire — c'est le seul canal de communication entre étapes, il n'y en a
-          pas d'autre.
+          <code>StepContext</code> est l'état partagé qui voyage d'étape en étape : un dictionnaire
+          nommé <code>ctx.artifacts</code> — les fichiers produits par les étapes précédentes,
+          adressables par nom (<code>"output_file"</code> reste le nom par défaut sous lequel une
+          étape publie sa sortie, exposé aussi via la propriété de compatibilité
+          <code>ctx.output_file</code>) — le nombre de lignes, et un log (<code>ctx.log(...)</code>).
+          Une étape lit ce que la précédente y a mis, et y écrit ce que la suivante pourra lire —
+          c'est le seul canal de communication entre étapes, il n'y en a pas d'autre.
         </p>
         <p><strong>2. Le registre</strong> (<span class="ref">core/steps/__init__.py</span>)</p>
         <pre><code>_REGISTRY = {
-    "ORACLE_EXTRACT": OracleExtractStep,
+    "DB_EXTRACT":     DbExtractStep,
     "FTP_UPLOAD":     FtpUploadStep,
     ...
 }
@@ -395,10 +405,10 @@ run_pipeline(pipeline_id)          core/pipeline.py
         └─ met à jour Pipeline.last_status / last_run_at</code></pre></div>
         <p>La différence entre les deux déclencheurs est <strong>qui</strong> appelle <code>run_pipeline</code> et <strong>sur quel thread</strong> :</p>
         <ul>
-          <li>Un clic UI passe par <span class="ref">ui/dialogs.py</span> <code>RunProgressDialog</code>,
-            qui lance l'exécution dans un <code>QThread</code> dédié — sinon l'interface se
-            figerait pendant toute la durée du pipeline (surtout gênant pour un
-            <code>ORACLE_EXTRACT</code> de plusieurs minutes).</li>
+          <li>Un clic UI passe par <span class="ref">ui/dialogs/run_progress_dialog.py</span>
+            <code>RunProgressDialog</code>, qui lance l'exécution dans un <code>QThread</code> dédié —
+            sinon l'interface se figerait pendant toute la durée du pipeline (surtout gênant pour un
+            <code>DB_EXTRACT</code> de plusieurs minutes).</li>
           <li>Un déclenchement planifié passe par <code>PipelineScheduler</code>
             (<span class="ref">core/scheduler.py</span>), qui tourne déjà sur son propre thread de
             fond (APScheduler <code>BackgroundScheduler</code>).</li>
@@ -413,8 +423,8 @@ run_pipeline(pipeline_id)          core/pipeline.py
           message).
         </p>
         <p>
-          La solution, dans <span class="ref">ui/main_window.py</span> (<code>SchedulerNotifier</code>) :
-          une classe <code>QObject</code> avec des signaux Qt (<code>job_success</code>,
+          La solution, dans <span class="ref">ui/main_window/scheduler_bridge.py</span>
+          (<code>SchedulerNotifier</code>) : une classe <code>QObject</code> avec des signaux Qt (<code>job_success</code>,
           <code>job_error</code>). Le scheduler appelle un simple callback Python
           (<code>on_job_success(pipeline_id, path)</code>) depuis son thread ; ce callback ne fait
           qu'<code>emit</code> un signal Qt. Qt garantit que le code connecté à ce signal
@@ -446,12 +456,22 @@ run_pipeline(pipeline_id)          core/pipeline.py
           (déjà fait une fois pour <code>pipelines</code>, voir <code>_migrate()</code>).
         </p>
         <p>
-          La fonction <code>_migrate_legacy_pipelines()</code> mérite une mention : elle convertit
-          automatiquement, au démarrage, les anciens pipelines « v0.1.0 » (Oracle→FTP figé sur les
-          colonnes legacy de <code>Pipeline</code>) en <code>PipelineStep</code> équivalents — pour
-          qu'un utilisateur qui avait déjà des pipelines avant l'architecture à base de steps ne
-          perde rien en mettant à jour l'appli.
+          Deux fonctions de migration au démarrage méritent une mention, toutes deux dans le même
+          esprit « un utilisateur qui met à jour l'appli ne doit rien perdre ni rien reconfigurer » :
         </p>
+        <ul>
+          <li><code>_migrate_legacy_pipelines()</code> convertit les anciens pipelines « v0.1.0 »
+            (Oracle→FTP figé sur les colonnes legacy de <code>Pipeline</code>) en
+            <code>PipelineStep</code> équivalents, pour les utilisateurs qui avaient déjà des
+            pipelines avant l'architecture à base de steps.</li>
+          <li><code>_migrate_oracle_steps_to_generic()</code> réécrit les <code>PipelineStep</code>
+            encore sur les anciens types <code>ORACLE_EXTRACT</code>/<code>ORACLE_EXECUTE</code>/
+            <code>ORACLE_LOAD</code> (dépréciés depuis la généralisation multi-SGBD) vers les types
+            génériques <code>DB_EXTRACT</code>/<code>DB_EXECUTE</code>/<code>DB_LOAD</code>, en
+            ajoutant <code>"db_type": "ORACLE"</code> dans leur <code>config_json</code> pour que le
+            connecteur générique (<span class="ref">core/sql_db.py</span>) sache quel moteur
+            utiliser.</li>
+        </ul>
 
         <h3 class="sub" id="arch-packaging">Packaging</h3>
         <p>
@@ -484,18 +504,26 @@ database/
   db_manager.py            init_db(), migrations, et un helper CRUD par entité
 core/
   oracle.py                Connexion Oracle + export CSV (OracleExporter) + chargement (OracleLoader)
+  sql_db.py                SqlConnector générique SQLAlchemy — Oracle/MySQL/PostgreSQL/SQL Server,
+                            utilisé par les steps DB_EXTRACT/DB_EXECUTE/DB_LOAD
   ftp.py                   Upload/download FTP-FTPS-SFTP
   email.py                 Envoi SMTP
-  pipeline.py              run_pipeline() — l'exécuteur séquentiel de steps
+  pipeline.py              run_pipeline() — exécuteur linéaire, DAG séquentiel ou DAG parallèle
+                            (branches indépendantes, opt-in par pipeline)
   scheduler.py             PipelineScheduler — wrapper APScheduler
   steps/
     base.py                BaseStep, StepContext, StepResult
     __init__.py             Le registre _REGISTRY + get_step()
-    &lt;nom&gt;.py                Une classe par type d'étape (9 aujourd'hui)
+    &lt;nom&gt;.py                Une classe par type d'étape (15 aujourd'hui)
 ui/
-  main_window.py           Fenêtre principale, navigation, les 5 vues (Dashboard, Pipelines, ...)
-  step_editor.py           Éditeur de pipeline : liste d'étapes + dialogues de config par type
-  dialogs.py               Dialogues de profils (Oracle/FTP/SMTP) + requêtes SQL + run/log
+  main_window/             Fenêtre principale, navigation (8 entrées), 7 vues (Dashboard,
+                            Pipelines, Connexions, Requêtes SQL, Historique, Ressources,
+                            Paramètres) — la 8e, Aide, vit dans ui/help/ (voir ci-dessous)
+  step_editor/              Éditeur de pipeline : liste d'étapes + dialogues de config par type
+  graph_editor/              Éditeur graphique Qt (QGraphicsView/Scene) — nœuds, arêtes, DAG
+  dialogs/                   Dialogues de profils (DB unifié/FTP/SMTP/SSH/Kerberos/élévation) +
+                            requêtes SQL + run/log + export/import
+  help/                      Section Aide intégrée (rubriques pédagogiques)
   styles.py                Palette de couleurs + feuilles de style Qt (QSS)
 KULU.spec                  Configuration PyInstaller
 requirements.txt           Dépendances Python
@@ -539,6 +567,14 @@ docs/                      Vous êtes ici</code></pre></div>
           — elles peuvent ne plus être chargées (<code>DetachedInstanceError</code>). C'est pour ça
           que <code>get_pipelines()</code> utilise <code>joinedload(...)</code> : ça précharge les
           relations avant de fermer la session.</p>
+        <p><strong>Deuxième usage, sans rapport avec l'ORM</strong> : <span class="ref">core/sql_db.py</span>
+          se sert de SQLAlchemy comme <strong>client SQL générique</strong> vers les bases de données
+          <em>cibles</em> des pipelines (Oracle/MySQL/PostgreSQL/SQL Server) — <code>create_engine(url)</code>
+          + <code>engine.connect()</code> + <code>conn.execute(text(sql))</code>, sans classes ORM ni
+          modèle. C'est ce qui permet à un seul connecteur (<code>SqlConnector</code>) de parler à
+          quatre moteurs différents : seule l'URL de connexion change de forme selon <code>db_type</code>,
+          SQLAlchemy s'occupe de charger le bon pilote (<code>pymysql</code>,
+          <code>psycopg2-binary</code>...).</p>
 
         <h3 class="sub" id="lib-oracledb">oracledb — parler à Oracle sans installer de client Oracle</h3>
         <p><strong>Le problème qu'elle résout</strong> : historiquement, parler à Oracle depuis Python
@@ -554,15 +590,34 @@ docs/                      Vous êtes ici</code></pre></div>
           l'interface DBAPI2 dont pandas a besoin), mais pandas émet un <code>UserWarning</code> à
           chaque appel — cosmétique, pas un bug (voir <a href="#concept-dbapi2">DBAPI2</a>).</p>
 
+        <h3 class="sub" id="lib-multidb">pymysql / psycopg2-binary / pyodbc / pymssql — parler à MySQL, PostgreSQL et SQL Server</h3>
+        <p><strong>Le problème qu'elle résout</strong> : chaque SGBD a son propre protocole réseau — il
+          faut un pilote DBAPI2 par moteur. C'est ce que fournissent ces quatre paquets, chacun pour
+          un moteur (SQL Server en a même deux : <code>pyodbc</code> s'il trouve un pilote ODBC
+          installé sur la machine, sinon repli sur <code>pymssql</code>, qui parle le protocole TDS
+          directement en Python sans rien installer côté système).</p>
+        <p><strong>Comment KULU l'utilise</strong> : jamais directement — <span class="ref">core/sql_db.py</span>,
+          <code>SqlConnector</code>, construit une URL SQLAlchemy (<code>create_engine(...)</code>)
+          dont le préfixe change selon <code>db_type</code> (<code>mysql+pymysql://</code>,
+          <code>postgresql+psycopg2://</code>, <code>mssql+pyodbc://</code> ou
+          <code>mssql+pymssql://</code>) ; c'est SQLAlchemy qui choisit et charge le bon pilote
+          ensuite. Oracle est le seul moteur qui n'a <strong>pas</strong> ce détour :
+          <code>oracledb</code> est appelé directement par <span class="ref">core/oracle.py</span>
+          (historique — c'était le premier moteur supporté, avant la généralisation multi-SGBD), pas
+          via SQLAlchemy.</p>
+
         <h3 class="sub" id="lib-pandas">pandas — lire un gros résultat SQL/CSV sans exploser la mémoire</h3>
         <p><strong>Le problème qu'elle résout</strong> : charger 2 millions de lignes d'un coup en RAM
           avant de les écrire en CSV serait dangereux sur une machine bureautique.</p>
         <p><strong>Comment KULU l'utilise</strong> : <code>chunksize=</code> partout où un
-          gros volume est en jeu — <span class="ref">core/oracle.py</span>,
-          <code>OracleExporter.export()</code> et <code>OracleLoader.load()</code>. Le résultat n'est
-          plus un seul <code>DataFrame</code> mais un itérateur de petits <code>DataFrame</code> (les
-          « chunks ») — on les traite un par un et on les jette, la mémoire reste plate quel que soit
-          le volume total.</p>
+          gros volume est en jeu — <span class="ref">core/oracle.py</span>
+          (<code>OracleExporter</code>/<code>OracleLoader</code>, spécifique Oracle) et
+          <span class="ref">core/sql_db.py</span> (<code>SqlExporter</code>/<code>SqlLoader</code>,
+          générique multi-moteur), tous en <code>pd.read_sql(..., chunksize=...)</code> /
+          <code>pd.read_csv(..., chunksize=...)</code>. Le résultat n'est plus un seul
+          <code>DataFrame</code> mais un itérateur de petits <code>DataFrame</code> (les « chunks »)
+          — on les traite un par un et on les jette, la mémoire reste plate quel que soit le volume
+          total.</p>
 
         <h3 class="sub" id="lib-pyside6">PySide6 (Qt pour Python) — toute l'interface graphique</h3>
         <p><strong>Le problème qu'elle résout</strong> : construire une fenêtre native Windows avec
@@ -576,7 +631,9 @@ docs/                      Vous êtes ici</code></pre></div>
           <li><strong>QSS</strong> : une syntaxe très proche du CSS pour styler les widgets — voir
             <span class="ref">ui/styles.py</span>.</li>
         </ol>
-        <p><strong>qtawesome</strong> est une petite librairie complémentaire qui fournit les icônes (Font Awesome).</p>
+        <p><strong>qtawesome</strong> est une petite librairie complémentaire qui fournit les icônes
+          (Font Awesome) — <code>_icon("fa5s.plus", couleur)</code> dans
+          <span class="ref">ui/main_window/widgets.py</span>.</p>
 
         <h3 class="sub" id="lib-paramiko">paramiko — SFTP (SSH File Transfer Protocol)</h3>
         <p><strong>Le problème qu'elle résout</strong> : <code>ftplib</code> (bibliothèque standard) ne
@@ -636,18 +693,18 @@ docs/                      Vous êtes ici</code></pre></div>
           existe déjà.</p>
         <p><strong>La solution</strong> : un dictionnaire qui associe un nom à une classe, rempli une
           fois, consulté partout (<span class="ref">core/steps/__init__.py</span>) :</p>
-        <pre><code>_REGISTRY = {"ORACLE_EXTRACT": OracleExtractStep, "FTP_UPLOAD": FtpUploadStep, ...}
+        <pre><code>_REGISTRY = {"DB_EXTRACT": DbExtractStep, "FTP_UPLOAD": FtpUploadStep, ...}
 
 def get_step(step_type: str, config: dict) -> BaseStep:
     return _REGISTRY[step_type](config)</code></pre>
         <p>
           L'exécuteur ne connaît qu'une seule ligne : <code>get_step(step_type, config)</code>. Il
-          n'a jamais besoin de savoir que 9 types d'étapes existent, ni lesquels. Ajouter un dixième
-          type = ajouter une ligne au dictionnaire, zéro ligne changée dans l'exécuteur. C'est
-          l'essence du <strong>principe ouvert/fermé</strong> (une des idées derrière « SOLID ») :
-          ouvert à l'extension, fermé à la modification.
+          n'a jamais besoin de savoir que 15 types d'étapes existent, ni lesquels. Ajouter un
+          seizième type = ajouter une ligne au dictionnaire, zéro ligne changée dans l'exécuteur.
+          C'est l'essence du <strong>principe ouvert/fermé</strong> (une des idées derrière « SOLID »)
+          : ouvert à l'extension, fermé à la modification.
         </p>
-        <p><strong>Où le revoir ailleurs dans ce projet</strong> : <code>ui/step_editor.py</code>,
+        <p><strong>Où le revoir ailleurs dans ce projet</strong> : <code>ui/step_editor/__init__.py</code>,
           <code>_open_config_dialog()</code> fait exactement la même chose côté UI.</p>
         <p><strong>Où vous le recroiserez</strong> : c'est le même principe derrière les « plugins » de
           n'importe quel outil (extensions VS Code, middlewares Django, providers Terraform...). Dès
@@ -666,12 +723,17 @@ def get_step(step_type: str, config: dict) -> BaseStep:
         <h3 class="sub" id="concept-oop">Programmation orientée objet — au minimum syndical, et c'est voulu</h3>
         <p>
           Ce projet n'utilise l'héritage que pour une seule chose : <code>BaseStep</code>. Pas de
-          hiérarchies de classes profondes ailleurs. <code>OracleProfile</code>, <code>FtpProfile</code>,
-          <code>SmtpProfile</code> sont trois classes séparées, presque identiques, plutôt qu'une
-          classe abstraite <code>Profile</code> — délibérément, parce que factoriser 3 champs communs
-          sur 6 aurait ajouté de l'indirection pour un gain minuscule. Retenez la leçon inverse de
-          « toujours factoriser dès que ça se ressemble » : dupliquer un peu est parfois plus lisible
-          que factoriser trop tôt.
+          hiérarchies de classes profondes ailleurs, pas d'abstraction pour l'abstraction.
+          <code>OracleProfile</code>, <code>DatabaseProfile</code>, <code>FtpProfile</code>,
+          <code>SmtpProfile</code> sont des classes séparées, presque identiques, plutôt qu'une
+          classe abstraite <code>Profile</code> dont elles hériteraient — délibérément, parce que
+          factoriser 3-4 champs communs aurait ajouté de l'indirection pour un gain minuscule.
+          <code>DatabaseProfile</code> va même plus loin dans cette logique : plutôt qu'une classe
+          par moteur (MySQL, PostgreSQL, SQL Server), une seule table couvre les trois car leur forme
+          de connexion (host/port/user/password/nom de base) est réellement identique — seul Oracle,
+          dont le DSN a une forme différente (service_name/SID), garde sa propre table. Retenez la
+          leçon inverse de « toujours factoriser dès que ça se ressemble » : dupliquer un peu est
+          parfois plus lisible que factoriser trop tôt.
         </p>
 
         <h3 class="sub" id="concept-orm">ORM — manipuler des lignes de base de données comme des objets Python</h3>
@@ -725,7 +787,10 @@ class SendResult:
           (risque de faute de frappe non détectée avant l'exécution), on écrit
           <code>PipelineStatus.SUCCESS</code>. Hériter aussi de <code>str</code>
           (<code>class StepType(str, enum.Enum)</code>) permet de comparer directement
-          <code>step_type == "ORACLE_EXTRACT"</code> sans conversion.
+          <code>step_type == "DB_EXTRACT"</code> sans conversion, tout en gardant les avantages de
+          l'enum. C'est aussi ce qui permet à <code>StepType</code> de porter les anciennes valeurs
+          dépréciées (<code>ORACLE_EXTRACT</code> & consorts) sans casser leur lecture depuis une
+          base existante — voir <a href="#arch-persistance">Architecture</a>, section migrations.
         </p>
 
         <h3 class="sub" id="concept-never-raise">« Ne jamais lever d'exception, toujours retourner un résultat »</h3>
@@ -762,8 +827,9 @@ class SendResult:
           Une interface graphique tourne sur un seul thread qui dessine l'écran et réagit aux
           clics. Si ce thread attend une réponse réseau qui prend 10 secondes, l'application entière
           se fige pendant ces 10 secondes. La solution : déplacer le travail long dans un
-          <code>QThread</code> séparé (<code>OracleTestThread</code>, <code>FtpTestThread</code>,
-          <code>_OracleExecuteTestThread</code>), et laisser le résultat revenir via un signal Qt.
+          <code>QThread</code> séparé (voir <code>OracleTestThread</code>, <code>FtpTestThread</code>
+          dans <span class="ref">ui/dialogs/</span> et les threads de test similaires dans
+          <span class="ref">ui/step_editor/</span>), et laisser le résultat revenir via un signal Qt.
           Règle simple : <strong>toute opération qui peut prendre plus qu'un instant perceptible ne
           doit jamais s'exécuter directement dans un callback de clic</strong>.
         </p>
@@ -816,9 +882,10 @@ class SendResult:
         <h3 class="sub" id="recipe-new-step">Recette : ajouter un nouveau type d'étape (step)</h3>
         <p>
           C'est l'opération la plus fréquente désormais que l'architecture est flexible. Reprenez
-          ce patron dans l'ordre — c'est exactement celui suivi pour les 5 derniers steps ajoutés
-          (<code>ORACLE_EXECUTE</code>, <code>FTP_DOWNLOAD</code>, <code>ORACLE_LOAD</code>,
-          <code>EMAIL_NOTIFY</code>, <code>HTTP_REQUEST</code>).
+          ce patron dans l'ordre — c'est exactement celui suivi pour les derniers steps ajoutés
+          (<code>FTP_DOWNLOAD</code>, <code>EMAIL_NOTIFY</code>, <code>HTTP_REQUEST</code>, puis la
+          généralisation <code>DB_EXTRACT</code>/<code>DB_EXECUTE</code>/<code>DB_LOAD</code> qui a
+          remplacé les anciens steps Oracle-only).
         </p>
         <ol>
           <li><strong><span class="ref">database/models.py</span></strong> — ajouter la valeur dans l'enum <code>StepType</code> :
@@ -850,34 +917,111 @@ class MonNouveauStep(BaseStep):
             <pre><code>from .mon_nouveau_step import MonNouveauStep
 _REGISTRY["MON_NOUVEAU_STEP"] = MonNouveauStep</code></pre>
           </li>
-          <li><strong><span class="ref">ui/step_editor.py</span></strong> — 4 endroits à toucher, tous mécaniques :
+          <li><strong><span class="ref">ui/step_editor/</span></strong> — package (un fichier par
+            dialogue, voir <a href="#architecture">Architecture</a>), 4 endroits à toucher, tous
+            mécaniques :
             <ul>
-              <li><code>STEP_META</code> : label affiché + couleur du badge.</li>
-              <li><code>StepTypeChooserDialog._build_ui</code>, dictionnaire <code>descriptions</code> : la phrase d'aide.</li>
-              <li>Une classe <code>_MonNouveauStepConfigDialog(_BaseStepConfigDialog)</code> — copiez la
-                classe d'un step existant qui ressemble le plus à votre besoin.</li>
-              <li><code>_step_summary()</code> : la ligne résumée dans la liste des étapes.</li>
-              <li><code>_open_config_dialog()</code>, dictionnaire <code>mapping</code> : enregistrer votre classe.</li>
+              <li><code>common.py</code>, <code>STEP_META</code> : label affiché + couleur du badge.</li>
+              <li><code>step_type_chooser_dialog.py</code>, <code>StepTypeChooserDialog._build_ui</code>,
+                dictionnaire <code>descriptions</code> : la phrase d'aide.</li>
+              <li>Nouveau fichier <code>mon_nouveau_step_config_dialog.py</code>, une classe
+                <code>_MonNouveauStepConfigDialog(_BaseStepConfigDialog)</code> (import depuis
+                <code>.base_config_dialog</code>) — copiez la classe d'un step existant qui ressemble
+                le plus à votre besoin (<code>local_copy_config_dialog.py</code> si c'est simple,
+                <code>db_execute_config_dialog.py</code> si ça touche une base de données...) et
+                adaptez les champs. <strong>Piège déjà rencontré</strong> : <code>_open_config_dialog()</code>
+                passe un seul dict <code>kwargs</code> partagé, identique, à toutes les classes de
+                dialogue — la vôtre doit soit accepter <code>**_</code> en fin de signature (le plus
+                simple, voir <code>_LocalCopyConfigDialog</code>), soit lister explicitement tous les
+                paramètres du dict (<code>prior_steps</code> compris). Une signature explicite qui en
+                oublie un lève un <code>TypeError: unexpected keyword argument</code> à la première
+                ouverture du dialogue.</li>
+              <li><code>__init__.py</code> : importer votre nouveau fichier et enregistrer la classe
+                dans le dictionnaire <code>mapping</code> de <code>_open_config_dialog()</code>.</li>
             </ul>
           </li>
-          <li>Si votre step a besoin d'un nouveau type de profil réutilisable → voir la recette suivante d'abord.</li>
-          <li>Tester sans lancer l'UI (voir <a href="#recipe-test-safely">la recette</a>) — le plus rapide pour valider la logique avant les dialogues Qt.</li>
+          <li><strong><span class="ref">ui/help/content.py</span></strong> — ajoutez une entrée pour
+            votre nouveau type dans la rubrique <em>Glossaire des types d'étapes</em>
+            (<code>HELP_TOPICS</code>, <code>key="step-glossary"</code>) : une phrase sur ce que fait
+            l'étape et quand l'utiliser. Sans ça, la documentation utilisateur dérive silencieusement
+            du code — le glossaire est la seule doc que voit réellement l'utilisateur final (voir
+            <code>ui/help/help_view.py</code>).</li>
+          <li>Si votre step a besoin d'un nouveau type de profil réutilisable (identifiants, config
+            partagée entre pipelines) → voir la recette suivante d'abord.</li>
+          <li>Tester sans lancer l'UI (voir <a href="#recipe-test-safely">la recette « tester sans
+            polluer vos vraies données »</a>) — c'est la façon la plus rapide de valider la logique
+            avant de toucher aux dialogues Qt.</li>
         </ol>
 
+        <h3 class="sub" id="recipe-context-script">Recette : lire/écrire le contexte depuis un script (PYTHON_SCRIPT)</h3>
+        <p>
+          Un script lancé par l'étape <code>PYTHON_SCRIPT</code> tourne dans son propre process, avec
+          son propre interpréteur/environnement — voulu, pour ne jamais mélanger ses dépendances avec
+          celles de KULU. Il n'a donc pas d'accès direct à <code>ctx</code> (l'objet Python
+          <code>StepContext</code> ne franchit jamais la frontière du process). Le pont : deux tokens
+          facultatifs, <code>{ds_context_in}</code> et <code>{ds_context_out}</code>, à placer dans le
+          champ « Arguments » du step exactement comme <code>{output_file}</code> ou <code>{yyyy}</code>
+          — voir <span class="ref">core/steps/python_script.py</span>, <code>PythonScriptStep.run()</code>.
+        </p>
+        <p>
+          <strong>Toujours passés en argument de ligne de commande, jamais en variable
+          d'environnement</strong> — certains postes cibles nécessitent un accès admin/helpdesk pour
+          modifier une variable d'environnement système, même si un <code>env=</code> passé à un
+          unique sous-processus ne l'exigerait pas techniquement ; l'argument évite toute ambiguïté.
+        </p>
+        <p>Si votre script référence <code>{ds_context_in}</code>, il reçoit le chemin d'un fichier JSON à lire :</p>
+        <pre><code>{
+  "artifacts": {"output_file": "C:/tmp/ds_xxx.csv", "b18f...": "C:/tmp/ds_yyy.csv"},
+  "rows_count": 12345
+}</code></pre>
+        <p>
+          <code>artifacts</code> contient tout ce que les étapes précédentes ont déjà produit, par
+          nom. Si votre script référence <code>{ds_context_out}</code>, vous pouvez (facultatif) y
+          écrire un JSON similaire — chaque entrée de son <code>artifacts</code> est fusionnée dans
+          le contexte réel après l'exécution :
+        </p>
+        <pre><code>{"artifacts": {"output_file": "C:/tmp/mon_resultat.csv"}}</code></pre>
+        <p>
+          Publier sous la clé <code>"output_file"</code> fait consommer votre résultat par l'étape
+          suivante exactement comme n'importe quel autre step producteur (comportement par défaut du
+          sélecteur « Source » — voir <a href="#arch-steps">Architecture, section StepContext</a>).
+          Publier sous un autre nom fonctionne aussi (le contexte le retient), mais ce nom
+          n'apparaîtra pas dans le sélecteur « Source » des dialogues suivants tant qu'aucune
+          interface ne l'expose — à récupérer pour l'instant via un autre <code>PYTHON_SCRIPT</code>
+          qui lit ce même nom dans son propre <code>{ds_context_in}</code>.
+        </p>
+        <p>
+          Un script qui ne référence ni l'un ni l'autre token n'est pas concerné : son <code>argv</code>
+          est strictement identique à ce qu'il aurait reçu avant l'existence de ce contrat. Un JSON de
+          sortie absent ou invalide n'échoue pas le step (juste un avertissement loggé) — le code de
+          retour du process reste le seul signal d'échec/réussite.
+        </p>
+
         <h3 class="sub" id="recipe-new-profile">Recette : ajouter un nouveau type de profil réutilisable</h3>
-        <p>Suivre le patron <code>SmtpProfile</code>, qui est le plus récent :</p>
+        <p>
+          Suivre le patron <code>SmtpProfile</code> (le plus simple à lire) ou
+          <code>DatabaseProfile</code> (si votre profil doit couvrir plusieurs variantes proches d'un
+          même besoin — c'est le patron le plus récent, utilisé pour fusionner MySQL/PostgreSQL/SQL
+          Server en une seule table plutôt qu'une par moteur) :
+        </p>
         <ol>
           <li><strong><span class="ref">database/models.py</span></strong> — nouvelle classe héritant de <code>Base</code>, avec <code>__tablename__</code>.</li>
           <li><strong><span class="ref">database/db_manager.py</span></strong> — dans <code>_migrate()</code>, ajouter la création de la table si absente
-            (copier le bloc <code>smtp_profiles</code>) ; 4 fonctions CRUD
+            (copier le bloc <code>smtp_profiles</code> et adapter les colonnes) ; 4 fonctions CRUD
             (<code>create_X_profile</code>, <code>get_X_profiles</code>, <code>get_X_profile</code>,
-            <code>delete_X_profile</code>).</li>
-          <li><strong><span class="ref">ui/dialogs.py</span></strong> — une classe <code>XDialog(QDialog)</code> (copier <code>SmtpDialog</code>),
-            avec si pertinent un thread de test de connexion (copier <code>SmtpTestThread</code>).</li>
-          <li><strong><span class="ref">ui/main_window.py</span></strong>, <code>ConnectionsView</code> — un panneau de plus
-            (copier <code>_build_smtp_panel</code>/<code>_refresh_smtp</code>/callbacks).</li>
-          <li><strong><span class="ref">ui/step_editor.py</span></strong>, <code>PipelineEditorDialog._load_profiles()</code> —
-            charger la nouvelle liste et la propager partout où <code>smtp_profiles</code> circule déjà.</li>
+            <code>delete_X_profile</code>, copier celles de <code>smtp_profile</code>).</li>
+          <li><strong><span class="ref">ui/dialogs/</span></strong> — nouveau fichier <code>x_dialog.py</code>,
+            une classe <code>XDialog(QDialog)</code> (copier <code>smtp_dialog.py</code>), avec si
+            pertinent un thread de test de connexion (copier <code>SmtpTestThread</code>) ;
+            réexporter la classe dans <code>ui/dialogs/__init__.py</code>.</li>
+          <li><strong><span class="ref">ui/main_window/connections_view.py</span></strong>,
+            <code>ConnectionsView</code> — un panneau de plus (copier
+            <code>_build_smtp_panel</code>/<code>_refresh_smtp</code>/callbacks), et l'ajouter à la
+            pile verticale dans <code>_build_ui</code>.</li>
+          <li><strong><span class="ref">ui/graph_editor/graph_editor_dialog.py</span></strong>,
+            <code>PipelineGraphEditorDialog._load_profiles()</code> — charger la nouvelle liste de
+            profils et la propager partout où <code>smtp_profiles</code> circule déjà
+            (<code>_open_config_dialog</code>, les dialogues de config qui en ont besoin).</li>
         </ol>
 
         <h3 class="sub" id="recipe-migration">Recette : ajouter une migration de schéma</h3>
@@ -921,8 +1065,8 @@ with patch("database.db_manager.get_oracle_profile", return_value=MagicMock(host
     result = step.run(StepContext())
     print(result.success, result.error)</code></pre>
         <p>
-          C'est ainsi qu'ont été validés <code>OracleExecuteStep</code> (résolution de tokens,
-          rowcount, garde-fou commit) et <code>OracleLoader</code> (construction du <code>INSERT</code>,
+          C'est ainsi qu'ont été validés <code>DbExecuteStep</code> (résolution de tokens,
+          rowcount, garde-fou commit) et <code>SqlLoader</code> (construction du <code>INSERT</code>,
           conversion NaN→None) sans jamais toucher à une vraie base Oracle ni au fichier applicatif réel.
         </p>
 
@@ -963,8 +1107,15 @@ print(db.get_pipelines())</code></pre>
         <ul>
           <li><strong><code>sys.executable</code> dans un <code>.exe</code> packagé</strong> n'est pas un
             interpréteur Python — c'est le chemin du <code>.exe</code> lui-même. L'étape
-            <code>PYTHON_SCRIPT</code> doit toujours recevoir un <code>python_executable</code>
-            explicite une fois packagé.</li>
+            <code>PYTHON_SCRIPT</code> doit donc toujours recevoir un <code>python_executable</code>
+            explicite (chemin vers le <code>python.exe</code> d'un venv/conda cible) une fois
+            packagé ; le champ par défaut (<code>sys.executable</code>) ne fonctionne qu'en lançant
+            <code>python main.py</code> directement. <strong>Depuis le chantier « script Python pour
+            un utilisateur inconnu de l'app »</strong>, <code>PythonScriptStep.run()</code> détecte
+            ce cas précis (<code>sys.frozen</code> + <code>python_executable</code> résolu ==
+            <code>sys.executable</code>) et refuse proprement avec un message explicite, plutôt que
+            de relancer une deuxième instance complète de KULU et de bloquer jusqu'au timeout —
+            voir <code>core/steps/python_script.py::_same_executable()</code>.</li>
           <li><strong><code>pandas.read_sql()</code> avec une connexion <code>oracledb</code> brute</strong>
             émet un <code>UserWarning</code> — cosmétique, pas un bug.</li>
           <li><strong><code>chunk.where(chunk.notnull(), None)</code></strong> ne convertit pas vraiment
@@ -974,21 +1125,22 @@ print(db.get_pipelines())</code></pre>
           <li><strong><code>QHeaderView.ResizeToContents</code></strong> sur une colonne avec un widget
             stylé peut sous-estimer sa largeur réelle — préférez une largeur fixe
             (<code>setColumnWidth</code>) pour ces colonnes-là.</li>
-          <li><strong>Supprimer un profil ou une requête SQL</strong> ne vérifie pas par défaut qui
-            l'utilise, car la référence vit dans un <code>config_json</code> (pas une vraie clé
-            étrangère). Utilisez <code>db.find_pipelines_using_profile(cle, id)</code> avant de
-            supprimer si vous ajoutez un nouvel endroit de suppression.</li>
+          <li><strong>Supprimer un profil (Oracle/FTP/SMTP) ou une requête SQL</strong> ne vérifie pas
+            par défaut qui l'utilise, car la référence vit dans un <code>config_json</code> (pas une
+            vraie clé étrangère). Utilisez <code>db.find_pipelines_using_profile(cle, id)</code> avant
+            de supprimer si vous ajoutez un nouvel endroit de suppression.</li>
           <li><strong><code>cursor.rowcount</code> après un bloc PL/SQL (<code>BEGIN ... END;</code>)
             reste à 0 même si des lignes ont vraiment été insérées/modifiées</strong> — si le bloc
             appelle une procédure stockée qui fait le DML en interne, oracledb ne remonte que le
             résultat de l'appel du bloc lui-même, pas les lignes affectées par les instructions
             exécutées à l'intérieur. Ce n'est pas un bug de KULU, c'est un comportement du
-            pilote Oracle. <code>ORACLE_EXECUTE</code> détecte ce cas via
-            <code>core.oracle.is_plsql_block()</code> et log un message honnête au lieu d'afficher
-            un « 0 ligne(s) affectée(s) » trompeur. Pour obtenir le nombre réel de lignes affectées
-            par une procédure stockée, faites-le remonter explicitement via un paramètre
-            <code>OUT</code> dans la procédure elle-même (Oracle ne l'expose pas autrement côté
-            client).</li>
+            pilote Oracle. <code>DB_EXECUTE</code> (<span class="ref">core/steps/db_execute.py</span>)
+            détecte ce cas via <code>core.sql_db.is_plsql_block()</code> (réexporté depuis
+            <code>core.oracle.is_plsql_block()</code>, seul le connecteur Oracle a cette notion de
+            bloc PL/SQL) et log un message honnête au lieu d'afficher un « 0 ligne(s) affectée(s) »
+            trompeur. Si vous avez besoin du nombre réel de lignes affectées par une procédure
+            stockée, faites-le remonter explicitement via un paramètre <code>OUT</code> dans la
+            procédure elle-même (Oracle ne l'expose pas autrement côté client).</li>
         </ul>
       </article>
     </section>

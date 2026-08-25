@@ -19,17 +19,22 @@ Développée avec Python 3 + PySide6, elle offre une interface graphique sombre 
 ## Fonctionnement en un coup d'œil
 
 Un **pipeline** est une suite d'**étapes** (steps), chacune pouvant consommer le fichier produit
-par une étape précédente. Deux éditeurs, selon le besoin :
+par une étape précédente. Un éditeur unique, un canevas graphique (glisser-déposer les nœuds,
+tirer des arêtes) : un pipeline simple s'obtient en chaînant les étapes bout à bout, un pipeline
+plus complexe ajoute du branchement conditionnel ou du fan-out/fan-in parallèle.
 
 ```
-Éditeur linéaire (par défaut)      Éditeur graphique (branchement, fan-out)
-[Étape 1] → [Étape 2] → [Étape 3]   [Étape 1] ─┬─► [Étape 2A]
-    └── planification cron              (Condition) └─► [Étape 2B]
-        (APScheduler), ou
-        déclenchement manuel
+[Étape 1] ──► [Étape 2] ──► [Étape 3]        Chaîne simple
+
+[Étape 1] ─┬─► [Étape 2A] ─┐
+           │                ├─► [Jonction] ─► [Étape 3]     Branchement (Condition,
+           └─► [Étape 2B] ─┘                                 passerelles parallèle/jonction)
 ```
 
-10 types d'étapes disponibles aujourd'hui, combinables librement dans un même pipeline :
+Planification cron (APScheduler) ou déclenchement manuel, dans les deux cas.
+
+15 types d'étapes disponibles aujourd'hui, combinables librement dans un même pipeline (dont 3
+routeurs de flux réservés à l'éditeur graphique) :
 
 | Étape | Rôle |
 |---|---|
@@ -39,10 +44,15 @@ par une étape précédente. Deux éditeurs, selon le besoin :
 | `FTP_UPLOAD` | Envoie un fichier vers un serveur FTP/FTPS/SFTP (chemin source explicite possible) |
 | `FTP_DOWNLOAD` | Récupère un fichier distant (source d'un pipeline) |
 | `LOCAL_COPY` | Copie un fichier localement, avec tokens de date (chemin source explicite possible) |
+| `COMPRESS` | Compresse un fichier en ZIP |
 | `PYTHON_SCRIPT` | Exécute un script Python externe, avec contrat d'E/S JSON optionnel |
+| `SPARK_SQL` | Exécute une requête Spark SQL sur un cluster Hadoop via un nœud edge (SSH + Kerberos) |
+| `SQOOP_EXPORT` | Exporte une table Hive/HCatalog vers Oracle via Sqoop (SSH + Kerberos) |
 | `EMAIL_NOTIFY` | Envoie un email, pièce jointe optionnelle |
 | `HTTP_REQUEST` | Appelle une API REST / un webhook |
 | `CONDITION` | Routeur conditionnel à deux sorties (`true`/`false`) — éditeur graphique uniquement |
+| `GATEWAY_PARALLEL` | Embranchement parallèle explicite (fan-out) — éditeur graphique uniquement |
+| `GATEWAY_JOIN` | Jonction ET/OU de branches convergentes (fan-in) — éditeur graphique uniquement |
 
 > Les anciens types `ORACLE_EXTRACT`/`ORACLE_EXECUTE`/`ORACLE_LOAD` sont dépréciés : les pipelines
 > existants qui les utilisaient encore sont migrés automatiquement vers leurs équivalents `DB_*`
@@ -61,8 +71,9 @@ dès qu'un pipeline a plusieurs sources en parallèle.
 
 ## Sécurité
 
-Les mots de passe des profils (Oracle, FTP, SMTP, bases de données) sont **chiffrés au repos**
-(Fernet), avec une clé maître générée au premier lancement et stockée dans le Gestionnaire
+Les mots de passe des profils (bases de données, FTP, SMTP, SSH, Kerberos, élévation) sont
+**chiffrés au repos** (Fernet), avec une clé maître générée au premier lancement et stockée dans
+le Gestionnaire
 d'identification Windows (DPAPI, via `keyring`) — jamais en clair dans la base SQLite ni dans les
 fichiers exportés sans mot de passe. Un mot de passe n'est jamais réaffiché en édition ; le champ
 reste vide et n'est mis à jour que si une nouvelle valeur est saisie.
@@ -117,13 +128,17 @@ DataScheduler/
 │   ├── sql_db.py                # SqlConnector générique SQLAlchemy — Oracle/MySQL/PostgreSQL/SQL Server
 │   ├── ftp.py                    # FtpUploader (upload + download, FTP / FTPS / SFTP)
 │   ├── email.py                  # EmailSender (SMTP)
-│   ├── pipeline.py               # run_pipeline() — exécuteur (linéaire ou DAG), validate_*, dry_run_pipeline()
+│   ├── pipeline.py               # run_pipeline() — exécuteur (linéaire, DAG séquentiel ou DAG parallèle),
+│   │                              #   validate_*, dry_run_pipeline()
 │   ├── scheduler.py              # Wrapper APScheduler (cron jobs + digest de notifications)
+│   ├── execution_mode.py         # Bascule IN_APP / BACKGROUND (worker détaché)
+│   ├── task_scheduler.py         # Enregistrement du worker en arrière-plan (tâche planifiée Windows)
+│   ├── missed_runs.py            # Détection des pipelines manqués pendant que l'app était fermée
 │   └── steps/
 │       ├── base.py               # BaseStep, StepContext (artefacts nommés), StepResult
 │       ├── condition.py          # ConditionStep — routeur à ports nommés (éditeur graphique)
 │       ├── __init__.py           # Registre des types d'étape (_REGISTRY, get_step())
-│       └── <nom>.py              # Une classe par type d'étape (10 aujourd'hui)
+│       └── <nom>.py              # Une classe par type d'étape (15 aujourd'hui)
 │
 ├── database/
 │   ├── models.py                # Modèles SQLAlchemy (profils, SqlQuery, Pipeline, PipelineStep,
@@ -134,9 +149,11 @@ DataScheduler/
 │
 ├── ui/
 │   ├── main_window/               # Fenêtre principale, navigation, vues (Dashboard, Pipelines,
-│   │                               #   Connexions, Requêtes SQL, Historique) + widgets partagés
-│   ├── step_editor/                # Éditeur linéaire : liste d'étapes + un dialogue de config par type
-│   ├── graph_editor/                # Éditeur graphique Qt (QGraphicsView/Scene) — nœuds, arêtes, DAG
+│   │                               #   Connexions, Requêtes SQL, Historique, Ressources,
+│   │                               #   Paramètres) + widgets partagés
+│   ├── step_editor/                # Un dialogue de configuration par type d'étape + réglages pipeline
+│   ├── graph_editor/                # Éditeur graphique Qt (QGraphicsView/Scene) — seul éditeur de
+│   │                                #   pipeline : nœuds, arêtes, DAG
 │   ├── dialogs/                      # Dialogues de profils, export/import, exécution, détail pipeline...
 │   ├── help/                          # Section Aide intégrée (rubriques pédagogiques)
 │   └── styles.py                      # Palette couleurs (charte Orange SA #FF7900)
@@ -152,10 +169,30 @@ DataScheduler/
 
 ## Fonctionnalités avancées
 
-- **Éditeur graphique** — pour les pipelines avec branchement conditionnel ou plusieurs
-  sources/destinations en parallèle, un canevas Qt natif (glisser-déposer les nœuds, tirer des
-  arêtes) vient compléter l'éditeur linéaire, sans le remplacer. Exécution en ordre topologique ;
-  l'échec d'une étape ne bloque que ses dépendants, les branches indépendantes continuent.
+- **Exécution résiliente** — le pipeline s'exécute en ordre topologique ; l'échec d'une étape ne
+  bloque que ses dépendants, les branches indépendantes continuent (au lieu d'un seul échec qui
+  stoppe tout le pipeline).
+- **Parallélisme intra-pipeline** — option par pipeline (case à cocher + plafond de branches
+  simultanées, 1 à 16) pour que des branches indépendantes d'un pipeline en graphe tournent
+  réellement en même temps au lieu de s'enchaîner. Désactivé par défaut, aucun changement de
+  comportement sans action explicite.
+- **Exécution en arrière-plan** — bascule Paramètres entre mode "dans l'application" (par
+  défaut) et un worker Windows détaché (`KULU.exe --worker`, enregistré comme tâche planifiée) :
+  les pipelines continuent de tourner même une fois l'application fermée. L'appli desktop devient
+  alors un simple client qui pilote le worker via une file de commandes en base.
+- **Rattrapage des pipelines manqués au démarrage** — en mode "dans l'application", si un
+  pipeline actif a manqué son heure planifiée pendant que l'app était fermée (dans la tolérance
+  configurée), un dialogue au démarrage propose de le lancer maintenant ; ce qui n'est pas traité
+  reste visible dans un bandeau du Dashboard jusqu'à lancement ou abandon explicite.
+- **Déclenchement chaîné pipeline-à-pipeline** — un pipeline peut être configuré pour se
+  déclencher automatiquement après qu'un autre se termine (succès, échec ou dans tous les cas),
+  en plus de sa propre planification cron.
+- **Plafond de concurrence** — une limite globale (configurable) du nombre de pipelines pouvant
+  tourner simultanément, pour éviter de saturer la machine quand plusieurs déclenchements
+  coïncident.
+- **Suivi des ressources** — écran dédié (Ressources) : CPU/mémoire du processus dans le temps,
+  mis en regard du nombre d'exécutions concurrentes, avec le détail des pipelines actifs à un
+  instant survolé.
 - **Export / import** — exporter un pipeline vers un fichier `.dspipeline` (JSON versionné,
   secrets chiffrés par mot de passe optionnel), le réimporter ailleurs avec détection de
   collision et réutilisation des profils déjà présents (jamais de duplication silencieuse). La
