@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+### Ajouté
+- Étape `HTTP_REQUEST` : nouvelle case "Sauvegarder la réponse" (facultative, décochée par
+  défaut) — enregistre le corps de la réponse dans un fichier publié dans `ctx.artifacts`,
+  utilisable par les étapes suivantes comme n'importe quelle autre sortie. Jusqu'ici l'étape
+  était une impasse pour le flux de données : le corps de la réponse était entièrement jeté après
+  un extrait de 500 caractères dans le log, même quand l'API interrogée renvoyait un fichier ou
+  des données utiles. Sauvegardée brute (octets tels quels), sans essayer de deviner/parser le
+  type de contenu.
+
 ### Modifié
 - L'application est désormais nommée **KULU** (anciennement DataScheduler) dans toute
   l'interface, l'exécutable (`KULU.exe`, généré depuis `KULU.spec`) et la documentation.

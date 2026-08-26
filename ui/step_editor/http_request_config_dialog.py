@@ -109,6 +109,27 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.cb_source = self._source_row(attach_form, self._prior_steps)
         root.addLayout(attach_form)
 
+        self.chk_save_response = QCheckBox("Sauvegarder la réponse")
+        self.chk_save_response.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_save_response.setToolTip(
+            "Enregistre le corps de la réponse tel quel (JSON, fichier téléchargé...) dans un "
+            "fichier utilisable par les étapes suivantes — utile pour une API qui renvoie des "
+            "données ou un fichier plutôt qu'un simple accusé de réception."
+        )
+        root.addWidget(self.chk_save_response)
+
+        save_form = self._form()
+        self.inp_output_name = self._output_name_row(save_form)
+        root.addLayout(save_form)
+
+        def _toggle_save_response_fields(checked):
+            self.inp_output_name.setVisible(checked)
+            lbl = save_form.labelForField(self.inp_output_name)
+            if lbl:
+                lbl.setVisible(checked)
+        self.chk_save_response.toggled.connect(_toggle_save_response_fields)
+        _toggle_save_response_fields(self.chk_save_response.isChecked())
+
         root.addStretch()
 
         footer = QVBoxLayout()
@@ -127,6 +148,8 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
         self.txt_body.setPlainText(c.get("body_tpl", ""))
         self.chk_attach.setChecked(c.get("attach_output_file", False))
         self._set_combo(self.cb_source, c.get("reads_from_step_key"))
+        self.chk_save_response.setChecked(c.get("save_response", False))
+        self.inp_output_name.setText(c.get("output_name", ""))
 
     def _collect_config(self) -> dict:
         return {
@@ -137,6 +160,8 @@ class _HttpRequestConfigDialog(_BaseStepConfigDialog):
             "body_tpl":           self.txt_body.toPlainText(),
             "attach_output_file": self.chk_attach.isChecked(),
             "reads_from_step_key": self.cb_source.currentData(),
+            "save_response":      self.chk_save_response.isChecked(),
+            "output_name":        self.inp_output_name.text().strip(),
         }
 
     def _on_ok(self):
