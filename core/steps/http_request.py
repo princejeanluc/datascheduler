@@ -1,8 +1,11 @@
 """
 DataScheduler — core/steps/http_request.py
 Étape : appel HTTP (API REST / webhook), avec envoi optionnel du fichier
-de contexte en pièce jointe multipart.
+de contexte en pièce jointe multipart et sauvegarde optionnelle de la réponse.
 """
+
+import tempfile
+from pathlib import Path
 
 from .base import BaseStep, StepContext, StepResult
 
@@ -19,9 +22,13 @@ def _parse_headers(raw: str) -> dict:
 
 
 class HttpRequestStep(BaseStep):
+    # PRODUCES volontairement vide, pas {"output_file"} : la sauvegarde de la réponse est
+    # conditionnelle à la config (save_response), pas systématique — même raisonnement déjà
+    # appliqué à PythonScriptStep/SparkSqlStep.PRODUCES (voir docs/COOKBOOK.md).
 
     def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()
+        tmp_path: Path | None = None
 
         try:
             import requests
@@ -32,6 +39,7 @@ class HttpRequestStep(BaseStep):
             body    = ctx.resolve_tokens(self.config.get("body_tpl", ""))
             timeout = int(self.config.get("timeout", 30))
             attach_output = self.config.get("attach_output_file", False)
+            save_response = self.config.get("save_response", False)
 
             if not url:
                 result.error = "URL non configurée."
@@ -65,9 +73,29 @@ class HttpRequestStep(BaseStep):
                 result.error = f"HTTP {response.status_code} : {snippet}"
                 return result
 
+            if save_response:
+                # Sauvegardé brut, sans essayer de deviner/parser le type de contenu (JSON,
+                # fichier binaire...) — reste cohérent avec le modèle d'artefacts existant,
+                # toujours un fichier, jamais une valeur typée en mémoire.
+                tmp = tempfile.NamedTemporaryFile(suffix=".dat", delete=False, prefix="ds_")
+                tmp_path = Path(tmp.name)
+                tmp.write(response.content)
+                tmp.close()
+                ctx.output_file = tmp_path
+                ctx.log(f"Réponse sauvegardée : {tmp_path} ({len(response.content)} octet(s))")
+
             result.success = True
 
         except Exception as e:
             result.error = str(e)
+        finally:
+            # Même garde que FtpDownloadStep : un fichier temporaire créé avant de savoir si le
+            # reste de l'étape va réussir ne sera jamais référencé dans ctx.artifacts en cas
+            # d'échec, donc jamais nettoyé par run_pipeline — à nettoyer ici.
+            if tmp_path is not None and not result.success and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
 
         return result

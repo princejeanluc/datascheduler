@@ -131,7 +131,7 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   produire de fichier (ex : rafraîchir une vue matérialisée).
 - **Script Python (`PYTHON_SCRIPT`)** — lance un script externe avec des arguments personnalisés.
   Le champ *Exécutable Python* est obligatoire : il doit pointer vers le `python.exe` du projet
-  concerné (son propre venv/conda), jamais vers DataScheduler — l'application n'a pas
+  concerné (son propre venv/conda), jamais vers KULU — l'application n'a pas
   d'interpréteur Python "par défaut" utilisable pour ça. Chaque étape peut viser un environnement
   différent si vos scripts viennent de projets distincts. Peut lire/écrire le contexte du
   pipeline via un contrat JSON optionnel (voir *Jetons et artefacts*).
@@ -159,7 +159,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   jointe optionnelle protège des rejets par un serveur mail d'entreprise : au-delà, le pipeline
   échoue proprement (par défaut) ou l'envoi continue sans pièce jointe, selon le réglage choisi.
   Voir aussi l'étape Compression (`COMPRESS`) pour réduire la taille du fichier en amont.
-- **Requête HTTP (`HTTP_REQUEST`)** — appelle une URL (webhook, API interne…).
+- **Requête HTTP (`HTTP_REQUEST`)** — appelle une URL (webhook, API interne…). Case "Sauvegarder
+  la réponse" facultative : enregistre le corps de la réponse dans un fichier utilisable par les
+  étapes suivantes, pour une API qui renvoie des données ou un fichier plutôt qu'un simple accusé
+  de réception.
 
 ## Contrôle de flux
 
