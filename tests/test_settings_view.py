@@ -162,6 +162,47 @@ def test_on_save_persists_scheduler_logging_and_interface_fields(qapp, test_db):
     assert settings.trace_glow_refresh_s == 3
 
 
+def test_timezone_choices_cover_more_than_utc_and_paris(qapp, test_db):
+    """Signalé par l'utilisateur : deux choix câblés en dur (UTC, Europe/Paris) ne couvrent pas
+    tout le monde ("et si quelqu'un est à GMT+3 ?"). Vérifie que la liste vient bien de la base
+    IANA complète (tzdata) plutôt que d'une poignée codée en dur — un fuseau à des heures de
+    Paris comme Europe/Moscow (UTC+3) doit être sélectionnable."""
+    from ui.main_window.settings_view import _TIMEZONES
+
+    assert "Europe/Moscow" in _TIMEZONES
+    assert "Asia/Tokyo" in _TIMEZONES
+    assert len(_TIMEZONES) > 100   # pas juste 2 entrées
+
+
+def test_timezone_combo_is_searchable(qapp, test_db):
+    """~600 fuseaux dans une liste déroulante brute serait inutilisable — doit être éditable
+    avec une complétion filtrée pour rechercher par ville/région."""
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view.cb_timezone.isEditable()
+    assert view.cb_timezone.completer() is not None
+
+
+def test_on_save_rejects_unrecognized_timezone(qapp, test_db, monkeypatch):
+    from ui.main_window import settings_view as sv_module
+    from ui.main_window.settings_view import SettingsView
+
+    warnings = []
+    monkeypatch.setattr(
+        sv_module.QMessageBox, "warning",
+        lambda *a, **kw: warnings.append(a) or None,
+    )
+
+    view = SettingsView()
+    view.chk_digest_enabled.setChecked(False)
+    view.cb_timezone.setCurrentText("Not/A/RealZone")
+    view._on_save()
+
+    assert warnings
+    assert db.get_app_settings().timezone != "Not/A/RealZone"
+
+
 def test_execution_mode_row_present_and_prefills_default(qapp, test_db):
     from ui.main_window.settings_view import SettingsView
 

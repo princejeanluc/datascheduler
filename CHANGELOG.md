@@ -50,6 +50,11 @@ bas pour son introduction).
   type de contenu.
 
 ### Modifié
+- Paramètres → Fuseau horaire : le réglage n'offrait que deux choix câblés en dur (UTC,
+  Europe/Paris) — remplacé par la liste complète des fuseaux IANA réels (~600, via `tzdata`,
+  déjà une dépendance du projet), avec un champ éditable + recherche filtrée pour la parcourir
+  (par ville/région, ou `Etc/GMT±N` pour un décalage fixe explicite). Un fuseau nommé reste
+  correct toute l'année (changement d'heure été/hiver), contrairement à un simple "GMT+3" figé.
 - L'application est désormais nommée **KULU** (anciennement DataScheduler) dans toute
   l'interface, l'exécutable (`KULU.exe`, généré depuis `KULU.spec`) et la documentation.
   Rebrand purement visuel : le dossier de données `%APPDATA%\DataScheduler\`, le service
