@@ -8,7 +8,6 @@ _execute_linear()/_execute_graph()/_run_step_with_policy() plutôt que sur le mo
 
 from types import SimpleNamespace
 
-import core.pipeline as pipeline_module
 import core.steps as steps_module
 from core.pipeline import _run_step_with_policy, PipelineResult, run_pipeline
 from core.steps.base import BaseStep, StepContext, StepResult
@@ -79,12 +78,11 @@ def test_run_pipeline_graph_reports_cancelled_not_failed_when_a_step_cooperates(
     assert _status_str(run.status) == "CANCELLED"
 
 
-def test_run_step_with_policy_never_retries_a_cancelled_step(monkeypatch):
+def test_run_step_with_policy_never_retries_a_cancelled_step():
     """Retenter une étape que l'utilisateur vient d'annuler serait activement contraire à sa
     demande — contrairement à un vrai échec (retry_count > 0 s'applique normalement), une
     coopération à l'annulation doit court-circuiter la boucle de relance immédiatement."""
     import threading
-    monkeypatch.setattr(pipeline_module, "RETRY_DELAY_S", 0)
 
     call_count = {"n": 0}
 
@@ -95,7 +93,7 @@ def test_run_step_with_policy_never_retries_a_cancelled_step(monkeypatch):
                 cancel_event.set()
             return StepResult(success=False, error="annulé")
 
-    fake_step = SimpleNamespace(retry_count=3, timeout_s=0)
+    fake_step = SimpleNamespace(retry_count=3, timeout_s=0, retry_interval_s=0)
     cancel_event = threading.Event()
     ctx = StepContext()
     result = PipelineResult()
@@ -108,10 +106,9 @@ def test_run_step_with_policy_never_retries_a_cancelled_step(monkeypatch):
     assert call_count["n"] == 1   # jamais retenté malgré retry_count=3
 
 
-def test_run_step_with_policy_still_retries_a_genuine_failure(monkeypatch):
+def test_run_step_with_policy_still_retries_a_genuine_failure():
     """Non-régression : un vrai échec (cancel_event jamais positionné) continue de suivre la
     politique de relance normale, inchangée par ce chantier."""
-    monkeypatch.setattr(pipeline_module, "RETRY_DELAY_S", 0)
     call_count = {"n": 0}
 
     class _FailingStep:
@@ -119,7 +116,7 @@ def test_run_step_with_policy_still_retries_a_genuine_failure(monkeypatch):
             call_count["n"] += 1
             return StepResult(success=False, error="échec réseau transitoire")
 
-    fake_step = SimpleNamespace(retry_count=2, timeout_s=0)
+    fake_step = SimpleNamespace(retry_count=2, timeout_s=0, retry_interval_s=0)
     ctx = StepContext()
     result = PipelineResult()
 

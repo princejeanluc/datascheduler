@@ -392,6 +392,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "label":       step.label,
                 "config":      exported_config,
                 "retry_count": step.retry_count,
+                "retry_interval_s": step.retry_interval_s,
                 "run_always":  step.run_always,
                 "timeout_s":   step.timeout_s,
                 "pos_x":       step.pos_x,
@@ -756,6 +757,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
                 "label":       step.get("label"),
                 "config":      config,
                 "retry_count": step.get("retry_count", 0),
+                "retry_interval_s": step.get("retry_interval_s", 5),   # bundle pré-existant sans ce champ
                 "run_always":  step.get("run_always", False),
                 "timeout_s":   step.get("timeout_s", 0),
                 "pos_x":       step.get("pos_x", 0),

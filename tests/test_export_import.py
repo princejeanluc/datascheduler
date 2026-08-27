@@ -27,10 +27,11 @@ def _make_pipeline_with_oracle_extract(test_db):
         "step_type": "DB_EXTRACT",
         "label": "Extraction ventes",
         "config": {"db_type": "ORACLE", "profile_id": profile.id, "sql_query_id": query.id},
-        # Valeurs non triviales délibérément (pas 0/False/0) — ce sont aussi les valeurs par
+        # Valeurs non triviales délibérément (pas 0/False/0/5) — ce sont aussi les valeurs par
         # défaut côté lecture (step.get(clé, 0)), donc un bug de câblage qui perdrait ces champs
-        # à l'export passerait inaperçu avec 0/False/0. Voir test_export_includes_execution_policy.
+        # à l'export passerait inaperçu avec 0/False/0/5. Voir test_export_includes_execution_policy.
         "retry_count": 2,
+        "retry_interval_s": 1800,
         "run_always": True,
         "timeout_s": 600,
     }])
@@ -78,6 +79,7 @@ def test_export_includes_execution_policy(test_db):
 
     step = result.bundle["pipeline"]["steps"][0]
     assert step["retry_count"] == 2
+    assert step["retry_interval_s"] == 1800
     assert step["run_always"] is True
     assert step["timeout_s"] == 600
 

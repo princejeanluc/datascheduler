@@ -756,6 +756,8 @@ def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
     assert len(steps) == 1
     assert steps[0].pos_x == 0
     assert steps[0].pos_y == 0
+    assert steps[0].timeout_s == 0
+    assert steps[0].retry_interval_s == 5   # backfill par défaut sur une ligne pré-existante
 
     # Idempotence : relancer init_db() une seconde fois ne casse rien.
     db.init_db(db_path)

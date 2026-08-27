@@ -19,6 +19,7 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
     def __init__(self, config: dict, parent=None, label: str = "", **_):
         super().__init__(config, parent, label,
                           retry_count=_.get("retry_count", 0),
+                          retry_interval_s=_.get("retry_interval_s", 5),
                           run_always=_.get("run_always", False),
                           timeout_s=_.get("timeout_s", 0))
         from database import db_manager as db
