@@ -10,9 +10,11 @@ Reprend aussi les champs du digest de notification (NotificationSettings, exista
 catégorie "Notifications" — NotificationSettingsDialog est retiré au profit de cet écran unique.
 """
 
+from zoneinfo import available_timezones
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
-    QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox,
+    QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter,
 )
 from PySide6.QtCore import Qt, QTimer
 from ui.styles import COLORS
@@ -32,7 +34,12 @@ _CATEGORIES = [
      "sub": "Échantillonnage CPU/mémoire de la vue Ressources."},
 ]
 
-_TIMEZONES = ["UTC", "Europe/Paris"]
+# Liste complète des fuseaux IANA réels (via tzdata, déjà une dépendance du projet pour
+# core/missed_runs.py) plutôt qu'une poignée de choix câblés en dur — un décalage fixe
+# ("GMT+3") ne gère jamais le changement d'heure été/hiver, contrairement à un vrai fuseau
+# nommé par ville/région, qui reste correct toute l'année. "UTC" en tête (choix explicite le
+# plus courant), le reste trié alphabétiquement.
+_TIMEZONES = ["UTC"] + sorted(available_timezones() - {"UTC"})
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 
@@ -246,6 +253,16 @@ class SettingsView(QWidget):
         # Ordonnanceur
         self.cb_timezone = QComboBox(); self.cb_timezone.setStyleSheet(_combo_style())
         self.cb_timezone.addItems(_TIMEZONES)
+        # Éditable + complétion filtrée : ~600 fuseaux IANA, une liste déroulante brute serait
+        # inutilisable. Tapez une ville/région ("Paris", "Nairobi") ou "Etc/GMT+3" pour un
+        # décalage fixe explicite sans changement d'heure saisonnier.
+        self.cb_timezone.setEditable(True)
+        self.cb_timezone.setInsertPolicy(QComboBox.NoInsert)
+        completer = QCompleter(_TIMEZONES, self.cb_timezone)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        self.cb_timezone.setCompleter(completer)
         self._add_row("scheduler", "Fuseau horaire",
                        "Référence pour l'heure de toutes les planifications (Quotidien, Hebdo, "
                        "Cron). Redémarrage requis pour prendre effet.", self.cb_timezone)
@@ -523,6 +540,12 @@ class SettingsView(QWidget):
                 return
         if not self._is_valid_time(self.inp_time.text().strip()):
             QMessageBox.warning(self, "Champ invalide", "Heure d'envoi invalide (format HH:MM).")
+            return
+        if self.cb_timezone.currentText().strip() not in _TIMEZONES:
+            QMessageBox.warning(
+                self, "Champ invalide",
+                "Fuseau horaire non reconnu — choisissez-en un dans la liste proposée.",
+            )
             return
 
         from database import db_manager as db
