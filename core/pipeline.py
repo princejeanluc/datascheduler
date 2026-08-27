@@ -20,7 +20,16 @@ from core.steps import (
 
 logger = logging.getLogger(__name__)
 
-RETRY_DELAY_S = 5
+RETRY_DELAY_S_DEFAULT = 5   # repli si step.retry_interval_s est absent/à 0 (fakes de test, vieille
+                            # ligne jamais migrée) — en pratique toujours 5 par défaut de colonne.
+# Granularité de vérification de l'annulation pendant l'attente entre deux tentatives — un seul
+# time.sleep(retry_interval_s) bloquerait une demande d'annulation jusqu'à la fin du sommeil,
+# problématique dès que l'intervalle configuré dépasse quelques secondes (ex: 30 min). Dormir
+# par tranches de cette taille garde l'annulation réactive sans changer le comportement "le
+# thread reste occupé pendant l'attente" (choix simple assumé — voir discussion utilisateur :
+# libérer réellement la ressource demanderait de reprogrammer la relance via APScheduler plutôt
+# que de dormir dans le thread, un mécanisme bien plus lourd, hors scope ici).
+_CANCEL_POLL_INTERVAL_S = 1
 
 
 # ──────────────────────────────────────────────
@@ -234,9 +243,15 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
     choisir de le consulter pour s'interrompre plus tôt qu'un simple timeout (voir
     core/steps/base.py::BaseStep.run). Ne change rien pour un type d'étape qui l'ignore.
     """
-    retry_count = step.retry_count or 0
-    timeout_s   = step.timeout_s or 0
-    attempt     = 0
+    retry_count      = step.retry_count or 0
+    # Contrairement à retry_count/timeout_s (où 0 signifie "désactivé"), 0 est une valeur de
+    # délai valide (relance immédiate) — seule une valeur réellement absente (None, ou attribut
+    # manquant sur un fake de test) retombe sur le défaut, jamais une valeur explicitement à 0.
+    retry_interval_s = getattr(step, "retry_interval_s", None)
+    if retry_interval_s is None:
+        retry_interval_s = RETRY_DELAY_S_DEFAULT
+    timeout_s        = step.timeout_s or 0
+    attempt          = 0
     while True:
         if not timeout_s:
             step_result = executor.run(ctx, cancel_event=cancel_event, on_progress=step_progress)
@@ -261,7 +276,22 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
             return step_result
         attempt += 1
         result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
-        time.sleep(RETRY_DELAY_S)
+        _interruptible_sleep(retry_interval_s, cancel_event)
+
+
+def _interruptible_sleep(duration_s: float, cancel_event) -> None:
+    """Dort par tranches de _CANCEL_POLL_INTERVAL_S plutôt qu'un seul time.sleep(duration_s) —
+    une demande d'annulation reste réactive (quelques secondes max) même avec un intervalle de
+    relance long, au lieu de rester bloquée jusqu'à la fin du sommeil. N'occupe pas moins le
+    thread pour autant : c'est uniquement la réactivité de l'annulation qui change, pas
+    l'occupation de la ressource pendant l'attente (voir RETRY_DELAY_S_DEFAULT ci-dessus)."""
+    remaining = duration_s
+    while remaining > 0:
+        if cancel_event is not None and cancel_event.is_set():
+            return
+        chunk = min(_CANCEL_POLL_INTERVAL_S, remaining)
+        time.sleep(chunk)
+        remaining -= chunk
 
 
 # ──────────────────────────────────────────────
@@ -1181,6 +1211,7 @@ def _steps_to_dicts(pipeline_id: int) -> list[dict]:
             "label":       s.label or "",
             "config":      json.loads(s.config_json or "{}"),
             "retry_count": s.retry_count or 0,
+            "retry_interval_s": s.retry_interval_s or 5,
             "run_always":  bool(s.run_always),
             "timeout_s":   s.timeout_s or 0,
         }

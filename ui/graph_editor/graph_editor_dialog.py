@@ -245,7 +245,14 @@ class PipelineGraphEditorDialog(QDialog):
                 "label":       s.label or "",
                 "config":      json.loads(s.config_json or "{}"),
                 "retry_count": s.retry_count or 0,
+                "retry_interval_s": s.retry_interval_s or 5,
                 "run_always":  bool(s.run_always),
+                # Bug réel trouvé en ajoutant retry_interval_s ci-dessus : timeout_s n'était
+                # jamais chargé ici, alors que _open_config_dialog() le lit bien plus bas
+                # (step.get("timeout_s", 0)) — un step existant avec un vrai timeout configuré
+                # le voyait silencieusement retomber à 0 (illimité) à chaque réouverture de
+                # l'éditeur graphique, jusqu'à ce que l'utilisateur ressaisisse la valeur.
+                "timeout_s":   s.timeout_s or 0,
             }
             if all_at_origin:
                 col, row = divmod(i, _ROWS_PER_COLUMN)
@@ -456,6 +463,7 @@ class PipelineGraphEditorDialog(QDialog):
             self._smtp_profiles, self._db_profiles,
             label=step.get("label", ""),
             retry_count=step.get("retry_count", 0),
+            retry_interval_s=step.get("retry_interval_s", 5),
             run_always=step.get("run_always", False),
             timeout_s=step.get("timeout_s", 0),
             prior_steps=self._incoming_prior_steps(node),

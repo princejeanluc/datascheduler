@@ -71,10 +71,11 @@ def _make_pipeline_with_oracle_extract():
         "step_type": "DB_EXTRACT",
         "label": "Extraction ventes",
         "config": {"db_type": "ORACLE", "profile_id": profile.id, "sql_query_id": query.id},
-        # Valeurs non triviales délibérément (pas 0/False/0) — ce sont aussi les valeurs par
+        # Valeurs non triviales délibérément (pas 0/False/0/5) — ce sont aussi les valeurs par
         # défaut côté lecture, donc un bug de câblage qui perdrait ces champs à l'import
-        # passerait inaperçu avec 0/False/0. Voir test_import_preserves_execution_policy.
+        # passerait inaperçu avec 0/False/0/5. Voir test_import_preserves_execution_policy.
         "retry_count": 2,
+        "retry_interval_s": 1800,
         "run_always": True,
         "timeout_s": 600,
     }])
@@ -144,9 +145,10 @@ def test_import_same_bundle_into_fresh_db_recreates_with_original_uuids(tmp_path
 
 
 def test_import_preserves_execution_policy_on_fresh_db(tmp_path):
-    """retry_count/run_always/timeout_s (colonnes PipelineStep, pas du config_json) doivent
-    survivre à un aller-retour export/import sur une base neuve — avec des valeurs non
-    triviales, sinon un bug de câblage passerait inaperçu (0/False/0 sont aussi les défauts)."""
+    """retry_count/retry_interval_s/run_always/timeout_s (colonnes PipelineStep, pas du
+    config_json) doivent survivre à un aller-retour export/import sur une base neuve — avec des
+    valeurs non triviales, sinon un bug de câblage passerait inaperçu (0/False/0/5 sont aussi
+    les défauts)."""
     db.init_db(tmp_path / "a.db")
     pipeline, profile, query = _make_pipeline_with_oracle_extract()
     export_result = export_pipeline(pipeline.id)
@@ -163,8 +165,34 @@ def test_import_preserves_execution_policy_on_fresh_db(tmp_path):
 
         step = db.get_steps(result.pipeline_id)[0]
         assert step.retry_count == 2
+        assert step.retry_interval_s == 1800
         assert step.run_always is True
         assert step.timeout_s == 600
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_import_defaults_retry_interval_for_a_bundle_exported_before_this_field_existed(tmp_path):
+    """Un bundle exporté avant l'ajout de retry_interval_s n'a pas la clé du tout — l'import ne
+    doit pas planter, et doit retomber sur le défaut (5s), pas sur None."""
+    db.init_db(tmp_path / "a.db")
+    pipeline, profile, query = _make_pipeline_with_oracle_extract()
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    bundle = export_result.bundle
+    del bundle["pipeline"]["steps"][0]["retry_interval_s"]   # simule un vieux bundle
+    db._engine = None
+    db._SessionFactory = None
+
+    db.init_db(tmp_path / "b.db")
+    try:
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+        assert result.success, result.error
+
+        step = db.get_steps(result.pipeline_id)[0]
+        assert step.retry_interval_s == 5
     finally:
         db._engine = None
         db._SessionFactory = None

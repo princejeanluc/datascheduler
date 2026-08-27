@@ -29,7 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.32.0] - 2026-08-27
+
 ### Ajouté
+- Intervalle de relance configurable par étape (à côté du nombre de tentatives déjà existant) —
+  jusqu'ici fixé à 5s en dur pour toutes les étapes de tous les pipelines, sans distinction entre
+  un blocage réseau transitoire et une API externe qu'on ne veut retenter qu'après un vrai délai
+  (ex : 30 min). Champ affiché uniquement quand au moins une tentative supplémentaire est
+  configurée. Défaut 5s — aucun changement de comportement pour une étape existante. L'attente
+  entre deux tentatives reste bloquante pour le thread d'exécution (choix assumé, comme la
+  plupart des orchestrateurs de ce type), mais se fait désormais par petites tranches pour
+  qu'une demande d'annulation reste réactive même avec un intervalle long, plutôt que de rester
+  bloquée jusqu'à la fin de l'attente.
 - Étape `HTTP_REQUEST` : nouvelle case "Sauvegarder la réponse" (facultative, décochée par
   défaut) — enregistre le corps de la réponse dans un fichier publié dans `ctx.artifacts`,
   utilisable par les étapes suivantes comme n'importe quelle autre sortie. Jusqu'ici l'étape
@@ -46,6 +57,11 @@ bas pour son introduction).
   et le nom de la tâche planifiée du worker (`DataSchedulerWorker`) restent inchangés en interne
   pour ne rien casser sur les installations existantes (base de données, mots de passe déjà
   chiffrés, worker en arrière-plan déjà enregistré).
+
+### Corrigé
+- Éditeur graphique : `timeout_s` d'une étape existante n'était jamais rechargé à la réouverture
+  du dialogue de configuration (silencieusement retombé à "aucune limite" jusqu'à ressaisie) —
+  trouvé en ajoutant le nouvel intervalle de relance au même endroit.
 
 ## [0.31.0] - 2026-08-21
 

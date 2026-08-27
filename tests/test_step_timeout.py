@@ -14,8 +14,9 @@ import core.steps as steps_module
 from database import db_manager as db
 
 
-def _fake_step(retry_count=0, timeout_s=0, run_always=False):
-    return SimpleNamespace(retry_count=retry_count, timeout_s=timeout_s, run_always=run_always)
+def _fake_step(retry_count=0, timeout_s=0, run_always=False, retry_interval_s=0):
+    return SimpleNamespace(retry_count=retry_count, timeout_s=timeout_s, run_always=run_always,
+                            retry_interval_s=retry_interval_s)
 
 
 class _SleepyStep(BaseStep):
@@ -57,10 +58,8 @@ def test_timeout_zero_never_triggers_even_for_a_slow_step():
     assert step_result.success
 
 
-def test_timeout_counts_as_a_failure_for_retry_count(monkeypatch):
-    import core.pipeline as pipeline_module
-    monkeypatch.setattr(pipeline_module, "RETRY_DELAY_S", 0)   # évite les 5s réelles entre tentatives
-
+def test_timeout_counts_as_a_failure_for_retry_count():
+    # _fake_step() a retry_interval_s=0 par défaut — évite les délais réels entre tentatives.
     executor = _SleepyStep({"sleep_s": 0.3})
     result = PipelineResult()
     ctx = StepContext()

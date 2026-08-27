@@ -152,6 +152,11 @@ def _migrate(engine) -> None:
                 "ALTER TABLE pipeline_steps ADD COLUMN timeout_s INTEGER NOT NULL DEFAULT 0"
             ))
             conn.commit()
+        if "retry_interval_s" not in step_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_steps ADD COLUMN retry_interval_s INTEGER NOT NULL DEFAULT 5"
+            ))
+            conn.commit()
 
         # Reprise depuis l'échec (chantier J.2) — colonnes nullables, pas de backfill nécessaire.
         run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
@@ -1693,7 +1698,8 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
     """Remplace toutes les étapes d'un pipeline.
 
     Chaque dict : {"step_type": str, "label": str|None, "config": dict,
-                    "retry_count": int|None, "run_always": bool|None, "timeout_s": int|None}
+                    "retry_count": int|None, "retry_interval_s": int|None,
+                    "run_always": bool|None, "timeout_s": int|None}
     """
     import json
     with get_session() as s:
@@ -1706,6 +1712,7 @@ def save_steps(pipeline_id: int, steps: list[dict]) -> None:
                 label=step.get("label"),
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
+                retry_interval_s=step.get("retry_interval_s") or 5,
                 run_always=step.get("run_always") or False,
                 timeout_s=step.get("timeout_s") or 0,
             ))
@@ -1808,6 +1815,7 @@ def save_pipeline_graph(pipeline_id: int, steps: list[dict], edges: list[dict],
                 label=step.get("label"),
                 config_json=json.dumps(step.get("config", {})),
                 retry_count=step.get("retry_count") or 0,
+                retry_interval_s=step.get("retry_interval_s") or 5,
                 run_always=step.get("run_always") or False,
                 timeout_s=step.get("timeout_s") or 0,
                 pos_x=step.get("pos_x", 0),

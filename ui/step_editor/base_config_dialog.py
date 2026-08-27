@@ -24,13 +24,15 @@ class _BaseStepConfigDialog(QDialog):
     SIDE_EFFECT_TYPES = {"FTP_UPLOAD", "EMAIL_NOTIFY", "HTTP_REQUEST", "DB_EXECUTE"}
 
     def __init__(self, config: dict, parent=None, label: str = "",
-                 retry_count: int = 0, run_always: bool = False, timeout_s: int = 0):
+                 retry_count: int = 0, run_always: bool = False, timeout_s: int = 0,
+                 retry_interval_s: int = 5):
         super().__init__(parent)
         self._config = config
         self._init_label = label
         self._init_retry_count = retry_count
         self._init_run_always  = run_always
         self._init_timeout_s   = timeout_s
+        self._init_retry_interval_s = retry_interval_s
         self.setMinimumWidth(500)
         self.setStyleSheet(DIALOG_STYLE)
 
@@ -47,6 +49,7 @@ class _BaseStepConfigDialog(QDialog):
             "label":       self._get_label(),
             "config":      config,
             "retry_count": self.inp_retry.value() if hasattr(self, "inp_retry") else 0,
+            "retry_interval_s": self.inp_retry_interval.value() if hasattr(self, "inp_retry_interval") else 5,
             "run_always":  self.chk_run_always.isChecked() if hasattr(self, "chk_run_always") else False,
             "timeout_s":   self.inp_timeout.value() if hasattr(self, "inp_timeout") else 0,
         }
@@ -82,6 +85,25 @@ class _BaseStepConfigDialog(QDialog):
             "pipeline (0 = aucune tentative supplémentaire)."
         )
         form.addRow(self._lbl("Réessayer en cas d'échec"), self.inp_retry)
+
+        self.inp_retry_interval = QSpinBox()
+        self.inp_retry_interval.setRange(1, 86400)
+        self.inp_retry_interval.setValue(self._init_retry_interval_s)
+        self.inp_retry_interval.setSuffix(" s")
+        self.inp_retry_interval.setStyleSheet(self._spinbox_style())
+        self.inp_retry_interval.setToolTip(
+            "Délai d'attente entre deux tentatives (ex : 1800 = 30 min) — utile pour une API "
+            "externe qu'on ne veut retenter qu'après un vrai délai, pas seulement un blocage "
+            "réseau transitoire. Sans effet si aucune tentative supplémentaire n'est configurée."
+        )
+        self._row_retry_interval = self._lbl("Intervalle de relance")
+        form.addRow(self._row_retry_interval, self.inp_retry_interval)
+
+        def _toggle_retry_interval(value):
+            self._row_retry_interval.setVisible(value > 0)
+            self.inp_retry_interval.setVisible(value > 0)
+        self.inp_retry.valueChanged.connect(_toggle_retry_interval)
+        _toggle_retry_interval(self.inp_retry.value())
 
         if self.STEP_TYPE in self.SIDE_EFFECT_TYPES:
             warn = QLabel(

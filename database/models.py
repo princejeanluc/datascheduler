@@ -399,6 +399,11 @@ class PipelineStep(Base):
     label       = Column(String(100), nullable=True)   # libellé optionnel
     config_json = Column(Text, nullable=False, default="{}")
     retry_count = Column(Integer, default=0, nullable=False)
+    # Délai entre deux tentatives — configurable par étape (demande utilisateur : un intervalle
+    # fixe de 5s en dur convenait pour un blocage réseau transitoire, pas pour une API externe
+    # qu'on ne veut retenter qu'après un vrai délai, ex. 30 min). 5 = comportement historique
+    # inchangé pour toute étape existante (RETRY_DELAY_S_DEFAULT dans core/pipeline.py).
+    retry_interval_s = Column(Integer, default=5, nullable=False)
     run_always  = Column(Boolean, default=False, nullable=False)
     timeout_s   = Column(Integer, default=0, nullable=False)   # 0 = aucune limite — chantier J.1
     pos_x       = Column(Integer, nullable=False, default=0)   # position canevas — chantier 6a/6b
