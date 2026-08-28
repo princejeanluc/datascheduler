@@ -266,6 +266,7 @@ class SqlExporter:
         encoding:    str = "utf-8-sig",
         chunk_size:  int = 50_000,
         quoting:     str = "QUOTE_NONNUMERIC",
+        date_format: str | None = None,
         on_progress: Callable[[int, int], None] | None = None,
         cancel_event=None,
     ):
@@ -276,6 +277,11 @@ class SqlExporter:
         self.encoding     = encoding
         self.chunk_size   = chunk_size
         self.quoting      = self._QUOTING_MAP.get(quoting, csv.QUOTE_NONNUMERIC)
+        # Directive strftime (ex: "%d/%m/%Y") — déjà traduite depuis les tokens {dd}/{MM}/{yyyy}
+        # habituels de l'appli par l'appelant (core/steps/db_extract.py::_translate_date_format),
+        # ce module reste agnostique du vocabulaire de tokens de DataScheduler. None = laisser
+        # pandas.to_csv() à son format ISO par défaut (comportement historique inchangé).
+        self.date_format  = date_format or None
         self.on_progress  = on_progress
         self.cancel_event = cancel_event
 
@@ -306,6 +312,8 @@ class SqlExporter:
                     )
                     if self.quoting == csv.QUOTE_NONE:
                         to_csv_kwargs["escapechar"] = "\\"
+                    if self.date_format:
+                        to_csv_kwargs["date_format"] = self.date_format
                     chunk.to_csv(csv_file, **to_csv_kwargs)
                     first_chunk = False
                     rows_total  += len(chunk)

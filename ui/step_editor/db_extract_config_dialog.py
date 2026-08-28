@@ -72,10 +72,20 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
             "seulement » convient à la plupart des imports Excel."
         )
 
+        self.inp_date_format = self._input("ex : {dd}/{MM}/{yyyy}")
+        self.inp_date_format.setToolTip(
+            "Format appliqué à toute colonne encore typée date/heure à l'arrivée dans le CSV "
+            "(mêmes tokens que partout ailleurs dans l'appli — {yyyy}, {MM}, {dd}, {HH}, {mm}, "
+            "{ss}). Un filet de sécurité : si une colonne de la requête n'a pas été formatée "
+            "explicitement côté SQL (ex : oubli d'un TO_CHAR), pandas la produirait sinon au "
+            "format ISO (AAAA-MM-JJ) par défaut, quel que soit le format demandé ailleurs dans "
+            "la requête. Laissez vide pour garder ce défaut."
+        )
         form.addRow(self._lbl("Séparateur CSV"),  self.cb_sep)
         form.addRow(self._lbl("Encodage"),        self.cb_enc)
         form.addRow(self._lbl("Taille chunk"),    self.inp_chunk)
         form.addRow(self._lbl("Guillemets CSV"),  self.cb_quoting)
+        form.addRow(self._lbl("Format des dates"), self.inp_date_format)
         self.inp_output_name = self._output_name_row(form)
         root.addLayout(form)
         root.addStretch()
@@ -91,6 +101,7 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
         self._set_combo_by_data(self.cb_enc,     c.get("csv_encoding",  "utf-8-sig"))
         self._set_combo_by_data(self.cb_quoting, c.get("csv_quoting",   "QUOTE_NONNUMERIC"))
         self.inp_chunk.setValue(c.get("csv_chunk_size", 50_000))
+        self.inp_date_format.setText(c.get("csv_date_format", ""))
         self.inp_output_name.setText(c.get("output_name", ""))
 
     def _filter_queries(self):
@@ -128,6 +139,7 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
             "csv_encoding":      self.cb_enc.currentData(),
             "csv_chunk_size":    self.inp_chunk.value(),
             "csv_quoting":       self.cb_quoting.currentData(),
+            "csv_date_format":   self.inp_date_format.text().strip(),
             "output_name":       self.inp_output_name.text().strip(),
         }
 

@@ -106,7 +106,10 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
 
 - **Extraction base de données (`DB_EXTRACT`)** — exécute une requête SQL enregistrée et exporte
   le résultat dans un fichier (CSV par défaut). Publie une sortie nommée personnalisable (champ
-  *Nom de sortie*).
+  *Nom de sortie*). Champ *Format des dates* facultatif : un filet de sécurité qui reformate
+  toute colonne encore typée date/heure à l'arrivée (mêmes tokens que partout ailleurs, ex :
+  `{dd}/{MM}/{yyyy}`) — utile si une colonne a été oubliée lors d'un formatage explicite côté
+  SQL (`TO_CHAR` ou équivalent).
 - **Téléchargement FTP (`FTP_DOWNLOAD`)** — récupère un fichier depuis un serveur FTP/SFTP. Publie
   également une sortie nommée.
 - **Chargement base de données (`DB_LOAD`)** — charge un fichier CSV dans une table. La source du
