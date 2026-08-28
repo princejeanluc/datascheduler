@@ -9,6 +9,27 @@ from pathlib import Path
 
 from .base import BaseStep, StepContext, StepResult
 
+# {yyyy}/{MM}/{dd}... sont déjà le vocabulaire de tokens utilisé partout ailleurs dans l'appli
+# (chemins FTP, noms de fichiers, sujets d'email — voir StepContext.resolve_tokens) — plutôt que
+# d'exposer la syntaxe strftime brute de pandas à l'utilisateur pour ce champ, on traduit dans
+# le même vocabulaire déjà connu. Mapping volontairement 1:1, aucune ambiguïté entre tokens
+# (chacun est encadré par ses propres accolades).
+_DATE_FORMAT_TOKEN_MAP = {
+    "{yyyy}": "%Y", "{yy}": "%y", "{MM}": "%m", "{dd}": "%d",
+    "{HH}": "%H", "{mm}": "%M", "{ss}": "%S",
+}
+
+
+def _translate_date_format(template: str) -> str:
+    """Traduit un format écrit avec les tokens habituels de l'appli (ex: "{dd}/{MM}/{yyyy}")
+    en directive strftime (ex: "%d/%m/%Y"), seule syntaxe comprise par pandas.to_csv(). Un
+    token non reconnu est laissé tel quel — apparaîtra littéralement dans le CSV produit,
+    un échec visible plutôt qu'un plantage."""
+    result = template
+    for token, directive in _DATE_FORMAT_TOKEN_MAP.items():
+        result = result.replace(token, directive)
+    return result
+
 
 class DbExtractStep(BaseStep):
     PRODUCES = {"output_file"}
@@ -58,6 +79,7 @@ class DbExtractStep(BaseStep):
                 rows_done[0] = rows
                 progress(f"Export… {rows:,} lignes", min(25 + chunk_idx * 2, 75))
 
+            date_format_tpl = self.config.get("csv_date_format") or ""
             exporter = SqlExporter(
                 connector=connector,
                 sql=ctx.resolve_tokens(sql_query.sql_text),
@@ -66,6 +88,7 @@ class DbExtractStep(BaseStep):
                 encoding=self.config.get("csv_encoding",    "utf-8-sig"),
                 chunk_size=self.config.get("csv_chunk_size", 50000),
                 quoting=self.config.get("csv_quoting",      "QUOTE_NONNUMERIC"),
+                date_format=_translate_date_format(date_format_tpl) if date_format_tpl else None,
                 on_progress=export_progress,
                 cancel_event=cancel_event,
             )

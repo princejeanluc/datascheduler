@@ -29,6 +29,16 @@ bas pour son introduction).
 
 ## [Non publié]
 
+### Ajouté
+- Étape `DB_EXTRACT` : nouveau champ facultatif "Format des dates" (mêmes tokens que partout
+  ailleurs dans l'appli — `{dd}`, `{MM}`, `{yyyy}`...) — un filet de sécurité pour toute colonne
+  encore typée date/heure à l'arrivée dans le CSV produit. Bug réel signalé par un utilisateur :
+  une requête peut formater explicitement certaines colonnes date via `TO_CHAR` (ou équivalent)
+  tout en oubliant les autres — celles-ci remontent alors comme de vraies dates, que pandas
+  écrit en CSV au format ISO par défaut (`yyyy-MM-dd`), quel que soit le format demandé ailleurs
+  dans la même requête pour d'autres colonnes. Laissé vide (défaut), aucun changement de
+  comportement pour une étape existante.
+
 ### Modifié
 - Paramètres → Fuseau horaire : le réglage n'offrait que deux choix câblés en dur (UTC,
   Europe/Paris) — remplacé par la liste complète des fuseaux IANA réels (~600, via `tzdata`,
