@@ -771,14 +771,46 @@ def test_migrate_backfills_pos_columns_on_legacy_db(tmp_path):
 #  PARAMÈTRES APPLICATIFS (chantier écran "Paramètres")
 # ──────────────────────────────────────────────
 
-def test_get_app_settings_creates_singleton_row_with_defaults(test_db):
+def test_get_app_settings_creates_singleton_row_with_defaults(test_db, monkeypatch):
+    import tzlocal
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Asia/Tokyo")
+
     settings = db.get_app_settings()
-    assert settings.timezone == "UTC"
+    assert settings.timezone == "Asia/Tokyo"   # database/models.py::_default_timezone
     assert settings.misfire_grace_time_min == 60
     assert settings.coalesce_missed_runs is True   # préserve le comportement câblé en dur avant
     assert settings.max_concurrent_runs == 6
     assert settings.log_level == "INFO"
     assert settings.dashboard_refresh_s == 30
+
+
+def test_default_timezone_returns_the_detected_machine_zone(monkeypatch):
+    from database.models import _default_timezone
+    import tzlocal
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Europe/Paris")
+
+    assert _default_timezone() == "Europe/Paris"
+
+
+def test_default_timezone_falls_back_to_utc_on_detection_failure(monkeypatch):
+    from database.models import _default_timezone
+    import tzlocal
+    def _raise():
+        raise OSError("aucun fuseau système lisible")
+    monkeypatch.setattr(tzlocal, "get_localzone_name", _raise)
+
+    assert _default_timezone() == "UTC"
+
+
+def test_default_timezone_falls_back_to_utc_on_an_unrecognized_zone_name(monkeypatch):
+    """Défensif : si tzlocal renvoyait un jour un nom non reconnu par zoneinfo (corruption,
+    version incompatible...), on ne veut jamais propager une valeur invalide qui ferait échouer
+    la construction du CronTrigger bien plus tard, loin de la cause réelle."""
+    from database.models import _default_timezone
+    import tzlocal
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Not/A/RealZone")
+
+    assert _default_timezone() == "UTC"
 
 
 def test_get_app_settings_is_idempotent_get_or_create(test_db):

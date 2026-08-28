@@ -47,6 +47,13 @@ bas pour son introduction).
   déjà une dépendance du projet), avec un champ éditable + recherche filtrée pour la parcourir
   (par ville/région, ou `Etc/GMT±N` pour un décalage fixe explicite). Un fuseau nommé reste
   correct toute l'année (changement d'heure été/hiver), contrairement à un simple "GMT+3" figé.
+- Fuseau horaire par défaut d'une **nouvelle installation** : n'est plus câblé en dur sur `UTC`
+  — détecté automatiquement depuis la machine (`tzlocal`) à la toute première création de la
+  ligne `AppSettings`, pour que l'heure des pipelines corresponde à l'heure de la machine sans
+  configuration manuelle. Repli sur `UTC` si la détection échoue. N'affecte jamais une
+  installation déjà provisionnée (le défaut ne s'applique qu'à une ligne absente) — ni la
+  portabilité d'un export/import de pipeline entre deux machines à fuseaux différents, qui reste
+  gouvernée par le fuseau de la machine qui importe, comme avant.
 
 ## [0.32.0] - 2026-08-27
 

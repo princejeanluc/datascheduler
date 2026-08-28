@@ -31,7 +31,41 @@ def test_scheduler_reads_timezone_from_app_settings(test_db):
         sched.stop()
 
 
-def test_scheduler_defaults_to_utc_timezone(test_db):
+def test_scheduler_defaults_to_the_detected_machine_timezone(test_db, monkeypatch):
+    """AppSettings.timezone n'est plus câblé en dur sur "UTC" — une nouvelle installation
+    détecte le fuseau réel de la machine (database/models.py::_default_timezone), pour que
+    l'heure des pipelines corresponde à l'heure de la machine sans configuration manuelle."""
+    import tzlocal
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Asia/Tokyo")
+
+    sched = PipelineScheduler()
+    try:
+        assert str(sched._scheduler.timezone) == "Asia/Tokyo"
+    finally:
+        sched.stop()
+
+
+def test_scheduler_falls_back_to_utc_when_detection_fails(test_db, monkeypatch):
+    import tzlocal
+    def _raise():
+        raise OSError("aucun fuseau système lisible")
+    monkeypatch.setattr(tzlocal, "get_localzone_name", _raise)
+
+    sched = PipelineScheduler()
+    try:
+        assert str(sched._scheduler.timezone) == "UTC"
+    finally:
+        sched.stop()
+
+
+def test_existing_app_settings_row_keeps_its_stored_timezone(test_db, monkeypatch):
+    """La détection ne s'applique qu'à la CRÉATION d'une ligne AppSettings absente — une base
+    déjà provisionnée (mise à jour de l'appli, pas une nouvelle installation) garde son fuseau
+    déjà enregistré, quel que soit le fuseau de la machine qui l'exécute maintenant."""
+    import tzlocal
+    db.update_app_settings(timezone="UTC")   # crée la ligne, comme une ancienne installation
+    monkeypatch.setattr(tzlocal, "get_localzone_name", lambda: "Asia/Tokyo")
+
     sched = PipelineScheduler()
     try:
         assert str(sched._scheduler.timezone) == "UTC"
