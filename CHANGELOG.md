@@ -29,6 +29,8 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.33.0] - 2026-08-30
+
 ### Ajouté
 - Étape `DB_EXTRACT` : nouveau champ facultatif "Format des dates" (mêmes tokens que partout
   ailleurs dans l'appli — `{dd}`, `{MM}`, `{yyyy}`...) — un filet de sécurité pour toute colonne
