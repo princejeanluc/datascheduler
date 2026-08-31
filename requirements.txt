@@ -23,6 +23,11 @@ pandas==2.2.3
 # Planificateur de tâches
 apscheduler==3.10.4
 
+# Détection du fuseau horaire de la machine (valeur par défaut d'AppSettings.timezone à la
+# première installation, database/models.py::_default_timezone) — déjà présent en transitif via
+# pandas/apscheduler, épinglé en direct car database/models.py en dépend désormais explicitement.
+tzlocal==5.3.1
+
 # Mesure CPU/mémoire de l'application (vue Ressources) — extension C, voir KULU.spec
 # pour le traitement collect_all() correspondant (même famille de dépendance qu'oracledb/numpy/
 # pandas, déjà bitten plusieurs fois par un simple hiddenimports insuffisant).

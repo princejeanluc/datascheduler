@@ -565,6 +565,24 @@ class NotificationSettings(Base):
 #  PARAMÈTRES APPLICATIFS (chantier écran "Paramètres")
 # ──────────────────────────────────────────────
 
+def _default_timezone() -> str:
+    """Fuseau détecté de la machine au moment de la création de la ligne AppSettings — évite le
+    décalage "heure de pipeline vs heure machine" par défaut sur une NOUVELLE installation, sans
+    action de l'utilisateur (voir aussi core/scheduler.py::build_cron_trigger). N'affecte jamais
+    une base déjà provisionnée : SQLAlchemy n'applique ce défaut qu'à l'INSERT d'une ligne
+    absente (voir db_manager.get_app_settings(), get-or-create), jamais à une ligne existante.
+    Repli sur UTC si la détection échoue (rare : environnement conteneurisé sans fuseau système
+    lisible) — comportement historique inchangé dans ce cas précis."""
+    try:
+        import tzlocal
+        from zoneinfo import ZoneInfo
+        name = tzlocal.get_localzone_name()
+        ZoneInfo(name)   # valide que c'est un vrai fuseau IANA reconnu avant de s'y fier
+        return name
+    except Exception:
+        return "UTC"
+
+
 class AppSettings(Base):
     """
     Ligne singleton (id=1 toujours) — même patron que NotificationSettings ci-dessus. Réunit ce
@@ -579,7 +597,7 @@ class AppSettings(Base):
     id                      = Column(Integer, primary_key=True, default=1)
 
     # Ordonnanceur (core/scheduler.py)
-    timezone                = Column(String(64), default="UTC", nullable=False)
+    timezone                = Column(String(64), default=_default_timezone, nullable=False)
     misfire_grace_time_min  = Column(Integer, default=60, nullable=False)
     # Défaut = True, pas False : préserve le comportement actuellement câblé en dur
     # (core/scheduler.py) — une nouvelle colonne ne doit jamais changer le comportement
