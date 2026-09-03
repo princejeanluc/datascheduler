@@ -136,6 +136,21 @@ QWidget {{
     font-size: 13px;
 }}
 
+/* ── Infobulles ──
+   Sans règle explicite, QToolTip peut être peint par le chrome natif de l'OS sur certaines
+   machines (thème sombre/clair Windows, mise à l'échelle...) au lieu de suivre la palette de
+   l'appli — texte et fond peuvent alors provenir de deux sources différentes et finir par se
+   confondre (encadré visible mais texte invisible, signalé par un utilisateur sur certains
+   postes bureau, jamais reproduit sur d'autres machines). Une règle QSS explicite fait peindre
+   l'infobulle entièrement par Qt, de façon identique sur toutes les machines. */
+QToolTip {{
+    background-color: {COLORS['bg_card']};
+    color: {COLORS['text_main']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 4px;
+    padding: 4px 8px;
+}}
+
 /* ── Scrollbar ── */
 QScrollBar:vertical {{
     background: {COLORS['bg_panel']};
