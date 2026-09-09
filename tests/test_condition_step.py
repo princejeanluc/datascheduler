@@ -202,3 +202,41 @@ def test_unmatched_opening_parenthesis_is_rejected_cleanly():
     result = get_step("CONDITION", {"expression": "(rows_count > 0"}).run(ctx)
     assert not result.success
     assert "Expression invalide" in result.error
+
+
+# ──────────────────────────────────────────────
+#  var:<nom> (chantier EXTRACT_VARIABLES) — valeur typée, pas repassée par str() contrairement
+#  à artifact: (une comparaison numérique/chronologique a besoin du type d'origine).
+# ──────────────────────────────────────────────
+
+def test_var_numeric_comparison_uses_the_stored_type_not_a_string():
+    ctx = StepContext()
+    ctx.variables["total"] = 1234.5
+    assert get_step("CONDITION", {"expression": "var:total > 1000"}).run(ctx).active_port == "true"
+    assert get_step("CONDITION", {"expression": "var:total < 1000"}).run(ctx).active_port == "false"
+
+
+def test_var_iso_date_string_compares_chronologically():
+    """Une date extraite par EXTRACT_VARIABLES est stockée en ISO-8601 (voir
+    core/steps/extract_variables.py) — l'ordre lexicographique d'une chaîne ISO coïncide avec
+    l'ordre chronologique, donc les opérateurs de comparaison de chaîne suffisent, sans branche
+    de type dédiée aux dates dans ce module."""
+    ctx = StepContext()
+    ctx.variables["date_max"] = "2026-09-09"
+    assert get_step("CONDITION", {"expression": 'var:date_max >= "2026-01-01"'}).run(ctx).active_port == "true"
+    assert get_step("CONDITION", {"expression": 'var:date_max < "2026-01-01"'}).run(ctx).active_port == "false"
+
+
+def test_var_missing_compares_as_none_without_raising():
+    ctx = StepContext()
+    result = get_step("CONDITION", {"expression": 'var:missing == "x"'}).run(ctx)
+    assert result.success
+    assert result.active_port == "false"
+
+
+def test_var_name_with_space_requires_quoting():
+    ctx = StepContext()
+    ctx.variables["date max"] = "2026-09-09"
+    result = get_step("CONDITION", {"expression": 'var:"date max" == "2026-09-09"'}).run(ctx)
+    assert result.success
+    assert result.active_port == "true"

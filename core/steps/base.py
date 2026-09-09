@@ -26,6 +26,15 @@ class StepContext:
 
     started_at:  datetime      = field(default_factory=datetime.utcnow)
     artifacts:   dict          = field(default_factory=dict)
+    # Valeurs scalaires nommées (chantier EXTRACT_VARIABLES) — délibérément distinct
+    # d'`artifacts` (toujours des `Path`) : un `{artifact:nom}` non résolu redevient du texte
+    # littéral inoffensif dans un champ templaté, alors qu'un `{var:nom}` doit pouvoir porter un
+    # int/float/str tel quel jusqu'à CONDITION (comparaisons numériques/chronologiques), pas
+    # une chaîne déjà passée par str(). Toute date/heure extraite y est stockée déjà normalisée
+    # en ISO-8601 (voir core/steps/extract_variables.py) — jamais un objet date/datetime Python
+    # brut, précisément pour que les opérateurs de comparaison de core/steps/condition.py
+    # (déjà écrits pour des chaînes) restent valides sans branche de type supplémentaire.
+    variables:   dict          = field(default_factory=dict)
     rows_count:  int           = 0
     log_lines:   list[str]     = field(default_factory=list)
     extra:       dict          = field(default_factory=dict)
@@ -59,6 +68,7 @@ class StepContext:
         return StepContext(
             started_at=self.started_at,
             artifacts=dict(self.artifacts),
+            variables=dict(self.variables),
             rows_count=self.rows_count,
             log_lines=[],
             extra=self.extra,
@@ -89,6 +99,16 @@ class StepContext:
         t = re.sub(
             r"\{artifact:([^}]+)\}",
             lambda m: str(self.artifacts[m.group(1)]) if m.group(1) in self.artifacts else m.group(0),
+            t,
+        )
+        # {var:nom} — valeur extraite par EXTRACT_VARIABLES, même convention que {artifact:nom}
+        # ci-dessus (non résolu si absent, reste littéral). Toujours str() ici : ce champ produit
+        # du TEXTE (sujet d'email, chemin, requête...) — seul CONDITION (core/steps/condition.py)
+        # lit ctx.variables directement, sans passer par resolve_tokens(), pour garder la valeur
+        # typée (int/float) nécessaire à une comparaison numérique.
+        t = re.sub(
+            r"\{var:([^}]+)\}",
+            lambda m: str(self.variables[m.group(1)]) if m.group(1) in self.variables else m.group(0),
             t,
         )
         return t

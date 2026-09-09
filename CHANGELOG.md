@@ -29,6 +29,28 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.35.0] - 2026-09-09
+
+### Ajouté
+- Nouvelle étape `EXTRACT_VARIABLES` : lit un fichier déjà produit (comme Copie locale/
+  Chargement base de données — *Source*/chemin explicite, séparateur et encodage CSV), attendu à
+  **une seule ligne de données** (typiquement le résultat d'une requête d'agrégation — `MAX(date)`,
+  `SUM(montant)`...), et publie les colonnes choisies comme variables via une liste de
+  correspondances *colonne source → variable cible* (premier dialogue de step à liste dynamique,
+  ajout/retrait ligne par ligne). N'exécute elle-même aucune requête — responsabilité délibérément
+  étroite (répond à un vrai frein signalé par des utilisateurs : manipuler une valeur scalaire
+  issue d'une requête, ou en piloter une décision, était jusqu'ici difficile hors d'un Script
+  Python). Une correspondance de type Date/Date-heure demande son propre format (mêmes jetons que
+  `csv_date_format`, désormais partagés dans `core/date_tokens.py`) ; la valeur est normalisée en
+  ISO-8601 à l'extraction pour que les comparaisons restent chronologiquement correctes sans
+  aucune branche de type supplémentaire côté Condition. Échoue si la source contient zéro ou
+  plusieurs lignes plutôt que de choisir arbitrairement.
+- Nouveau jeton `{var:nom}` (`StepContext.variables`) et nouvel opérande `var:<nom>` dans les
+  expressions Condition — même convention que `{artifact:nom}`/`artifact:<nom>`, mais porte la
+  valeur telle quelle (nombre, texte, date ISO) plutôt qu'un chemin de fichier repassé par
+  `str()`, pour que `var:total > 1000` ou `var:date_max >= "2026-01-01"` comparent réellement la
+  valeur d'origine.
+
 ## [0.34.0] - 2026-09-09
 
 ### Ajouté

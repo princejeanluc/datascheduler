@@ -12,23 +12,10 @@ from .base import BaseStep, StepContext, StepResult
 # {yyyy}/{MM}/{dd}... sont déjà le vocabulaire de tokens utilisé partout ailleurs dans l'appli
 # (chemins FTP, noms de fichiers, sujets d'email — voir StepContext.resolve_tokens) — plutôt que
 # d'exposer la syntaxe strftime brute de pandas à l'utilisateur pour ce champ, on traduit dans
-# le même vocabulaire déjà connu. Mapping volontairement 1:1, aucune ambiguïté entre tokens
-# (chacun est encadré par ses propres accolades).
-_DATE_FORMAT_TOKEN_MAP = {
-    "{yyyy}": "%Y", "{yy}": "%y", "{MM}": "%m", "{dd}": "%d",
-    "{HH}": "%H", "{mm}": "%M", "{ss}": "%S",
-}
-
-
-def _translate_date_format(template: str) -> str:
-    """Traduit un format écrit avec les tokens habituels de l'appli (ex: "{dd}/{MM}/{yyyy}")
-    en directive strftime (ex: "%d/%m/%Y"), seule syntaxe comprise par pandas.to_csv(). Un
-    token non reconnu est laissé tel quel — apparaîtra littéralement dans le CSV produit,
-    un échec visible plutôt qu'un plantage."""
-    result = template
-    for token, directive in _DATE_FORMAT_TOKEN_MAP.items():
-        result = result.replace(token, directive)
-    return result
+# le même vocabulaire déjà connu. Fonction partagée désormais dans core/date_tokens.py (chantier
+# EXTRACT_VARIABLES, qui la réutilise pour le sens inverse — parser une date plutôt que la
+# formater) — réexportée ici sous son ancien nom pour ne rien casser côté appelants existants.
+from core.date_tokens import translate_date_format as _translate_date_format
 
 
 class DbExtractStep(BaseStep):

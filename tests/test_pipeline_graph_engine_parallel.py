@@ -98,6 +98,12 @@ class _FakeDelayedStep(BaseStep):
         return StepResult(success=True)
 
 
+class _FakeVariableSettingStep(BaseStep):
+    def run(self, ctx, cancel_event=None, on_progress=None) -> StepResult:
+        ctx.variables["x"] = 42
+        return StepResult(success=True)
+
+
 class _FakeBlockingStep(BaseStep):
     """Bloque jusqu'à ce que cancel_event soit positionné, puis coopère (comme un vrai step de
     ce chantier) — pour tester l'annulation sans dépendre d'un minuteur fragile."""
@@ -139,6 +145,26 @@ def test_gateway_parallel_forwards_artifact_to_every_branch(test_db, monkeypatch
     assert not pipeline_failed, result.log_lines
     assert sink_a.read_text() == "DATA"
     assert sink_b.read_text() == "DATA"
+
+
+# ──────────────────────────────────────────────
+#  ctx.variables (chantier EXTRACT_VARIABLES) — chaque étape tourne sur sa propre copie isolée
+#  de ctx (step_ctx = ctx.fork()) ; sans report explicite après coup, une valeur posée dans
+#  step_ctx.variables serait invisible pour la suite du pipeline, contrairement au moteur
+#  séquentiel qui n'isole jamais ctx.
+# ──────────────────────────────────────────────
+
+def test_variables_set_by_a_step_survive_the_parallel_engines_context_isolation(test_db, monkeypatch):
+    monkeypatch.setitem(steps_module._REGISTRY, "EXTRACT_VARIABLES", _FakeVariableSettingStep)
+    pipeline = db.create_pipeline(name="parallel-variables")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "EXTRACT_VARIABLES", "config": {"_step_key": "v"}},
+    ], edges=[])
+
+    (pipeline_failed, _, _, _), ctx, result = _run_parallel(pipeline.id)
+
+    assert not pipeline_failed, result.log_lines
+    assert ctx.variables == {"x": 42}
 
 
 # ──────────────────────────────────────────────
