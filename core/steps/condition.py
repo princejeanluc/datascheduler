@@ -36,16 +36,18 @@ _MAX_NESTING_DEPTH = 50
 
 # Un seul regex combiné, alternatives les plus spécifiques en premier (l'ordre conditionne quelle
 # alternative "gagne" à une position donnée) :
-#   - artifact:"nom cité"/'nom cité' avant la forme non citée, elle-même avant l'identifiant
-#     générique (sinon "artifact:xxx" serait déjà entièrement absorbé par IDENT, qui tolère ":"
-#     mais pas les tirets/espaces/accents d'un nom d'artefact réel — voir docstring de
-#     _resolve_operand).
+#   - artifact:"nom cité"/'nom cité' et var:"nom cité"/'nom cité' avant leur forme non citée,
+#     elles-mêmes avant l'identifiant générique (sinon "artifact:xxx"/"var:xxx" seraient déjà
+#     entièrement absorbés par IDENT, qui tolère ":" mais pas les tirets/espaces/accents d'un nom
+#     réel — voir docstring de _resolve_operand).
 #   - opérateurs à 2 caractères (==, !=, >=, <=) avant ceux à 1 caractère (>, <), sinon ">=`
 #     serait scindé en ">" puis un "=" orphelin non reconnu.
 _TOKEN_RE = re.compile(r"""
     (?P<WS>\s+)
   | (?P<ARTIFACT_Q>artifact:"[^"]*"|artifact:'[^']*')
   | (?P<ARTIFACT>artifact:[^\s()=!<>]+)
+  | (?P<VAR_Q>var:"[^"]*"|var:'[^']*')
+  | (?P<VAR>var:[^\s()=!<>]+)
   | (?P<OP>==|!=|>=|<=|>|<)
   | (?P<LPAREN>\()
   | (?P<RPAREN>\))
@@ -73,7 +75,7 @@ def _tokenize(expr: str) -> list[tuple[str, str]]:
         pos = m.end()
         if kind == "WS":
             continue
-        if kind in ("ARTIFACT_Q", "ARTIFACT"):
+        if kind in ("ARTIFACT_Q", "ARTIFACT", "VAR_Q", "VAR"):
             tokens.append(("OPERAND", text))
         elif kind == "OP":
             tokens.append(("OP", text))
@@ -96,7 +98,11 @@ def _resolve_operand(token: str, ctx: StepContext):
     """Résout un opérande : `rows_count`, `artifact:<nom>` (présence -> bool, ou son chemin en
     texte ; `<nom>` peut être cité — `artifact:"nom avec espace"` — le dépouillement de guillemets
     ci-dessous s'applique alors au nom, en plus du dépouillement générique déjà existant pour un
-    littéral cité), ou un littéral (nombre si possible, sinon chaîne)."""
+    littéral cité), `var:<nom>` (chantier EXTRACT_VARIABLES : valeur déjà typée — int/float/str,
+    ou une chaîne ISO-8601 pour une date/heure — telle que déposée dans ctx.variables, jamais
+    repassée par str() contrairement à artifact: puisqu'une comparaison numérique/chronologique a
+    besoin du type d'origine, pas de son rendu texte), ou un littéral (nombre si possible, sinon
+    chaîne)."""
     token = token.strip()
     if token == "rows_count":
         return ctx.rows_count
@@ -104,6 +110,9 @@ def _resolve_operand(token: str, ctx: StepContext):
         name = token[len("artifact:"):].strip("\"'")
         value = ctx.artifacts.get(name)
         return str(value) if value is not None else None
+    if token.startswith("var:"):
+        name = token[len("var:"):].strip("\"'")
+        return ctx.variables.get(name)
     try:
         return float(token) if "." in token else int(token)
     except ValueError:

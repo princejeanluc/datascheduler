@@ -51,6 +51,8 @@ STEP_META = {
                        "category": "Contrôle de flux", "icon": "fa5s.share-alt"},
     "GATEWAY_JOIN":   {"label": "Passerelle de jonction", "color": "#26c6da",
                        "category": "Contrôle de flux", "icon": "fa5s.compress-arrows-alt"},
+    "EXTRACT_VARIABLES": {"label": "Extraction de variables", "color": "#ffca28",
+                       "category": "Contrôle de flux", "icon": "fa5s.tags"},
 }
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]

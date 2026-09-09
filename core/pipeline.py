@@ -988,6 +988,13 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             output_name = config.get("output_name")
             if output_name:
                 ctx.artifacts[output_name] = step_ctx.output_file
+            # Report des variables extraites par cette branche (chantier EXTRACT_VARIABLES) —
+            # sans quoi une étape tournée sur sa propre copie isolée de ctx (step_ctx.fork(),
+            # voir docstring de la classe) verrait ses ctx.variables perdus dès que le moteur
+            # parallèle est utilisé, alors qu'ils survivent sans rien faire de plus sur le
+            # moteur séquentiel (_execute_graph, qui n'isole jamais ctx).
+            if step_ctx.variables:
+                ctx.variables.update(step_ctx.variables)
             step_status[step_key] = "success"
             active_port[step_key] = step_result.active_port
             if not (pipeline_failed and step.run_always):
@@ -1046,6 +1053,8 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         if step_result.success:
             if step_ctx.output_file is not None:
                 ctx.artifacts["output_file"] = step_ctx.output_file
+            if step_ctx.variables:
+                ctx.variables.update(step_ctx.variables)
         elif cancel_event.is_set():
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")

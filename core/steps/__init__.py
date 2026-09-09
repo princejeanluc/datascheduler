@@ -15,6 +15,7 @@ from .sqoop_export   import SqoopExportStep
 from .sqoop_import   import SqoopImportStep
 from .gateway_parallel import GatewayParallelStep
 from .gateway_join   import GatewayJoinStep
+from .extract_variables import ExtractVariablesStep
 
 _REGISTRY: dict[str, type[BaseStep]] = {
     "FTP_UPLOAD":     FtpUploadStep,
@@ -33,6 +34,7 @@ _REGISTRY: dict[str, type[BaseStep]] = {
     "SQOOP_IMPORT":   SqoopImportStep,
     "GATEWAY_PARALLEL": GatewayParallelStep,
     "GATEWAY_JOIN":      GatewayJoinStep,
+    "EXTRACT_VARIABLES": ExtractVariablesStep,
 }
 
 

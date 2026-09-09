@@ -180,6 +180,16 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   de ses deux sorties (`true` / `false`) selon le résultat. Plusieurs critères se combinent avec
   `and` / `or` / `not` et des parenthèses, ex. : `rows_count > 0 and artifact:rapport != ""` — un
   nom d'artefact contenant un espace doit être cité (`artifact:"rapport final"`).
+- **Extraction de variables (`EXTRACT_VARIABLES`)** — lit un fichier déjà produit (comme
+  Copie locale ou Chargement base de données : *Source* ou chemin explicite, séparateur/encodage
+  CSV), attendu à **une seule ligne de données** (typiquement le résultat d'une requête
+  d'agrégation — `MAX(date)`, `SUM(montant)`...), et publie les colonnes choisies comme variables
+  (`var:nom`) via une liste de correspondances *colonne source → variable cible*. N'exécute
+  aucune requête elle-même — la requête reste l'affaire de l'étape en amont. Une correspondance de
+  type Date/Date-heure demande son propre format (mêmes jetons que partout ailleurs) ; la valeur
+  est alors normalisée en ISO-8601, pour que les comparaisons dans une Condition restent
+  chronologiquement correctes (`var:date_max >= "2026-01-01"`). Échoue si la source contient zéro
+  ou plusieurs lignes — un signal visible plutôt qu'un choix arbitraire de ligne.
 """,
     ),
     HelpTopic(
@@ -217,6 +227,15 @@ besoin de retenir les noms par cœur.
 > Un `{artifact:nom}` qui ne correspond à aucune sortie publiée avant cette étape reste affiché
 > tel quel dans le résultat, sans faire échouer le pipeline — un signal visible que quelque chose
 > ne correspond pas (nom mal orthographié, étape déplacée après plutôt qu'avant…).
+
+## Variables — pour une décision basée sur une valeur, pas un fichier
+
+`{var:nom}` référence une valeur publiée par l'étape **Extraction de variables**
+(`EXTRACT_VARIABLES`) — même convention que `{artifact:nom}` (non résolu si absent, reste
+littéral), mais pour une valeur scalaire (nombre, texte, date) plutôt qu'un chemin de fichier.
+Utilisable dans n'importe quel champ templaté, et directement dans une expression **Condition**
+sans les accolades (`var:total > 1000`, `var:date_max >= "2026-01-01"`) — la comparaison utilise
+alors la valeur telle quelle (numérique ou chronologique), pas sa représentation texte.
 
 ## Scripts Python — contrat JSON optionnel
 

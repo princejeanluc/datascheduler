@@ -33,7 +33,7 @@ plus complexe ajoute du branchement conditionnel ou du fan-out/fan-in parallèle
 
 Planification cron (APScheduler) ou déclenchement manuel, dans les deux cas.
 
-16 types d'étapes disponibles aujourd'hui, combinables librement dans un même pipeline (dont 3
+17 types d'étapes disponibles aujourd'hui, combinables librement dans un même pipeline (dont 3
 routeurs de flux réservés à l'éditeur graphique) :
 
 | Étape | Rôle |
@@ -51,6 +51,7 @@ routeurs de flux réservés à l'éditeur graphique) :
 | `SQOOP_IMPORT` | Importe une table Oracle vers Hive/HCatalog via Sqoop (SSH + Kerberos) |
 | `EMAIL_NOTIFY` | Envoie un email, pièce jointe optionnelle |
 | `HTTP_REQUEST` | Appelle une API REST / un webhook |
+| `EXTRACT_VARIABLES` | Extrait des colonnes d'une source à une ligne vers des variables (`var:nom`) |
 | `CONDITION` | Routeur conditionnel à deux sorties (`true`/`false`) — éditeur graphique uniquement |
 | `GATEWAY_PARALLEL` | Embranchement parallèle explicite (fan-out) — éditeur graphique uniquement |
 | `GATEWAY_JOIN` | Jonction ET/OU de branches convergentes (fan-in) — éditeur graphique uniquement |
@@ -139,7 +140,7 @@ DataScheduler/
 │       ├── base.py               # BaseStep, StepContext (artefacts nommés), StepResult
 │       ├── condition.py          # ConditionStep — routeur à ports nommés (éditeur graphique)
 │       ├── __init__.py           # Registre des types d'étape (_REGISTRY, get_step())
-│       └── <nom>.py              # Une classe par type d'étape (16 aujourd'hui)
+│       └── <nom>.py              # Une classe par type d'étape (17 aujourd'hui)
 │
 ├── database/
 │   ├── models.py                # Modèles SQLAlchemy (profils, SqlQuery, Pipeline, PipelineStep,

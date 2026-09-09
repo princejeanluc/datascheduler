@@ -84,6 +84,7 @@ class StepType(str, enum.Enum):
     SQOOP_IMPORT   = "SQOOP_IMPORT"    # Import Oracle → Hive/HCatalog via Sqoop, edge node SSH + Kerberos
     GATEWAY_PARALLEL = "GATEWAY_PARALLEL"  # Fork parallèle (chantier Gateway) — marqueur de branchement
     GATEWAY_JOIN     = "GATEWAY_JOIN"      # Jonction ET/OU (chantier Gateway) — synchronise plusieurs branches
+    EXTRACT_VARIABLES = "EXTRACT_VARIABLES"  # Extrait des valeurs d'un fichier source vers ctx.variables
 
 
 # ──────────────────────────────────────────────
