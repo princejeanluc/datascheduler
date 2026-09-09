@@ -23,7 +23,7 @@ def get_step(step_type: str, config: dict) -> BaseStep:
     return _REGISTRY[step_type](config)
 ```
 L'exécuteur ([core/pipeline.py](../core/pipeline.py)) ne connaît qu'une seule ligne :
-`get_step(step_type, config)`. Il n'a jamais besoin de savoir que 15 types d'étapes existent, ni
+`get_step(step_type, config)`. Il n'a jamais besoin de savoir que 16 types d'étapes existent, ni
 lesquels. Ajouter un seizième type = ajouter une ligne au dictionnaire, zéro ligne changée dans
 l'exécuteur. C'est l'essence du **principe ouvert/fermé** (une des idées derrière "SOLID") :
 ouvert à l'extension (on peut ajouter des types), fermé à la modification (le code qui les

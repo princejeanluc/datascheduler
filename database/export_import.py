@@ -108,6 +108,10 @@ _STEP_REFERENCES = {
                       # absent de la config — exactement le cas ici, l'étape étant scopée Oracle
                       # uniquement dès la conception (pas de champ db_type du tout).
                       ("oracle_profile_id", "db_profile")],
+    "SQOOP_IMPORT": [("edge_profile_id", "edge_profile"),
+                      ("kerberos_profile_id", "kerberos_profile"),
+                      ("elevation_profile_id", "elevation_profile"),
+                      ("oracle_profile_id", "db_profile")],
 }
 
 _UUID_KEY_FOR = {

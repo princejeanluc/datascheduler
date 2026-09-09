@@ -29,6 +29,20 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.34.0] - 2026-09-09
+
+### Ajouté
+- Nouvelle étape `SQOOP_IMPORT` : importe une table Oracle vers Hive/HCatalog via `sqoop
+  import`, sens inverse de `SQOOP_EXPORT` (jusqu'ici seul sens supporté, par choix explicite —
+  besoin réel de le compléter apparu depuis). Mêmes profils (SSH edge, Kerberos et élévation
+  optionnels, Oracle), même mécanique réseau (`core/sqoop.py::_run_sqoop`, désormais partagée
+  entre les deux sens plutôt que dupliquée). Suppose la table HCatalog cible déjà créée (même
+  choix que `DB_LOAD` pour ses tables SQL — pas de génération de DDL). Nombre de mappers par
+  défaut à 1 (fonctionne pour n'importe quelle table sans configuration supplémentaire) ; une
+  colonne de partitionnement (`--split-by`) devient obligatoire au-delà, pour que Sqoop puisse
+  paralléliser la lecture côté Oracle — un souci que l'export n'a jamais eu, puisqu'il écrit
+  dans Oracle sans avoir à en partitionner la lecture.
+
 ### Modifié
 - Fuseau horaire par défaut d'une **nouvelle installation** : n'est plus câblé en dur sur `UTC`
   — détecté automatiquement depuis la machine (`tzlocal`) à la toute première création de la

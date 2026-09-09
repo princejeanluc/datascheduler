@@ -39,6 +39,8 @@ STEP_META = {
                        "category": "Exécution & scripts", "icon": "fa5s.fire"},
     "SQOOP_EXPORT":   {"label": "Export Sqoop (→ Oracle)", "color": "#f06292",
                        "category": "Exécution & scripts", "icon": "fa5s.exchange-alt"},
+    "SQOOP_IMPORT":   {"label": "Import Sqoop (Oracle →)", "color": "#4db6ac",
+                       "category": "Exécution & scripts", "icon": "fa5s.random"},
     "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350",
                        "category": "Notification & intégration", "icon": "fa5s.envelope"},
     "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc",
