@@ -154,6 +154,12 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   selon votre équipe (l'un, l'autre, les deux, ou aucun) : un profil **Kerberos** (kinit, comme
   Spark SQL) et/ou un profil **d'élévation** (`sudo su` vers un compte technique partagé, ex :
   « nifi » — l'élévation, si configurée, précède toujours le kinit).
+- **Import Sqoop (`SQOOP_IMPORT`)** — sens inverse de l'étape précédente : importe une table
+  Oracle vers Hive/HCatalog via `sqoop import`, sur un nœud edge. Mêmes profils, même
+  fonctionnement — la table HCatalog cible doit déjà exister (jamais de création automatique).
+  Champ *Nombre de mappers* (1 par défaut, fonctionne toujours sans configuration
+  supplémentaire) : au-delà de 1, une *Colonne de partitionnement* devient obligatoire — Sqoop
+  ne peut paralléliser la lecture côté Oracle sans elle.
 
 ## Notification & intégration
 

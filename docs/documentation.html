@@ -514,7 +514,7 @@ core/
   steps/
     base.py                BaseStep, StepContext, StepResult
     __init__.py             Le registre _REGISTRY + get_step()
-    &lt;nom&gt;.py                Une classe par type d'étape (15 aujourd'hui)
+    &lt;nom&gt;.py                Une classe par type d'étape (16 aujourd'hui)
 ui/
   main_window/             Fenêtre principale, navigation (8 entrées), 7 vues (Dashboard,
                             Pipelines, Connexions, Requêtes SQL, Historique, Ressources,
@@ -699,7 +699,7 @@ def get_step(step_type: str, config: dict) -> BaseStep:
     return _REGISTRY[step_type](config)</code></pre>
         <p>
           L'exécuteur ne connaît qu'une seule ligne : <code>get_step(step_type, config)</code>. Il
-          n'a jamais besoin de savoir que 15 types d'étapes existent, ni lesquels. Ajouter un
+          n'a jamais besoin de savoir que 16 types d'étapes existent, ni lesquels. Ajouter un
           seizième type = ajouter une ligne au dictionnaire, zéro ligne changée dans l'exécuteur.
           C'est l'essence du <strong>principe ouvert/fermé</strong> (une des idées derrière « SOLID »)
           : ouvert à l'extension, fermé à la modification.

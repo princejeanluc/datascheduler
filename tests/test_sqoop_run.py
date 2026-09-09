@@ -4,13 +4,22 @@ Vérifie core.sqoop.run_sqoop_export()/build_sqoop_export_command() via de fauss
 paramiko (tests/_fake_ssh.py) — même principe que tests/test_spark.py. Couvre : commande bien
 formée, court-circuit propre sur échec Kerberos, échec propre sur code de sortie non nul,
 masquage du mot de passe pour la journalisation, nettoyage/fermeture systématiques.
+
+Couvre aussi run_sqoop_import()/build_sqoop_import_command() (sens inverse, demande explicite de
+l'utilisateur) — plus succinctement : la mécanique SSH/kinit/élévation partagée (_run_sqoop) est
+déjà exhaustivement vérifiée ci-dessus via l'export, inutile de dupliquer chaque scénario. Les
+tests import se concentrent sur ce qui est réellement différent : la commande construite (table
+source/cible inversées, -m/--split-by) et les messages spécifiques au verbe ("import" plutôt que
+"export").
 """
 
 import threading
 
 import core.sqoop as sqoop_module
 from core.sql_db import SqlDbConfig
-from core.sqoop import build_sqoop_export_command, run_sqoop_export
+from core.sqoop import (
+    build_sqoop_export_command, build_sqoop_import_command, run_sqoop_export, run_sqoop_import,
+)
 from tests._fake_ssh import (
     FakeBlockingChannel, FakeChannel, FakeStdin, FakeStdout, FakeStderr, FakeSSHClient,
     ssh_cfg, krb_cfg, elevation_cfg, install_fake_client,
@@ -31,7 +40,7 @@ def _make_client(sqoop_exit_status: int = 0, sqoop_stderr: bytes = b"") -> FakeS
     def exec_fn(cmd, get_pty=False, timeout=None):
         if get_pty:
             return _kinit_ok_exec_fn(cmd, get_pty=get_pty, timeout=timeout)
-        if "sqoop export" in cmd and sqoop_stderr:
+        if "sqoop " in cmd and sqoop_stderr:
             import re
             m = re.search(r"2>(\S+)", cmd)
             if m:
@@ -260,3 +269,109 @@ def test_run_sqoop_export_unblocks_and_reports_cancelled_on_historical_path(monk
     assert not result.success
     assert "Annulé" in result.error
     assert blocking_channel.closed is True
+
+
+# ──────────────────────────────────────────────
+#  sqoop import (sens inverse) — commande + mécanique partagée
+# ──────────────────────────────────────────────
+
+def test_build_sqoop_import_command_default_single_mapper():
+    cmd = build_sqoop_import_command(
+        "jdbc:oracle:thin:@...", "ORAUSER", "s3cr3t",
+        "xxx.xxxxx", "DD", "FINAL_EQUIPEMENT_CLIENT", 1, "", "", masked=False,
+    )
+    assert "sqoop import" in cmd
+    assert "--table xxx.xxxxx" in cmd
+    assert "--hcatalog-database DD" in cmd
+    assert "--hcatalog-table FINAL_EQUIPEMENT_CLIENT" in cmd
+    assert "-m 1" in cmd
+    assert "--split-by" not in cmd   # jamais requis pour un seul mapper
+
+
+def test_build_sqoop_import_command_requires_split_by_above_one_mapper():
+    cmd = build_sqoop_import_command(
+        "jdbc:oracle:thin:@...", "ORAUSER", "s3cr3t",
+        "xxx.xxxxx", "DD", "T", 4, "ID_CLIENT", "", masked=False,
+    )
+    assert "-m 4" in cmd
+    assert "--split-by ID_CLIENT" in cmd
+
+
+def test_build_sqoop_import_command_masked_hides_password():
+    cmd_masked = build_sqoop_import_command(
+        "jdbc:oracle:thin:@...", "ORAUSER", "s3cr3t",
+        "xxx.xxxxx", "DD", "T", 1, "", "", masked=True,
+    )
+    assert "s3cr3t" not in cmd_masked
+    assert "****" in cmd_masked
+
+
+def test_run_sqoop_import_success(monkeypatch):
+    client = _make_client(sqoop_exit_status=0)
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_import(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "xxx.xxxxx", "DD", "FINAL_EQUIPEMENT_CLIENT",
+        1, "", "",
+    )
+
+    assert result.success, result.error
+    assert client.closed is True
+
+
+def test_run_sqoop_import_reports_nonzero_exit_status(monkeypatch):
+    client = _make_client(sqoop_exit_status=1, sqoop_stderr=b"ORA-00942: table or view does not exist")
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_import(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "xxx.t", "DD", "T", 1, "", "",
+    )
+    assert not result.success
+    assert "ORA-00942" in result.error
+
+
+def test_run_sqoop_import_uses_import_specific_progress_and_error_messages(monkeypatch):
+    """Le point qui justifie tout le refactor (_run_sqoop partagé, paramétré par `verb`) : les
+    messages doivent bien dire "import", pas rester câblés sur "export" hérité du code d'origine."""
+    client = _make_client(sqoop_exit_status=1, sqoop_stderr=b"boom")
+    install_fake_client(monkeypatch, client)
+    ticks = []
+
+    result = run_sqoop_import(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "xxx.t", "DD", "T", 1, "", "",
+        on_progress=lambda msg, pct: ticks.append(msg),
+    )
+
+    assert not result.success
+    assert "sqoop import a échoué" in result.error
+    assert "Import Sqoop en cours…" in ticks
+    assert "Export Sqoop en cours…" not in ticks
+
+
+def test_run_sqoop_import_delegates_to_elevation_path_when_configured(monkeypatch):
+    captured = {}
+
+    def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
+                                         krb_cfg=None, on_progress=None, cancel_event=None):
+        captured["command"] = command
+        return True, "ok"
+
+    monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
+
+    result = run_sqoop_import(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "xxx.t", "DD", "T", 1, "", "",
+        elevation_cfg=elevation_cfg(),
+    )
+
+    assert result.success, result.error
+    assert "sqoop import" in captured["command"]
+
+
+def test_run_sqoop_import_never_leaks_password_in_result_error(monkeypatch):
+    client = _make_client(sqoop_exit_status=1, sqoop_stderr=b"connection refused")
+    install_fake_client(monkeypatch, client)
+
+    result = run_sqoop_import(
+        ssh_cfg(), krb_cfg(), _oracle_cfg(), "xxx.t", "DD", "T", 1, "", "",
+    )
+    assert "s3cr3t" not in result.error

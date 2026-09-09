@@ -226,7 +226,7 @@ core/
   steps/
     base.py                BaseStep, StepContext, StepResult
     __init__.py             Le registre _REGISTRY + get_step()
-    <nom>.py                Une classe par type d'étape (15 aujourd'hui)
+    <nom>.py                Une classe par type d'étape (16 aujourd'hui)
 ui/
   main_window/             Fenêtre principale, navigation (8 entrées), 7 vues (Dashboard,
                             Pipelines, Connexions, Requêtes SQL, Historique, Ressources,
