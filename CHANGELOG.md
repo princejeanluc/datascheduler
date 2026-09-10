@@ -29,6 +29,20 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.35.1] - 2026-09-09
+
+### Corrigé
+- `SQOOP_IMPORT` et `EXTRACT_VARIABLES` étaient invisibles dans le dialogue « Ajouter une étape »
+  (éditeur linéaire et graphique) depuis leur introduction (v0.34.0 et v0.35.0) : ce dialogue
+  n'énumère pas `STEP_META` mais un second dictionnaire de descriptions
+  (`ui/step_editor/step_type_chooser_dialog.py::_DESCRIPTIONS`), jamais mis à jour pour ces deux
+  types — signalé par un utilisateur (« je ne vois pas l'étape import sqoop, ni les nouveaux
+  types d'étapes »). Les deux étapes fonctionnaient normalement une fois ajoutées par un autre
+  moyen (import de pipeline, édition manuelle) — seul le point d'entrée « ajout » était affecté.
+  Nouveau test de non-régression (`test_every_registered_step_type_has_a_chooser_description`)
+  pour qu'un futur type d'étape enregistré sans entrée dans `_DESCRIPTIONS` fasse échouer la
+  suite plutôt que de dépendre d'un utilisateur pour le remarquer.
+
 ## [0.35.0] - 2026-09-09
 
 ### Ajouté
