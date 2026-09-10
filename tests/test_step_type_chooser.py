@@ -54,6 +54,19 @@ def test_gateway_join_available_from_graph_editor(qapp):
     assert "GATEWAY_JOIN" in dlg._visible_types()
 
 
+def test_every_registered_step_type_has_a_chooser_description(qapp):
+    """Régression réelle (v0.34.0/v0.35.0) : SQOOP_IMPORT puis EXTRACT_VARIABLES ont été
+    enregistrés dans STEP_META/le registre de steps mais jamais ajoutés à _DESCRIPTIONS —
+    _DESCRIPTIONS pilote seul le dialogue "Ajouter une étape" (_visible_types() itère dessus,
+    jamais sur STEP_META), donc les deux sont restés invisibles à l'ajout malgré des dialogues de
+    configuration et une exécution parfaitement fonctionnels. Ce test échoue dès qu'un futur type
+    d'étape est enregistré sans mise à jour de _DESCRIPTIONS, plutôt que de dépendre d'un
+    utilisateur pour le remarquer."""
+    from ui.step_editor.step_type_chooser_dialog import _DESCRIPTIONS
+    missing = set(STEP_META) - set(_DESCRIPTIONS)
+    assert not missing, f"types absents de _DESCRIPTIONS (invisibles dans « Ajouter une étape ») : {missing}"
+
+
 def test_every_step_meta_entry_has_a_known_category(qapp):
     from ui.step_editor.step_type_chooser_dialog import _CATEGORY_ORDER
     for step_type, meta in STEP_META.items():
@@ -99,8 +112,9 @@ def test_search_matches_category_name(qapp):
     dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
     dlg.inp_search.setText("contrôle de flux")
     visible = [card for card, _ in dlg._cards if not card.isHidden()]
-    # CONDITION + GATEWAY_PARALLEL + GATEWAY_JOIN (chantier Gateway) partagent cette catégorie.
-    assert len(visible) == 3
+    # CONDITION + GATEWAY_PARALLEL + GATEWAY_JOIN (chantier Gateway) + EXTRACT_VARIABLES
+    # (chantier EXTRACT_VARIABLES) partagent cette catégorie.
+    assert len(visible) == 4
 
 
 def test_choosing_a_filtered_card_returns_correct_step_type(qapp):

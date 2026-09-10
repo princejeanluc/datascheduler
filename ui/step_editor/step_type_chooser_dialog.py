@@ -31,6 +31,7 @@ _DESCRIPTIONS = {
     "PYTHON_SCRIPT":  "Exécution d'un script Python avec arguments (tokens datetime + contexte).",
     "SPARK_SQL":      "Requête Spark SQL sur un cluster Hadoop via un nœud edge (SSH + Kerberos).",
     "SQOOP_EXPORT":   "Export d'une table Hive/HCatalog vers Oracle via Sqoop, sur un nœud edge (SSH + Kerberos).",
+    "SQOOP_IMPORT":   "Import d'une table Oracle vers Hive/HCatalog via Sqoop, sur un nœud edge (SSH + Kerberos).",
     "DB_EXECUTE":     "Exécution d'une instruction SQL/PLSQL (DML, DDL, procédure) sans extraction, tout moteur.",
     "FTP_DOWNLOAD":   "Téléchargement d'un fichier distant (FTP / FTPS / SFTP) comme source du pipeline.",
     "DB_LOAD":        "Chargement du fichier produit (CSV) dans une table, tout moteur.",
@@ -42,6 +43,8 @@ _DESCRIPTIONS = {
                       "plusieurs branches actives simultanément.",
     "GATEWAY_JOIN":   "Synchronise plusieurs branches convergentes — ET (toutes doivent réussir) "
                       "ou OU (une seule suffit), artefact désigné explicitement.",
+    "EXTRACT_VARIABLES": "Extrait des colonnes d'un fichier source (une seule ligne) vers des "
+                      "variables (var:nom), réutilisables dans une Condition ou un champ templaté.",
 }
 
 
