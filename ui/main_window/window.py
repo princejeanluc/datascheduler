@@ -6,13 +6,13 @@ Fenêtre principale (navigation latérale) + point d'entrée run().
 import sys
 
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
+    QApplication, QMainWindow, QWidget, QHBoxLayout,
     QStackedWidget, QFrame, QStatusBar,
 )
-from PySide6.QtCore import QSize, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QPalette, QShortcut, QKeySequence
 from ui.styles import COLORS
-from .widgets import _icon, NavButton, NAV_WIDTH, HEADER_H, GLOBAL_STYLE
+from .widgets import NavRail, GLOBAL_STYLE
 from version import __version__
 from .scheduler_bridge import SchedulerNotifier
 from .dashboard_view import DashboardView
@@ -64,8 +64,25 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
 
         # ── Barre de navigation latérale ──────────
-        self._nav_panel = self._build_nav()
-        root.addWidget(self._nav_panel)
+        # Composant autonome (chantier repli du menu) — voir NavRail (ui/main_window/widgets.py)
+        # pour pourquoi cette extraction, pas seulement une préférence de style.
+        from database import db_manager as db
+        nav_items = [
+            ("Dashboard",    "dashboard",    0),
+            ("Pipelines",    "pipelines",    1),
+            ("Connexions",   "connexions",   2),
+            ("Requêtes SQL", "requetes_sql", 3),
+            ("Historique",   "historique",   4),
+            ("Ressources",   "ressources",   5),
+            ("Paramètres",   "parametres",   6),
+            ("Aide",         "aide",         7),
+        ]
+        self._nav_rail = NavRail(nav_items, initial_collapsed=db.get_app_settings().nav_collapsed)
+        self._nav_rail.navigate_requested.connect(self._navigate)
+        self._nav_rail.collapsed_changed.connect(
+            lambda collapsed: db.update_app_settings(nav_collapsed=collapsed)
+        )
+        root.addWidget(self._nav_rail)
 
         # Séparateur vertical
         vline = QFrame(); vline.setFrameShape(QFrame.VLine)
@@ -123,63 +140,6 @@ class MainWindow(QMainWindow):
         # en attente (bandeau), sans attendre son propre cycle de rafraîchissement périodique.
         self._views[0].refresh()
 
-    def _build_nav(self) -> QWidget:
-        panel = QWidget()
-        panel.setFixedWidth(NAV_WIDTH)
-        panel.setStyleSheet(f"background-color: {COLORS['bg_panel']};")
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Logo / titre
-        logo_widget = QWidget()
-        logo_widget.setFixedHeight(HEADER_H)
-        logo_widget.setStyleSheet(f"background: {COLORS['bg_panel']}; border-bottom: 1px solid {COLORS['border']};")
-        logo_layout = QHBoxLayout(logo_widget)
-        logo_layout.setContentsMargins(18, 0, 18, 0)
-        logo_layout.setSpacing(10)
-        from ui.icons import logo_icon as _logo_icon
-        logo_icon = QLabel()
-        logo_icon.setFixedSize(22, 22)
-        logo_icon.setPixmap(_logo_icon(COLORS["accent"], size=22).pixmap(22, 22))
-        logo_icon.setStyleSheet("background: transparent; border: none;")
-        logo_lbl = QLabel("KULU")
-        logo_lbl.setStyleSheet(
-            f"color: {COLORS['accent']}; font-size: 14px; font-weight: 700; "
-            f"background: transparent; border: none; letter-spacing: 0.5px;"
-        )
-        logo_layout.addWidget(logo_icon)
-        logo_layout.addWidget(logo_lbl)
-        layout.addWidget(logo_widget)
-
-        # Boutons de navigation
-        nav_items = [
-            ("Dashboard",    "dashboard",    0),
-            ("Pipelines",    "pipelines",    1),
-            ("Connexions",   "connexions",   2),
-            ("Requêtes SQL", "requetes_sql", 3),
-            ("Historique",   "historique",   4),
-            ("Ressources",   "ressources",   5),
-            ("Paramètres",   "parametres",   6),
-            ("Aide",         "aide",         7),
-        ]
-        self._nav_buttons: list[NavButton] = []
-        for label, icon, idx in nav_items:
-            btn = NavButton(label, icon)
-            btn.clicked.connect(lambda checked, i=idx: self._navigate(i))
-            self._nav_buttons.append(btn)
-            layout.addWidget(btn)
-
-        layout.addStretch()
-
-        # Version en bas
-        version_lbl = QLabel(f"v{__version__}")
-        version_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; padding: 12px 18px; background: transparent;")
-        layout.addWidget(version_lbl)
-
-        return panel
-
     def _on_dashboard_navigate_to_history(self, status: str):
         self._navigate(4)
         self._views[4].set_status_filter(status)
@@ -190,8 +150,7 @@ class MainWindow(QMainWindow):
 
     def _navigate(self, index: int):
         self._stack.setCurrentIndex(index)
-        for i, btn in enumerate(self._nav_buttons):
-            btn.set_active(i == index)
+        self._nav_rail.set_active_index(index)
         view = self._views[index]
         if hasattr(view, "refresh"):
             view.refresh()

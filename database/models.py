@@ -628,6 +628,11 @@ class AppSettings(Base):
     # pour ne jamais avoir deux planificateurs actifs en même temps.
     execution_mode          = Column(String(20), default="IN_APP", nullable=False)
 
+    # Interface — repli du menu de navigation latéral (chantier ergonomie). Défaut = False
+    # (déplié) : préserve le comportement actuel — une nouvelle colonne ne doit jamais changer
+    # le comportement silencieusement pour qui n'a jamais touché à ce réglage.
+    nav_collapsed           = Column(Boolean, default=False, nullable=False)
+
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
 

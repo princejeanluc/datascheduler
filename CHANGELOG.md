@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.37.0] - 2026-09-15
+
+### Ajouté
+- Menu de navigation latéral repliable — jusqu'ici fixe à 220px en permanence, mobilisant 15-20%
+  de la largeur de la fenêtre même sur les ateliers gourmands en espace (SQL, futur éditeur de
+  graphe). Bascule explicite (bouton dédié, jamais au survol — un repli/dépli involontaire au
+  passage de la souris serait plus gênant qu'utile sur un outil où l'on reste concentré longtemps
+  sur une vue) entre l'affichage complet (icône + libellé) et un rail compact (icône seule,
+  56px) avec infobulle portant le libellé — jamais un simple jeu de mémoire icône-seule. État
+  mémorisé (`AppSettings.nav_collapsed`) : un menu replié le reste au prochain lancement.
+- `ui/main_window/widgets.py::NavRail` : la colonne de navigation, jusqu'ici construite en ligne
+  dans `MainWindow._build_nav()`, extraite en composant Qt autonome (signaux
+  `navigate_requested`/`collapsed_changed`). Pas qu'une préférence de style : `MainWindow`
+  instancie ses 8 vues et son pont vers le scheduler dans son constructeur — deux tentatives de
+  tester le repli en construisant un `MainWindow()` complet (même une seule fois, même sans
+  `.show()`) ont fait planter/bloquer la suite de tests complète (accumulation de widgets/signaux
+  au fil de 1200+ tests dans le même processus), alors que chaque tentative passait isolément.
+  `NavRail` seule n'a aucun de ces effets de bord et se teste sans aucun risque.
+
 ## [0.36.0] - 2026-09-15
 
 ### Ajouté
