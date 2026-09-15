@@ -264,8 +264,60 @@ def test_export_sql_writes_editor_content_to_file(qapp, test_db, monkeypatch, tm
     assert dest.read_text(encoding="utf-8") == "SELECT exported_column FROM t"
 
 
+def test_list_widget_and_empty_label_share_the_same_stretch_factor(qapp, test_db):
+    """Régression réelle (constatée à l'usage, diagnostiquée par rendu réel puis reproduite ici
+    sous une forme légère — sans .show()/processEvents/rendu de pixels, instable en fin de suite
+    complète offscreen) : list_widget était le SEUL widget de la colonne de gauche à porter
+    stretch=1 dans son QVBoxLayout. Masqué (bibliothèque vide), plus aucun widget ne réclamait
+    l'espace vertical restant — Qt le distribuait alors aux QLabel voisins (politique de taille
+    par défaut Preferred), qui gonflaient chacun à plus de 130px de haut au lieu d'une ligne.
+    Corrigé en donnant aussi stretch=1 à _empty_label : quel que soit l'état de la bibliothèque,
+    le widget effectivement visible (liste OU message vide) absorbe l'espace restant, jamais les
+    libellés. Ce test vérifie directement l'invariant structurel (même facteur de stretch pour
+    les deux), sans avoir besoin de peindre quoi que ce soit à l'écran."""
+    from ui.main_window.queries_view import QueriesView
+
+    view = QueriesView()
+    sidebar = view.list_widget.parentWidget()
+    layout = sidebar.layout()
+    stretch_list  = layout.stretch(layout.indexOf(view.list_widget))
+    stretch_empty = layout.stretch(layout.indexOf(view._empty_label))
+    assert stretch_list == stretch_empty == 1
+
+
 def test_workshop_disabled_when_no_query_selected(qapp, test_db):
     from ui.main_window.queries_view import QueriesView
 
     view = QueriesView()
     assert not view._workshop.isEnabled()
+
+
+def test_containers_use_qualified_stylesheet_selectors(qapp, test_db):
+    """Régression réelle (constatée à l'usage, diagnostiquée par rendu de pixels réel — voir
+    CHANGELOG — puis reproduite ici sous une forme légère : rendre des pixels via .show()/.grab()
+    à répétition s'est montré instable en fin de suite complète offscreen sur cette machine) : un
+    style QSS BRUT SANS SÉLECTEUR posé sur un widget conteneur (ex: `"background: X;"`) coupe la
+    cascade de GLOBAL_STYLE (posé au niveau QApplication) pour tous ses descendants — un
+    QPushButton niché dedans perd alors silencieusement son fond accent et devient quasi invisible
+    (fond sombre sur fond sombre), sans lever d'erreur. Un sélecteur QUALIFIÉ (`"#id { ... }"`) ne
+    coupe pas la cascade — vérifié empiriquement par rendu de pixels avant d'écrire ce correctif.
+    Ce test vérifie directement l'invariant (chaque style de conteneur est qualifié par son
+    objectName), sans avoir besoin de peindre quoi que ce soit à l'écran."""
+    from PySide6.QtWidgets import QWidget
+    from ui.main_window.queries_view import QueriesView
+
+    db.create_sql_query(name="Q", sql_text="SELECT 1")
+    view = QueriesView()
+
+    for object_name in ("queriesSidebar", "workshopHeader", "workshopStatus"):
+        w = view.findChild(QWidget, object_name)
+        assert w is not None, f"widget #{object_name} introuvable"
+        assert w.styleSheet().strip(), f"#{object_name} : aucun style — objectName inutile ?"
+        assert f"#{object_name}" in w.styleSheet(), (
+            f"#{object_name} : style non qualifié ({w.styleSheet()!r}) — "
+            "couperait la cascade de GLOBAL_STYLE pour ses descendants."
+        )
+
+    card = view.list_widget.itemWidget(view.list_widget.item(0))
+    assert card.objectName() == "queryCard"
+    assert "#queryCard" in card.styleSheet()

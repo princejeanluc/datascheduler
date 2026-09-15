@@ -47,6 +47,20 @@ bas pour son introduction).
 - `sqlparse` (dépendance ajoutée) : pure Python, aucune extension C, sans rapport avec le binding
   Qt — utilisé uniquement pour le formatage automatique.
 
+### Corrigé
+- Deux régressions visuelles réelles signalées après premier essai de l'atelier, toutes deux dans
+  `ui/main_window/queries_view.py` : (1) les boutons/champs nichés dans un conteneur ayant son
+  propre style QSS non qualifié (`background: X;`, sans sélecteur) perdaient silencieusement le
+  style de l'appli (`GLOBAL_STYLE`) — "+ Nouvelle requête" rendait fond sombre sur fond sombre,
+  quasi invisible ; corrigé en qualifiant chaque conteneur par `objectName` + sélecteur `#id`
+  (`#queriesSidebar`, `#workshopHeader`, `#workshopStatus`, `#queryCard`) — un sélecteur qualifié
+  ne coupe pas la cascade, contrairement à un style brut. (2) Bibliothèque vide : `list_widget`
+  était le seul widget de la colonne à porter `stretch=1` — masqué (aucune requête), plus aucun
+  widget ne réclamait l'espace vertical restant, que Qt distribuait alors aux `QLabel` voisins
+  (titre, sous-titre, indication de recherche), gonflés à plus de 130px de haut chacun au lieu
+  d'une ligne ; corrigé en donnant aussi `stretch=1` au message d'état vide, pour qu'un widget
+  visible absorbe toujours l'espace restant, quel que soit l'état de la bibliothèque.
+
 ## [0.35.1] - 2026-09-09
 
 ### Corrigé

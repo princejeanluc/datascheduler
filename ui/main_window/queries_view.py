@@ -33,6 +33,12 @@ class _QueryCard(QFrame):
         self._view = parent_view
         self._active = False
         self.setCursor(Qt.PointingHandCursor)
+        # objectName + sélecteur qualifié (#queryCard), jamais un style brut sans sélecteur : Qt
+        # coupe la cascade de l'app (GLOBAL_STYLE) pour tous les descendants dès qu'un ancêtre a
+        # son propre style non qualifié — le bouton Supprimer (QPushButton) perdrait silencieusement
+        # son rendu (bug réel constaté, voir set_active() plus bas et le même correctif sur
+        # _build_sidebar/_build_workshop).
+        self.setObjectName("queryCard")
 
         root = QVBoxLayout(self)
         root.setContentsMargins(10, 8, 8, 8)
@@ -85,7 +91,7 @@ class _QueryCard(QFrame):
         border = f"2px solid {COLORS['accent']}" if active else "1px solid transparent"
         bg = COLORS["bg_active"] if active else "transparent"
         self.setStyleSheet(
-            f"QFrame {{ background: {bg}; border-left: {border}; border-radius: 4px; }}"
+            f"QFrame#queryCard {{ background: {bg}; border-left: {border}; border-radius: 4px; }}"
         )
 
     def mouseReleaseEvent(self, event):
@@ -122,7 +128,11 @@ class QueriesView(QWidget):
     def _build_sidebar(self) -> QWidget:
         panel = QWidget()
         panel.setFixedWidth(300)
-        panel.setStyleSheet(f"background: {COLORS['bg_panel']};")
+        panel.setObjectName("queriesSidebar")
+        # Sélecteur qualifié (#queriesSidebar), jamais un style brut : un style non qualifié posé
+        # sur ce conteneur couperait la cascade de GLOBAL_STYLE pour tous ses descendants (le
+        # bouton "+ Nouvelle requête" perdrait son rendu accent — bug réel constaté à l'usage).
+        panel.setStyleSheet(f"QWidget#queriesSidebar {{ background: {COLORS['bg_panel']}; }}")
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(16, 18, 16, 12)
         layout.setSpacing(8)
@@ -168,7 +178,21 @@ class QueriesView(QWidget):
             f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic; padding: 20px 8px;"
         )
         self._empty_label.setVisible(False)
-        layout.addWidget(self._empty_label)
+        # stretch=1, comme list_widget ci-dessus — pas cosmétique : c'est ce qui absorbe l'espace
+        # vertical disponible. Sans lui, quand list_widget (le seul autre stretch=1) est masqué
+        # (bibliothèque vide), aucun widget ne réclame l'espace restant — Qt le distribue alors
+        # aux QLabel voisins (politique de taille par défaut Preferred), qui gonflent chacun à
+        # plus de 130px de haut au lieu d'une ligne (bug réel constaté à l'usage). En donnant
+        # toujours le stretch au widget effectivement visible (liste OU message vide), les autres
+        # gardent leur hauteur naturelle dans les deux états.
+        # stretch=1, comme list_widget ci-dessus — pas cosmétique : c'''est ce qui absorbe l'''espace
+        # vertical disponible. Sans lui, quand list_widget (le seul autre stretch=1) est masqué
+        # (bibliothèque vide), aucun widget ne réclame l'''espace restant — Qt le distribue alors
+        # aux QLabel voisins (politique de taille par défaut Preferred), qui gonflent chacun à
+        # plus de 130px de haut au lieu d'''une ligne (bug réel constaté à l'''usage). En donnant
+        # toujours le stretch au widget effectivement visible (liste OU message vide), les autres
+        # gardent leur hauteur naturelle dans les deux états.
+        layout.addWidget(self._empty_label, stretch=1)
 
         return panel
 
@@ -179,7 +203,10 @@ class QueriesView(QWidget):
         layout.setSpacing(0)
 
         header = QWidget()
-        header.setStyleSheet(f"border-bottom: 1px solid {COLORS['border']};")
+        header.setObjectName("workshopHeader")
+        # Sélecteur qualifié — même raison que #queriesSidebar ci-dessus : ce conteneur héberge
+        # des QLineEdit/QComboBox/QPushButton qui comptent sur GLOBAL_STYLE.
+        header.setStyleSheet(f"QWidget#workshopHeader {{ border-bottom: 1px solid {COLORS['border']}; }}")
         h_layout = QVBoxLayout(header)
         h_layout.setContentsMargins(22, 14, 22, 12)
         h_layout.setSpacing(10)
@@ -234,7 +261,11 @@ class QueriesView(QWidget):
         layout.addWidget(self.editor, stretch=1)
 
         status = QWidget()
-        status.setStyleSheet(f"background: {COLORS['bg_panel']}; border-top: 1px solid {COLORS['border']};")
+        status.setObjectName("workshopStatus")
+        status.setStyleSheet(
+            f"QWidget#workshopStatus {{ background: {COLORS['bg_panel']}; "
+            f"border-top: 1px solid {COLORS['border']}; }}"
+        )
         s_layout = QHBoxLayout(status)
         s_layout.setContentsMargins(18, 5, 18, 5)
         s_layout.setSpacing(14)
