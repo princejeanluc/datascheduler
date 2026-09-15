@@ -20,6 +20,11 @@ pymssql==2.3.2
 # Manipulation de données + export CSV
 pandas==2.2.3
 
+# Formatage des requêtes SQL dans l'atelier (ui/sql_editor.py) — pure Python, aucune extension
+# C, sans rapport avec un binding Qt (QScintilla, écarté : bindings Python officiels réservés à
+# PyQt5/PyQt6, aucun support PySide6).
+sqlparse==0.5.1
+
 # Planificateur de tâches
 apscheduler==3.10.4
 

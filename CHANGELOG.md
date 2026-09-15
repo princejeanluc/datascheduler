@@ -29,6 +29,24 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.36.0] - 2026-09-15
+
+### Ajouté
+- Refonte de la vue **Requêtes SQL** en atelier maître-détail (bibliothèque à gauche, édition
+  plein cadre à droite) — remplace le tableau + dialogue modal historique, dont l'expérience
+  d'édition (défilement, recherche, aucun import/export, aucune duplication) était en net retrait
+  par rapport à un éditeur externe (Toad, VS Code), un vrai frein signalé par des utilisateurs.
+  Nouveautés : numéros de ligne, recherche/remplacement (Ctrl+F/Ctrl+H), formatage automatique
+  (`sqlparse`), duplication en un clic, import/export `.sql`, recherche de bibliothèque qui
+  matche aussi le corps SQL (plus seulement le nom). Éditeur (`ui/sql_editor.py::SqlEditorWidget`)
+  entièrement natif PySide6 (`QPlainTextEdit` + gouttière peinte à la main, pattern "Code Editor
+  Example" documenté par Qt) — QScintilla écarté après vérification : ses bindings Python
+  officiels sont réservés à PyQt5/PyQt6, aucun support PySide6. Ce même éditeur remplace aussi
+  celui de la modale rapide "+ Nouvelle requête SQL" (ouverte depuis DB_EXTRACT/DB_EXECUTE/
+  SPARK_SQL), un seul composant partagé plutôt que deux implémentations divergentes.
+- `sqlparse` (dépendance ajoutée) : pure Python, aucune extension C, sans rapport avec le binding
+  Qt — utilisé uniquement pour le formatage automatique.
+
 ## [0.35.1] - 2026-09-09
 
 ### Corrigé

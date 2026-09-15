@@ -46,7 +46,9 @@ fichier, puis notifier par email si besoin — le tout automatiquement, à l'heu
   pipelines.
 - **Connexions** — les profils réutilisables (Oracle, autres bases de données, FTP/SFTP, SMTP)
   que vos pipelines utilisent.
-- **Requêtes SQL** — vos requêtes enregistrées, réutilisables dans plusieurs pipelines.
+- **Requêtes SQL** — atelier maître-détail (bibliothèque à gauche, édition plein cadre à droite) :
+  vos requêtes enregistrées, réutilisables dans plusieurs pipelines, avec numéros de ligne,
+  recherche/remplacement (Ctrl+F), formatage automatique, duplication et import/export `.sql`.
 - **Historique** — le journal complet de chaque exécution, plus le journal des modifications.
 - **Ressources** — suivi CPU/mémoire de l'application et du nombre d'exécutions simultanées.
 - **Paramètres** — fuseau horaire, niveau de log, mode d'exécution (dans l'application ou en
