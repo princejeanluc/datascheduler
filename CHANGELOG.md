@@ -60,6 +60,18 @@ bas pour son introduction).
   (titre, sous-titre, indication de recherche), gonflés à plus de 130px de haut chacun au lieu
   d'une ligne ; corrigé en donnant aussi `stretch=1` au message d'état vide, pour qu'un widget
   visible absorbe toujours l'espace restant, quel que soit l'état de la bibliothèque.
+- Deux régressions supplémentaires signalées après un deuxième essai : (3) plusieurs `QLabel`
+  (titre/sous-titre de la bibliothèque, indication de recherche, nom/description/aperçu SQL de
+  chaque carte, message d'état vide, libellé "PROFIL", jetons disponibles) n'avaient pas de fond
+  transparent explicite — sans lui, `GLOBAL_STYLE` (règle générique `QWidget { background-color:
+  bg_main; }`) leur peint un rectangle opaque derrière leur propre texte, visible dès qu'ils
+  reposent sur un fond différent (carte sélectionnée, panneau) — d'où les « rectangles noirs »
+  observés dans la bibliothèque. Convention déjà appliquée ailleurs dans l'appli
+  (`background: transparent`), manquante ici. (4) Barre de recherche/remplacement
+  (`ui/sql_editor.py`) : les boutons ↑/↓/✕ utilisaient un glyphe Unicode brut comme texte de
+  bouton, resté vide sur la machine de l'utilisateur (dépend de la présence de ce caractère précis
+  dans la police UI/ses polices de repli) ; remplacés par des icônes `qtawesome` (même patron que
+  partout ailleurs dans l'appli). Le compteur "X/Y" avait le même défaut de fond opaque que (3).
 
 ## [0.35.1] - 2026-09-09
 

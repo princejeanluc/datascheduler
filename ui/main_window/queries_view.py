@@ -46,7 +46,14 @@ class _QueryCard(QFrame):
 
         top = QHBoxLayout(); top.setSpacing(6)
         name = QLabel(query.name)
-        name.setStyleSheet(f"font-size: 12.5px; font-weight: 600; color: {COLORS['text_main']};")
+        # background: transparent obligatoire — GLOBAL_STYLE peint tout QWidget non spécifié en
+        # bg_main (règle générique "QWidget { background-color: ... }") ; sans cet override, le
+        # label peint un rectangle opaque bg_main derrière son texte au lieu de laisser transparaître
+        # le fond réel de la carte (transparent ou bg_active selon la sélection) — bug réel constaté
+        # à l'usage, même correctif que partout ailleurs dans l'appli (voir les autres vues).
+        name.setStyleSheet(
+            f"background: transparent; font-size: 12.5px; font-weight: 600; color: {COLORS['text_main']};"
+        )
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         top.addWidget(name, stretch=1)
 
@@ -66,14 +73,15 @@ class _QueryCard(QFrame):
         root.addLayout(top)
 
         desc = QLabel(query.description or "—")
-        desc.setStyleSheet(f"font-size: 10.5px; color: {COLORS['text_dim']};")
+        desc.setStyleSheet(f"background: transparent; font-size: 10.5px; color: {COLORS['text_dim']};")
         desc.setWordWrap(False)
         root.addWidget(desc)
 
         preview_text = (query.sql_text or "").replace("\n", " ").strip()[:80]
         preview = QLabel(preview_text)
         preview.setStyleSheet(
-            f"font-size: 9.5px; color: {COLORS['text_muted']}; font-family: {FONT_MONO};"
+            f"background: transparent; font-size: 9.5px; color: {COLORS['text_muted']}; "
+            f"font-family: {FONT_MONO};"
         )
         root.addWidget(preview)
 
@@ -138,9 +146,9 @@ class QueriesView(QWidget):
         layout.setSpacing(8)
 
         title = QLabel("Requêtes SQL")
-        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+        title.setStyleSheet(f"background: transparent; font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         subtitle = QLabel("Bibliothèque de requêtes réutilisables")
-        subtitle.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
+        subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
         layout.addWidget(title); layout.addWidget(subtitle)
 
         self.inp_search = _make_search_input("Rechercher (nom, description, SQL…)")
@@ -151,7 +159,10 @@ class QueriesView(QWidget):
 
         hint = QLabel("cherche aussi dans le corps SQL, pas seulement le nom")
         hint.setWordWrap(True)
-        hint.setStyleSheet(f"font-size: 10px; color: {COLORS['text_muted']}; font-style: italic;")
+        hint.setStyleSheet(
+            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']}; "
+            f"font-style: italic;"
+        )
         layout.addWidget(hint)
 
         btn_new = QPushButton("+ Nouvelle requête")
@@ -175,7 +186,8 @@ class QueriesView(QWidget):
         self._empty_label.setWordWrap(True)
         self._empty_label.setAlignment(Qt.AlignCenter)
         self._empty_label.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic; padding: 20px 8px;"
+            f"background: transparent; color: {COLORS['text_muted']}; font-size: 11px; "
+            f"font-style: italic; padding: 20px 8px;"
         )
         self._empty_label.setVisible(False)
         # stretch=1, comme list_widget ci-dessus — pas cosmétique : c'est ce qui absorbe l'espace
@@ -219,7 +231,7 @@ class QueriesView(QWidget):
             f"QLineEdit:hover, QLineEdit:focus {{ background: {COLORS['bg_card']}; }}"
         )
         sep_dot = QLabel("·")
-        sep_dot.setStyleSheet(f"color: {COLORS['text_muted']};")
+        sep_dot.setStyleSheet(f"background: transparent; color: {COLORS['text_muted']};")
         self.inp_desc = QLineEdit()
         self.inp_desc.setPlaceholderText("Description courte (optionnel)")
         self.inp_desc.setStyleSheet(
@@ -235,7 +247,8 @@ class QueriesView(QWidget):
         row2 = QHBoxLayout(); row2.setSpacing(10)
         lbl_profile = QLabel("PROFIL")
         lbl_profile.setStyleSheet(
-            f"font-size: 10.5px; color: {COLORS['text_muted']}; font-weight: 700; letter-spacing: .4px;"
+            f"background: transparent; font-size: 10.5px; color: {COLORS['text_muted']}; "
+            f"font-weight: 700; letter-spacing: .4px;"
         )
         self.cb_oracle = QComboBox()
         self.cb_oracle.setFixedWidth(160)
@@ -280,7 +293,8 @@ class QueriesView(QWidget):
             "Jetons : {yyyy} {MM} {dd} {HH} {mm} {ss} {yyyyMMdd} {yyyyMMddHHmm}"
         )
         tokens.setStyleSheet(
-            f"font-family: {FONT_MONO}; font-size: 10px; color: {COLORS['accent_pale']};"
+            f"background: transparent; font-family: {FONT_MONO}; font-size: 10px; "
+            f"color: {COLORS['accent_pale']};"
         )
         s_layout.addWidget(tokens)
         layout.addWidget(status)

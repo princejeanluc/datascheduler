@@ -137,6 +137,34 @@ def test_replace_all_with_empty_query_does_nothing(qapp):
     assert w.text() == "SELECT 1"
 
 
+def test_find_bar_nav_buttons_use_real_icons_not_text_glyphs(qapp):
+    """Régression réelle (constatée à l'usage) : les boutons ↑/↓/✕ de la barre étaient construits
+    avec un glyphe Unicode brut comme texte de bouton — resté vide sur la machine de l'utilisateur
+    (dépend de la présence de ce caractère précis dans la police UI/ses polices de repli). Corrigé
+    en passant à des icônes qtawesome (même patron que _action_btn ailleurs dans l'appli),
+    garanties de se peindre quel que soit l'environnement de police."""
+    from PySide6.QtWidgets import QPushButton
+    from ui.sql_editor import SqlEditorWidget
+
+    w = SqlEditorWidget()
+    w.show_find_bar()
+    nav_buttons = [b for b in w._find_bar.findChildren(QPushButton) if b.toolTip()]
+    assert len(nav_buttons) == 3   # Précédent, Suivant, Fermer
+    for btn in nav_buttons:
+        assert not btn.icon().isNull(), f"bouton {btn.toolTip()!r} sans icône"
+
+
+def test_find_bar_count_label_has_transparent_background(qapp):
+    """Régression réelle (constatée à l'usage) : GLOBAL_STYLE peint tout QWidget non spécifié en
+    bg_main (règle générique "QWidget { background-color: ... }") — sans "background: transparent"
+    explicite, ce label peignait un rectangle opaque bg_main derrière "1/1", visiblement différent
+    du fond réel de la barre (bg_card)."""
+    from ui.sql_editor import SqlEditorWidget
+
+    w = SqlEditorWidget()
+    assert "transparent" in w._find_bar.lbl_count.styleSheet()
+
+
 def test_close_bar_hides_and_clears_matches(qapp):
     from ui.sql_editor import SqlEditorWidget
 

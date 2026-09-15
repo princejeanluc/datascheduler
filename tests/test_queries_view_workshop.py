@@ -292,6 +292,29 @@ def test_workshop_disabled_when_no_query_selected(qapp, test_db):
     assert not view._workshop.isEnabled()
 
 
+def test_plain_labels_have_transparent_background(qapp, test_db):
+    """Régression réelle (constatée à l'usage — "rectangles noirs derrière le texte" dans la
+    bibliothèque) : GLOBAL_STYLE peint tout QWidget non spécifié en bg_main (règle générique
+    "QWidget { background-color: ... }") — un QLabel qui ne déclare pas explicitement
+    "background: transparent" peint un rectangle opaque bg_main derrière son propre texte,
+    visible dès qu'il repose sur un fond différent (carte sélectionnée, panneau...). Convention
+    déjà appliquée partout ailleurs dans l'appli (voir dashboard_view.py, connections_view.py...)
+    — ce test balaie TOUTE la vue (bibliothèque + atelier), pour chaque libellé qui n'a PAS sa
+    propre pastille colorée (le badge d'usage et lbl_usage gardent intentionnellement un fond)."""
+    from PySide6.QtWidgets import QLabel
+    from ui.main_window.queries_view import QueriesView
+
+    db.create_sql_query(name="Q", sql_text="SELECT 1", description="d")
+    view = QueriesView()
+
+    for lbl in view.findChildren(QLabel):
+        if "border-radius: 8px" in lbl.styleSheet() or "border-radius: 9px" in lbl.styleSheet():
+            continue   # badge d'usage (carte) / lbl_usage (statut) : fond en pastille intentionnel
+        assert "background: transparent" in lbl.styleSheet(), (
+            f"QLabel {lbl.text()!r} : pas de fond transparent explicite"
+        )
+
+
 def test_containers_use_qualified_stylesheet_selectors(qapp, test_db):
     """Régression réelle (constatée à l'usage, diagnostiquée par rendu de pixels réel — voir
     CHANGELOG — puis reproduite ici sous une forme légère : rendre des pixels via .show()/.grab()

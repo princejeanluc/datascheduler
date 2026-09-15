@@ -22,6 +22,18 @@ from PySide6.QtWidgets import (
 )
 from ui.styles import COLORS, FONT_MONO
 
+# Icônes de la barre de recherche : qtawesome plutôt qu'un glyphe Unicode brut ("↑"/"↓"/"✕") — un
+# glyphe texte dépend de la présence de ce caractère précis dans la police UI/ses polices de repli
+# (IBM Plex Sans, Segoe UI...), qui peut rester vide sur certaines machines (bug réel constaté à
+# l'usage : boutons visibles mais sans icône). Même patron défensif que ui/step_editor/common.py.
+try:
+    import qtawesome as qta
+    def _icon(name, color=None):
+        return qta.icon(name, color=color or COLORS["text_dim"])
+except ImportError:
+    def _icon(name, color=None):
+        return None
+
 
 # ──────────────────────────────────────────────
 #  COLORATION SYNTAXIQUE SQL (simple, non-eval — un blob éditable à la main, jamais interprété)
@@ -180,12 +192,14 @@ class _FindBar(QFrame):
         self.inp_find.setFixedHeight(26)
         self.inp_find.setStyleSheet(self._input_style())
         self.lbl_count = QLabel("0/0")
-        self.lbl_count.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10.5px;")
+        self.lbl_count.setStyleSheet(
+            f"background: transparent; color: {COLORS['text_muted']}; font-size: 10.5px;"
+        )
         self.lbl_count.setFixedWidth(40)
         self.lbl_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        btn_prev = self._icon_btn("↑", "Précédent")
-        btn_next = self._icon_btn("↓", "Suivant")
-        btn_close = self._icon_btn("✕", "Fermer (Échap)")
+        btn_prev = self._icon_btn("fa5s.chevron-up", "Précédent")
+        btn_next = self._icon_btn("fa5s.chevron-down", "Suivant")
+        btn_close = self._icon_btn("fa5s.times", "Fermer (Échap)")
         row1.addWidget(self.inp_find, stretch=1)
         row1.addWidget(self.lbl_count)
         row1.addWidget(btn_prev); row1.addWidget(btn_next); row1.addWidget(btn_close)
@@ -231,12 +245,16 @@ class _FindBar(QFrame):
             f"QLineEdit:focus {{ border-color: {COLORS['accent']}; }}"
         )
 
-    def _icon_btn(self, text: str, tooltip: str) -> QPushButton:
-        b = QPushButton(text); b.setToolTip(tooltip); b.setFixedSize(24, 24)
+    def _icon_btn(self, icon_name: str, tooltip: str) -> QPushButton:
+        b = QPushButton(); b.setToolTip(tooltip); b.setFixedSize(24, 24)
+        icon = _icon(icon_name, COLORS["text_dim"])
+        if icon:
+            b.setIcon(icon)
+            b.setIconSize(QSize(11, 11))
         b.setStyleSheet(
             f"QPushButton {{ background: transparent; border: 1px solid {COLORS['border']}; "
-            f"border-radius: 4px; color: {COLORS['text_dim']}; }}"
-            f"QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}"
+            f"border-radius: 4px; }}"
+            f"QPushButton:hover {{ border-color: {COLORS['accent']}; }}"
         )
         return b
 
