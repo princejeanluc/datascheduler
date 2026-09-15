@@ -892,6 +892,24 @@ def create_sql_query(name, sql_text, description=None, oracle_profile_id=None, u
     return q
 
 
+def update_sql_query(query_id: int, name: str, sql_text: str,
+                      description: str | None = None,
+                      oracle_profile_id: int | None = None) -> SqlQuery | None:
+    """Centralise la mutation d'une requête existante (chantier atelier SQL) — remplace la
+    manipulation directe de session que faisait jusqu'ici ui/dialogs/sql_query_dialog.py, pour
+    que l'atelier maître-détail (ui/main_window/queries_view.py) et cette modale partagent le
+    même point d'entrée plutôt que deux façons de faire la même chose."""
+    with get_session() as s:
+        q = s.get(SqlQuery, query_id)
+        if not q:
+            return None
+        q.name              = name
+        q.sql_text          = sql_text
+        q.description       = description
+        q.oracle_profile_id = oracle_profile_id
+    return q
+
+
 def get_sql_queries() -> list[SqlQuery]:
     with get_session() as s:
         return (s.query(SqlQuery)
@@ -917,6 +935,27 @@ def delete_sql_query(query_id: int) -> bool:
             s.delete(obj)
             return True
     return False
+
+
+def duplicate_sql_query(query_id: int) -> SqlQuery | None:
+    """Clone une requête (chantier atelier SQL) — nouvelle identité complète (id, uuid), jamais
+    un simple renommage de l'original : les deux existent ensuite indépendamment, modifier l'une
+    n'affecte jamais l'autre. Nom désambiguïsé par suffixe " (copie)", puis " (copie 2)", etc. si
+    déjà pris — même schéma que duplicate_pipeline() (database/export_import.py)."""
+    original = get_sql_query(query_id)
+    if not original:
+        return None
+    taken = {q.name for q in get_sql_queries()}
+    base = f"{original.name} (copie)"
+    name = base
+    i = 2
+    while name in taken:
+        name = f"{base} {i}"
+        i += 1
+    return create_sql_query(
+        name=name, sql_text=original.sql_text, description=original.description,
+        oracle_profile_id=original.oracle_profile_id,
+    )
 
 
 # ──────────────────────────────────────────────

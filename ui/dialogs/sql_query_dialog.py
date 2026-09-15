@@ -1,63 +1,20 @@
 """
 DataScheduler — ui/dialogs/sql_query_dialog.py
-Dialogue de création / édition d'une requête SQL réutilisable.
+Dialogue de création / édition rapide d'une requête SQL réutilisable — ouvert depuis un dialogue
+de configuration d'étape ("+ Nouvelle requête SQL" sur DB_EXTRACT/DB_EXECUTE/SPARK_SQL) quand
+l'utilisateur n'a pas besoin de quitter son étape en cours pour en créer une. L'atelier dédié
+(chantier atelier SQL, ui/main_window/queries_view.py) reste l'endroit pour un travail plus
+approfondi sur une bibliothèque de requêtes existante — les deux partagent le même éditeur
+(ui/sql_editor.py::SqlEditorWidget), jamais deux implémentations divergentes.
 """
 
 from PySide6.QtWidgets import (
-    QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QPushButton, QFrame, QPlainTextEdit,
+    QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit,
+    QPushButton, QFrame,
 )
-from PySide6.QtCore import Qt, QRegularExpression
-from PySide6.QtGui import QFont, QSyntaxHighlighter, QTextCharFormat, QColor
-from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
-
-
-# ──────────────────────────────────────────────
-#  COLORATION SYNTAXIQUE SQL (simple)
-# ──────────────────────────────────────────────
-
-class _SqlHighlighter(QSyntaxHighlighter):
-    _KEYWORDS = (
-        "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "IS", "NULL",
-        "LIKE", "BETWEEN", "EXISTS", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
-        "ON", "AS", "GROUP", "BY", "ORDER", "HAVING", "DISTINCT", "UNION",
-        "ALL", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-        "CREATE", "ALTER", "DROP", "TABLE", "VIEW", "INDEX", "WITH",
-        "CASE", "WHEN", "THEN", "ELSE", "END", "OVER", "PARTITION",
-        "ROWNUM", "ROWID", "CONNECT", "START", "PRIOR", "LEVEL",
-    )
-
-    def __init__(self, document):
-        super().__init__(document)
-
-        kw_fmt = QTextCharFormat()
-        kw_fmt.setForeground(QColor("#FF7900"))
-        kw_fmt.setFontWeight(700)
-
-        str_fmt = QTextCharFormat()
-        str_fmt.setForeground(QColor("#7ec8a4"))
-
-        cmt_fmt = QTextCharFormat()
-        cmt_fmt.setForeground(QColor("#666666"))
-        cmt_fmt.setFontItalic(True)
-
-        num_fmt = QTextCharFormat()
-        num_fmt.setForeground(QColor("#b5cea8"))
-
-        self._rules = []
-        for kw in self._KEYWORDS:
-            pat = QRegularExpression(rf"\b{kw}\b", QRegularExpression.CaseInsensitiveOption)
-            self._rules.append((pat, kw_fmt))
-        self._rules.append((QRegularExpression(r"'[^']*'"), str_fmt))
-        self._rules.append((QRegularExpression(r"--[^\n]*"),  cmt_fmt))
-        self._rules.append((QRegularExpression(r"\b\d+(\.\d+)?\b"), num_fmt))
-
-    def highlightBlock(self, text: str):
-        for pattern, fmt in self._rules:
-            it = pattern.globalMatch(text)
-            while it.hasNext():
-                m = it.next()
-                self.setFormat(m.capturedStart(), m.capturedLength(), fmt)
+from PySide6.QtCore import Qt
+from ui.styles import COLORS, DIALOG_STYLE
+from ui.sql_editor import SqlEditorWidget
 
 
 # ──────────────────────────────────────────────
@@ -110,21 +67,19 @@ class SqlQueryDialog(QDialog):
         lbl_sql.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         root.addWidget(lbl_sql)
 
-        self.editor = QPlainTextEdit()
-        self.editor.setFont(QFont(FONT_MONO, 12))
-        self.editor.setStyleSheet(
-            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
-            f"border: 1px solid {COLORS['border']}; border-radius: 4px; padding: 8px;"
-        )
-        self.editor.setPlaceholderText(
+        self.editor = SqlEditorWidget()
+        self.editor.set_placeholder(
             "SELECT col1, col2\nFROM ma_table\nWHERE condition = :param\nORDER BY col1"
         )
-        self._highlighter = _SqlHighlighter(self.editor.document())
         root.addWidget(self.editor, stretch=1)
 
         root.addWidget(self._sep())
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(10); btn_row.addStretch()
+        btn_row = QHBoxLayout(); btn_row.setSpacing(10)
+        btn_format = QPushButton("Formater"); btn_format.setObjectName("secondary")
+        btn_format.setFixedHeight(36); btn_format.clicked.connect(self.editor.format_sql)
+        btn_row.addWidget(btn_format)
+        btn_row.addStretch()
         btn_cancel = QPushButton("Annuler"); btn_cancel.setObjectName("secondary")
         btn_cancel.setFixedHeight(36); btn_cancel.clicked.connect(self.reject)
         btn_save = QPushButton("Enregistrer")
@@ -143,17 +98,17 @@ class SqlQueryDialog(QDialog):
 
     def _on_save(self):
         name = self.inp_name.text().strip()
-        sql  = self.editor.toPlainText().strip()
+        sql  = self.editor.text().strip()
         if not name:
             self.inp_name.setStyleSheet(self._input_style(error=True))
             self.inp_name.setFocus()
             return
         if not sql:
-            self.editor.setStyleSheet(
-                f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
-                f"border: 2px solid {COLORS['danger']}; border-radius: 4px; padding: 8px;"
+            self.editor.editor.setStyleSheet(
+                f"QPlainTextEdit {{ background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+                f"border: 2px solid {COLORS['danger']}; border-radius: 4px; padding: 8px; }}"
             )
-            self.editor.setFocus()
+            self.editor.editor.setFocus()
             return
 
         from database import db_manager as db
@@ -161,13 +116,8 @@ class SqlQueryDialog(QDialog):
         oracle_id  = self.cb_oracle.currentData()
 
         if self._query:
-            with db.get_session() as s:
-                from database.models import SqlQuery
-                q = s.get(SqlQuery, self._query.id)
-                q.name              = name
-                q.description       = desc
-                q.sql_text          = sql
-                q.oracle_profile_id = oracle_id
+            db.update_sql_query(self._query.id, name=name, sql_text=sql,
+                                description=desc, oracle_profile_id=oracle_id)
         else:
             db.create_sql_query(name=name, sql_text=sql,
                                 description=desc, oracle_profile_id=oracle_id)
@@ -176,7 +126,7 @@ class SqlQueryDialog(QDialog):
     def _fill_fields(self, query):
         self.inp_name.setText(query.name)
         self.inp_desc.setText(query.description or "")
-        self.editor.setPlainText(query.sql_text or "")
+        self.editor.set_text(query.sql_text or "")
         if query.oracle_profile_id:
             idx = self.cb_oracle.findData(query.oracle_profile_id)
             if idx >= 0:

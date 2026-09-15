@@ -29,6 +29,50 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.36.0] - 2026-09-15
+
+### Ajouté
+- Refonte de la vue **Requêtes SQL** en atelier maître-détail (bibliothèque à gauche, édition
+  plein cadre à droite) — remplace le tableau + dialogue modal historique, dont l'expérience
+  d'édition (défilement, recherche, aucun import/export, aucune duplication) était en net retrait
+  par rapport à un éditeur externe (Toad, VS Code), un vrai frein signalé par des utilisateurs.
+  Nouveautés : numéros de ligne, recherche/remplacement (Ctrl+F/Ctrl+H), formatage automatique
+  (`sqlparse`), duplication en un clic, import/export `.sql`, recherche de bibliothèque qui
+  matche aussi le corps SQL (plus seulement le nom). Éditeur (`ui/sql_editor.py::SqlEditorWidget`)
+  entièrement natif PySide6 (`QPlainTextEdit` + gouttière peinte à la main, pattern "Code Editor
+  Example" documenté par Qt) — QScintilla écarté après vérification : ses bindings Python
+  officiels sont réservés à PyQt5/PyQt6, aucun support PySide6. Ce même éditeur remplace aussi
+  celui de la modale rapide "+ Nouvelle requête SQL" (ouverte depuis DB_EXTRACT/DB_EXECUTE/
+  SPARK_SQL), un seul composant partagé plutôt que deux implémentations divergentes.
+- `sqlparse` (dépendance ajoutée) : pure Python, aucune extension C, sans rapport avec le binding
+  Qt — utilisé uniquement pour le formatage automatique.
+
+### Corrigé
+- Deux régressions visuelles réelles signalées après premier essai de l'atelier, toutes deux dans
+  `ui/main_window/queries_view.py` : (1) les boutons/champs nichés dans un conteneur ayant son
+  propre style QSS non qualifié (`background: X;`, sans sélecteur) perdaient silencieusement le
+  style de l'appli (`GLOBAL_STYLE`) — "+ Nouvelle requête" rendait fond sombre sur fond sombre,
+  quasi invisible ; corrigé en qualifiant chaque conteneur par `objectName` + sélecteur `#id`
+  (`#queriesSidebar`, `#workshopHeader`, `#workshopStatus`, `#queryCard`) — un sélecteur qualifié
+  ne coupe pas la cascade, contrairement à un style brut. (2) Bibliothèque vide : `list_widget`
+  était le seul widget de la colonne à porter `stretch=1` — masqué (aucune requête), plus aucun
+  widget ne réclamait l'espace vertical restant, que Qt distribuait alors aux `QLabel` voisins
+  (titre, sous-titre, indication de recherche), gonflés à plus de 130px de haut chacun au lieu
+  d'une ligne ; corrigé en donnant aussi `stretch=1` au message d'état vide, pour qu'un widget
+  visible absorbe toujours l'espace restant, quel que soit l'état de la bibliothèque.
+- Deux régressions supplémentaires signalées après un deuxième essai : (3) plusieurs `QLabel`
+  (titre/sous-titre de la bibliothèque, indication de recherche, nom/description/aperçu SQL de
+  chaque carte, message d'état vide, libellé "PROFIL", jetons disponibles) n'avaient pas de fond
+  transparent explicite — sans lui, `GLOBAL_STYLE` (règle générique `QWidget { background-color:
+  bg_main; }`) leur peint un rectangle opaque derrière leur propre texte, visible dès qu'ils
+  reposent sur un fond différent (carte sélectionnée, panneau) — d'où les « rectangles noirs »
+  observés dans la bibliothèque. Convention déjà appliquée ailleurs dans l'appli
+  (`background: transparent`), manquante ici. (4) Barre de recherche/remplacement
+  (`ui/sql_editor.py`) : les boutons ↑/↓/✕ utilisaient un glyphe Unicode brut comme texte de
+  bouton, resté vide sur la machine de l'utilisateur (dépend de la présence de ce caractère précis
+  dans la police UI/ses polices de repli) ; remplacés par des icônes `qtawesome` (même patron que
+  partout ailleurs dans l'appli). Le compteur "X/Y" avait le même défaut de fond opaque que (3).
+
 ## [0.35.1] - 2026-09-09
 
 ### Corrigé
