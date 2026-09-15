@@ -118,8 +118,9 @@ def _make_empty_label(text: str, button: QPushButton | None = None) -> QWidget:
 #  CONSTANTES
 # ──────────────────────────────────────────────
 
-NAV_WIDTH   = 220
-HEADER_H    = 52
+NAV_WIDTH            = 220
+NAV_WIDTH_COLLAPSED  = 56   # icône seule + tooltip (chantier ergonomie, repli du menu)
+HEADER_H             = 52
 # FONT_MONO / FONT_UI définies dans ui/styles.py (ré-exportées ici pour compat avec les imports
 # existants `from .widgets import ..., FONT_MONO`) — voir ui/fonts.py pour l'enregistrement.
 
@@ -335,6 +336,7 @@ class NavButton(QPushButton):
         self._label     = label
         self._icon_name = icon_name
         self._active    = False
+        self._collapsed = False
         self.setCursor(Qt.PointingHandCursor)
         self.setFixedHeight(44)
         self.setIconSize(QSize(16, 16))
@@ -345,18 +347,26 @@ class NavButton(QPushButton):
         self._active = active
         self._apply_style()
 
+    def set_collapsed(self, collapsed: bool):
+        """Rail replié (chantier ergonomie) — icône seule, libellé reporté en infobulle plutôt
+        que perdu : sans lui, un rail icône-seule mal fait devient un jeu de mémoire."""
+        self._collapsed = collapsed
+        self._apply_style()
+
     def _apply_style(self):
         bg     = COLORS["bg_active"] if self._active else "transparent"
         color  = COLORS["text_main"] if self._active else COLORS["text_dim"]
         border = f"border-left: 3px solid {COLORS['accent']};" if self._active else "border-left: 3px solid transparent;"
+        padding = "0px" if self._collapsed else "0px 16px 0px 12px"
+        align   = "center" if self._collapsed else "left"
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
                 color: {color};
                 {border}
                 border-radius: 0px;
-                padding: 0px 16px 0px 12px;
-                text-align: left;
+                padding: {padding};
+                text-align: {align};
                 font-size: 13px;
                 font-weight: {"600" if self._active else "400"};
             }}
@@ -365,10 +375,147 @@ class NavButton(QPushButton):
                 color: {COLORS['text_main']};
             }}
         """)
-        self.setText(f"  {self._label}")
+        self.setText("" if self._collapsed else f"  {self._label}")
+        self.setToolTip(self._label if self._collapsed else "")
         if self._icon_name:
             from ui.icons import nav_icon
             self.setIcon(nav_icon(self._icon_name, color))
+
+
+# ──────────────────────────────────────────────
+#  COMPOSANT : RAIL DE NAVIGATION (chantier ergonomie, repli du menu)
+# ──────────────────────────────────────────────
+
+class NavRail(QWidget):
+    """
+    Colonne de navigation latérale — extraite de MainWindow._build_nav() en composant autonome
+    (chantier repli du menu) précisément pour rester testable seule : MainWindow instancie ses 8
+    vues (Dashboard, Pipelines, Connexions, Requêtes SQL, Historique, Ressources, Paramètres,
+    Aide) dans son constructeur, avec effets de bord réels (pont vers le scheduler, dialogue de
+    rattrapage des pipelines manqués) — en construire plusieurs dans une même suite de tests a
+    fait planter/bloquer la suite complète à deux reprises (voir CHANGELOG, chantier repli du
+    menu), alors que NavRail seule, sans rien de tout ça, se construit et se teste en isolation
+    sans aucun risque.
+
+    N'importe rien de la logique de persistance (AppSettings) : `navigate_requested`/
+    `collapsed_changed` laissent l'appelant (MainWindow) décider quoi en faire — ce composant ne
+    connaît que sa propre présentation.
+    """
+
+    navigate_requested  = Signal(int)
+    collapsed_changed   = Signal(bool)
+
+    def __init__(self, nav_items: list[tuple[str, str, int]], initial_collapsed: bool = False):
+        super().__init__()
+        self._collapsed = initial_collapsed
+        self._nav_buttons: list[NavButton] = []
+        self.setStyleSheet(f"background-color: {COLORS['bg_panel']};")
+        self._build_ui(nav_items)
+        self._apply_collapsed_state()
+
+    def _build_ui(self, nav_items):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # Logo / titre
+        self._logo_widget = QWidget()
+        self._logo_widget.setFixedHeight(HEADER_H)
+        self._logo_widget.setStyleSheet(f"background: {COLORS['bg_panel']}; border-bottom: 1px solid {COLORS['border']};")
+        self._logo_layout = QHBoxLayout(self._logo_widget)
+        self._logo_layout.setSpacing(10)
+        from ui.icons import logo_icon as _logo_icon
+        logo_icon = QLabel()
+        logo_icon.setFixedSize(22, 22)
+        logo_icon.setPixmap(_logo_icon(COLORS["accent"], size=22).pixmap(22, 22))
+        logo_icon.setStyleSheet("background: transparent; border: none;")
+        self._logo_lbl = QLabel("KULU")
+        self._logo_lbl.setStyleSheet(
+            f"color: {COLORS['accent']}; font-size: 14px; font-weight: 700; "
+            f"background: transparent; border: none; letter-spacing: 0.5px;"
+        )
+        self._logo_layout.addWidget(logo_icon)
+        self._logo_layout.addWidget(self._logo_lbl)
+        layout.addWidget(self._logo_widget)
+
+        # Boutons de navigation
+        for label, icon, idx in nav_items:
+            btn = NavButton(label, icon)
+            btn.clicked.connect(lambda checked, i=idx: self.navigate_requested.emit(i))
+            self._nav_buttons.append(btn)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+
+        # Repli/dépli — bascule explicite (jamais au survol, qui ajouterait un mouvement non
+        # sollicité sur un outil où l'on reste concentré longtemps sur une vue). QPushButton nu
+        # plutôt que NavButton : son icône (chevron réversible) vient de qtawesome (_icon()), pas
+        # du jeu d'icônes SVG maison fermé de NavButton (ui/icons.py::nav_icon(), une clé par
+        # item de nav).
+        self._toggle_btn = QPushButton()
+        self._toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._toggle_btn.setFixedHeight(36)
+        self._toggle_btn.setIconSize(QSize(13, 13))
+        self._toggle_btn.clicked.connect(self.toggle_collapsed)
+        layout.addWidget(self._toggle_btn)
+
+        # Version en bas
+        from version import __version__
+        self._version_lbl = QLabel(f"v{__version__}")
+        self._version_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; padding: 12px 18px; background: transparent;")
+        layout.addWidget(self._version_lbl)
+
+    # ── API publique ───────────────────────────
+
+    def set_active_index(self, index: int):
+        for i, btn in enumerate(self._nav_buttons):
+            btn.set_active(i == index)
+
+    def toggle_collapsed(self):
+        self.set_collapsed(not self._collapsed)
+
+    def set_collapsed(self, collapsed: bool):
+        self._collapsed = collapsed
+        self._apply_collapsed_state()
+        self.collapsed_changed.emit(collapsed)
+
+    @property
+    def is_collapsed(self) -> bool:
+        return self._collapsed
+
+    # ── Présentation ───────────────────────────
+
+    def _apply_collapsed_state(self):
+        self.setFixedWidth(NAV_WIDTH_COLLAPSED if self._collapsed else NAV_WIDTH)
+        for btn in self._nav_buttons:
+            btn.set_collapsed(self._collapsed)
+
+        self._logo_lbl.setVisible(not self._collapsed)
+        margin = 8 if self._collapsed else 18
+        self._logo_layout.setContentsMargins(margin, 0, margin, 0)
+
+        self._version_lbl.setVisible(not self._collapsed)
+
+        chevron = "fa5s.chevron-right" if self._collapsed else "fa5s.chevron-left"
+        self._toggle_btn.setIcon(_icon(chevron, COLORS["text_dim"]))
+        self._toggle_btn.setText("" if self._collapsed else "  Réduire le menu")
+        self._toggle_btn.setToolTip("Agrandir le menu" if self._collapsed else "")
+        padding = "0px" if self._collapsed else "0px 16px 0px 12px"
+        self._toggle_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                color: {COLORS['text_dim']};
+                border: none;
+                border-radius: 0px;
+                padding: {padding};
+                text-align: left;
+                font-size: 12px;
+            }}
+            QPushButton:hover {{
+                background-color: {COLORS['bg_hover']};
+                color: {COLORS['text_main']};
+            }}
+        """)
 
 
 # ──────────────────────────────────────────────
