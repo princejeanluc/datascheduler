@@ -95,12 +95,15 @@ class SqoopImportStep(BaseStep):
             ctx.log(f"Sqoop import : {edge_profile.host}" + (f" — {', '.join(steps_desc)}…" if steps_desc else ""))
             ctx.log(f"Sqoop import : {masked_cmd}")
 
+            app_settings = db.get_app_settings()
             sqoop_result = run_sqoop_import(
                 ssh_cfg, krb_cfg, oracle_cfg,
                 oracle_table, hcatalog_database, hcatalog_table, num_mappers, split_by_column,
                 sqoop_conf,
                 elevation_cfg=elevation_cfg, on_progress=on_progress,
                 cancel_event=cancel_event,
+                reuse_ticket=app_settings.kerberos_reuse_valid_ticket,
+                grace_period_s=app_settings.kerberos_ticket_grace_period_s,
             )
 
             if not sqoop_result.success:

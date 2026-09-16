@@ -219,17 +219,94 @@ def test_ssh_connection(cfg: SshExecConfig) -> ConnectionTestResult:
 #  KERBEROS (kinit via pseudo-terminal)
 # ──────────────────────────────────────────────
 
-def _kinit(client, krb_cfg: KerberosConfig, cancel_event=None) -> tuple[bool, str]:
+# Calcul entièrement effectué sur le nœud edge lui-même (klist + `date -d`, jamais côté client)
+# pour ne jamais avoir à réconcilier deux fuseaux horaires/horloges différents entre cette machine
+# et le nœud edge. Suppose un format de sortie klist de type MIT (colonnes "Valid starting /
+# Expires / Service principal", quasi universel sur les nœuds edge Hadoop, mais pas garanti) —
+# toute défaillance (klist absent, `date -d` incapable de parser, aucun ticket krbtgt) fait
+# échouer proprement (echo -1), jamais une exception qui remonterait jusqu'à l'appelant.
+_KLIST_REMAINING_SECONDS_CMD = (
+    "EXP=$(klist 2>/dev/null | grep krbtgt | awk '{print $3, $4}' | head -n1); "
+    'if [ -z "$EXP" ]; then echo -1; else '
+    'EXP_EPOCH=$(date -d "$EXP" +%s 2>/dev/null); '
+    'if [ -z "$EXP_EPOCH" ]; then echo -1; else echo $(( EXP_EPOCH - $(date +%s) )); fi; fi'
+)
+
+
+def _ticket_remaining_seconds(client, timeout: int = 10) -> int:
+    """Secondes restantes avant expiration du ticket Kerberos actif sur le nœud edge (cache par
+    défaut de l'utilisateur OS connecté en SSH) — -1 si indéterminable. Ne lève jamais."""
+    try:
+        _, stdout, _ = client.exec_command(_KLIST_REMAINING_SECONDS_CMD, timeout=timeout)
+        return int(stdout.read().decode("utf-8", errors="replace").strip())
+    except Exception:
+        return -1
+
+
+def _has_valid_ticket(client, timeout: int = 10) -> bool:
+    """Vérification simple et portable (`klist -s` — code de sortie 0 si un ticket valide
+    existe, MIT et Heimdal la supportent tous les deux, aucune hypothèse sur le format de sortie)
+    — utilisée quand aucune marge de grâce n'est demandée. Ne lève jamais."""
+    try:
+        _, stdout, _ = client.exec_command("klist -s", timeout=timeout)
+        return stdout.channel.recv_exit_status() == 0
+    except Exception:
+        return False
+
+
+def _should_skip_kinit(client, grace_period_s: int) -> bool:
+    """Vrai si un ticket suffisamment valide existe déjà sur le nœud edge — jamais pire que le
+    comportement historique en cas de doute : tout échec de détection retombe sur False (kinit
+    relancé, comme avant ce chantier)."""
+    if grace_period_s <= 0:
+        return _has_valid_ticket(client)
+    return _ticket_remaining_seconds(client) > grace_period_s
+
+
+def _shell_should_skip_kinit(channel, grace_period_s: int, cancel_event=None) -> bool:
+    """Équivalent de _should_skip_kinit() pour un canal shell interactif (invoke_shell, après une
+    élévation sudo su) — exec_command() n'est pas utilisable ici, voir docstring de
+    run_command_with_elevation(). Même filet de sécurité : tout échec retombe sur False."""
+    sentinel = f"__DS_KLIST_{_uuid_module.uuid4().hex}__"
+    if grace_period_s <= 0:
+        channel.send(f"klist -s >/dev/null 2>&1; echo {sentinel}:$?\n")
+    else:
+        channel.send(f"R=$({_KLIST_REMAINING_SECONDS_CMD}); echo {sentinel}:$R\n")
+    buf, marker = _read_until(channel, markers=[sentinel], timeout=_WHOAMI_CONFIRM_TIMEOUT_S,
+                               cancel_event=cancel_event)
+    if marker is None:
+        return False
+    try:
+        value = int(buf.split(f"{sentinel}:")[-1].strip().splitlines()[0])
+    except (ValueError, IndexError):
+        return False
+    return value == 0 if grace_period_s <= 0 else value > grace_period_s
+
+
+def _kinit(client, krb_cfg: KerberosConfig, cancel_event=None,
+           reuse_ticket: bool = False, grace_period_s: int = 0) -> tuple[bool, str]:
     """
     Automatise le prompt interactif de `kinit` via un pseudo-terminal (get_pty=True) — kinit
     lit le mot de passe depuis le terminal contrôlant, pas depuis stdin brut (mesure
     anti-script délibérée de Kerberos), donc `echo motdepasse | kinit ...` ne fonctionne pas ;
     un PTY fait croire à kinit qu'il parle à un vrai terminal. Ne lève jamais.
 
+    `reuse_ticket`/`grace_period_s` (chantier dédié) : si `reuse_ticket`, vérifie d'abord qu'un
+    ticket valide n'existe pas déjà sur le nœud edge avant de relancer kinit inutilement — un
+    ticket Kerberos dure ~24h, mais jusqu'ici kinit était relancé à chaque étape sans condition.
+    Défauts (False/0) délibérément différents du défaut applicatif (AppSettings.
+    kerberos_reuse_valid_ticket=True) : cette fonction reste testable sans dépendre d'une base de
+    données initialisée (voir tests/test_hadoop_edge*.py, historiquement sans fixture test_db) —
+    c'est aux appelants (core/spark.py, core/sqoop.py) de lire AppSettings et de transmettre les
+    valeurs explicitement, jamais à ce module de bas niveau de le faire lui-même.
+
     `cancel_event` (chantier annulation coopérative) : vérifié à chaque tick de la boucle
     d'attente de l'invite — seul vrai point d'interruption sûr de cette fonction (l'appel
     bloquant qui suit, une fois le mot de passe envoyé, est bref par nature).
     """
+    if reuse_ticket and _should_skip_kinit(client, grace_period_s):
+        return True, "Ticket Kerberos existant réutilisé (encore valide)."
+
     stdin, stdout, stderr = client.exec_command(
         f"kinit {krb_cfg.principal}", get_pty=True, timeout=30,
     )
@@ -319,7 +396,8 @@ def _read_until(channel, markers: list[str], timeout: float, cancel_event=None) 
 def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: int,
                                 elevation_cfg: ElevationConfig,
                                 krb_cfg: KerberosConfig | None = None,
-                                on_progress=None, cancel_event=None) -> tuple[bool, str]:
+                                on_progress=None, cancel_event=None,
+                                reuse_ticket: bool = False, grace_period_s: int = 0) -> tuple[bool, str]:
     """
     Ouvre UN canal shell interactif (invoke_shell) et y enchaîne, dans l'ordre : `sudo su
     <target_user>` (mot de passe automatisé, même principe que _kinit), une vérification
@@ -343,6 +421,12 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
     dans la sortie brute), pas sur un code de sortie structuré — un prompt shell inhabituel ou un
     message sudo non standard peut faire échouer la détection même si l'élévation a réellement
     réussi (ou l'inverse). Un compromis pragmatique, pas une garantie à 100 %.
+
+    `reuse_ticket`/`grace_period_s` (chantier dédié) : même principe que _kinit() — si
+    `reuse_ticket`, vérifie via le canal shell déjà ouvert (_shell_should_skip_kinit(), exec_command()
+    n'étant pas utilisable une fois l'élévation faite) qu'un ticket valide n'existe pas déjà avant
+    de relancer kinit. Défauts (False/0) délibérément différents du défaut applicatif — mêmes
+    raisons que _kinit().
     """
     if on_progress:
         on_progress("Connexion au nœud edge…", 10)
@@ -367,14 +451,18 @@ def run_command_with_elevation(ssh_cfg: SshExecConfig, command: str, timeout: in
             return False, f"sudo su {elevation_cfg.target_user} : échec (identité non confirmée)."
 
         if krb_cfg:
-            if on_progress:
-                on_progress("Authentification Kerberos…", 45)
-            channel.send(f"kinit {krb_cfg.principal}\n")
-            _buf, marker = _read_until(channel, markers=["assword"], timeout=_KINIT_PROMPT_TIMEOUT_S,
-                                        cancel_event=cancel_event)
-            if marker is None:
-                return False, "kinit : délai dépassé en attendant l'invite de mot de passe."
-            channel.send(krb_cfg.password + "\n")
+            skip_kinit = reuse_ticket and _shell_should_skip_kinit(
+                channel, grace_period_s, cancel_event=cancel_event,
+            )
+            if not skip_kinit:
+                if on_progress:
+                    on_progress("Authentification Kerberos…", 45)
+                channel.send(f"kinit {krb_cfg.principal}\n")
+                _buf, marker = _read_until(channel, markers=["assword"], timeout=_KINIT_PROMPT_TIMEOUT_S,
+                                            cancel_event=cancel_event)
+                if marker is None:
+                    return False, "kinit : délai dépassé en attendant l'invite de mot de passe."
+                channel.send(krb_cfg.password + "\n")
 
         if on_progress:
             on_progress("Exécution de la commande…", 60)

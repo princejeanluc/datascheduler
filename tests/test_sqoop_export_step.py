@@ -32,12 +32,42 @@ def _elevation_profile():
     return db.create_elevation_profile(name="NIFI", target_user="nifi", password="sharedpw")
 
 
+def test_run_reads_kerberos_reuse_settings_from_app_settings(test_db, monkeypatch):
+    """chantier réutilisation des tickets Kerberos : le step lit AppSettings et transmet les
+    valeurs à run_sqoop_export(), plutôt que de les câbler en dur ou de les lire lui-même au
+    niveau de core/sqoop.py (qui doit rester testable sans base de données, voir sa docstring)."""
+    from database import db_manager as db
+    edge, krb, oracle = _base_profiles()
+    db.update_app_settings(kerberos_reuse_valid_ticket=False, kerberos_ticket_grace_period_s=120)
+
+    captured = {}
+
+    def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
+                               oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
+                               cancel_event=None, reuse_ticket=False, grace_period_s=0):
+        captured["reuse_ticket"] = reuse_ticket
+        captured["grace_period_s"] = grace_period_s
+        return _FakeSqoopExportResult(success=True)
+
+    monkeypatch.setattr(sqoop_module, "run_sqoop_export", fake_run_sqoop_export)
+
+    step = SqoopExportStep({
+        "edge_profile_id": edge.id, "kerberos_profile_id": krb.id, "oracle_profile_id": oracle.id,
+        "hcatalog_database": "DD", "hcatalog_table": "FINAL_EQUIPEMENT_CLIENT",
+        "oracle_table": "xxx.xxxxx",
+    })
+    result = step.run(StepContext())
+
+    assert result.success, result.error
+    assert captured == {"reuse_ticket": False, "grace_period_s": 120}
+
+
 def test_success(test_db, monkeypatch):
     edge, krb, oracle = _base_profiles()
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         return _FakeSqoopExportResult(success=True)
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_export", fake_run_sqoop_export)
@@ -60,7 +90,7 @@ def test_run_passes_on_progress_through_to_run_sqoop_export(test_db, monkeypatch
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         captured["on_progress"] = on_progress
         if on_progress:
             on_progress("Export Sqoop en cours…", 40)
@@ -87,7 +117,7 @@ def test_resolves_tokens_in_table_fields(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         captured["hcatalog_database"] = hcatalog_database
         captured["hcatalog_table"] = hcatalog_table
         captured["oracle_table"] = oracle_table
@@ -147,7 +177,7 @@ def test_failure_propagates_error_message(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         return _FakeSqoopExportResult(success=False, error="sqoop export a échoué")
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_export", fake_run_sqoop_export)
@@ -167,7 +197,7 @@ def test_password_never_appears_in_context_logs(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         return _FakeSqoopExportResult(success=True)
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_export", fake_run_sqoop_export)
@@ -192,7 +222,7 @@ def test_kerberos_optional_is_skipped_when_not_configured(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         captured["krb_cfg"] = krb_cfg
         return _FakeSqoopExportResult(success=True)
 
@@ -228,7 +258,7 @@ def test_elevation_profile_is_resolved_and_passed_through(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         captured["elevation_cfg"] = elevation_cfg
         return _FakeSqoopExportResult(success=True)
 
@@ -252,7 +282,7 @@ def test_elevation_password_never_appears_in_context_logs(test_db, monkeypatch):
 
     def fake_run_sqoop_export(ssh_cfg, krb_cfg, oracle_cfg, hcatalog_database, hcatalog_table,
                                oracle_table, sqoop_conf, timeout=3600, elevation_cfg=None, on_progress=None,
-                               cancel_event=None):
+                               cancel_event=None, **kwargs):
         return _FakeSqoopExportResult(success=True)
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_export", fake_run_sqoop_export)

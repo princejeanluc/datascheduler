@@ -633,6 +633,19 @@ class AppSettings(Base):
     # le comportement silencieusement pour qui n'a jamais touché à ce réglage.
     nav_collapsed           = Column(Boolean, default=False, nullable=False)
 
+    # Réutilisation des tickets Kerberos (chantier dédié) — jusqu'ici, kinit était relancé sans
+    # condition à chaque étape SPARK_SQL/SQOOP_EXPORT/SQOOP_IMPORT, même si un ticket valide de
+    # 24h existait déjà. Défaut = True : contrairement à execution_mode/coalesce_missed_runs
+    # (défaut=True nécessaire pour PRÉSERVER un comportement historique), ici le nouveau chemin
+    # ne peut jamais être pire que l'ancien — toute défaillance de détection (klist absent, sortie
+    # inattendue...) retombe sur "aucun ticket valide", donc kinit est relancé comme avant.
+    kerberos_reuse_valid_ticket    = Column(Boolean, default=True, nullable=False)
+    # Marge de grâce (secondes) : un ticket valide n'est réutilisé que s'il lui reste plus de ce
+    # temps avant expiration. 0 (défaut) = réutilisation dès qu'il reste ne serait-ce qu'une
+    # seconde de validité (vérification simple et portable, klist -s) ; > 0 exige de lire la date
+    # d'expiration réelle (voir core/hadoop_edge.py::_ticket_remaining_seconds).
+    kerberos_ticket_grace_period_s = Column(Integer, default=0, nullable=False)
+
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
 

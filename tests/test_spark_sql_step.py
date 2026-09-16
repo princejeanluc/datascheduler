@@ -26,6 +26,35 @@ def _base_profiles():
     return edge, krb
 
 
+def test_run_reads_kerberos_reuse_settings_from_app_settings(test_db, monkeypatch, tmp_path):
+    """chantier réutilisation des tickets Kerberos : le step lit AppSettings et transmet les
+    valeurs à run_spark_sql(), plutôt que de les câbler en dur ou de les lire lui-même au niveau
+    de core/spark.py (qui doit rester testable sans base de données, voir sa docstring)."""
+    from database import db_manager as db
+    edge, krb = _base_profiles()
+    q = db.create_sql_query(name="Q1", sql_text="SELECT 1")
+    db.update_app_settings(kerberos_reuse_valid_ticket=False, kerberos_ticket_grace_period_s=120)
+
+    captured = {}
+
+    def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None,
+                            reuse_ticket=False, grace_period_s=0):
+        captured["reuse_ticket"] = reuse_ticket
+        captured["grace_period_s"] = grace_period_s
+        return _FakeSparkSqlResult(success=True)
+
+    monkeypatch.setattr(spark_module, "run_spark_sql", fake_run_spark_sql)
+
+    step = SparkSqlStep({
+        "edge_profile_id": edge.id, "kerberos_profile_id": krb.id, "sql_query_id": q.id,
+    })
+    result = step.run(StepContext())
+
+    assert result.success, result.error
+    assert captured == {"reuse_ticket": False, "grace_period_s": 120}
+
+
 def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, monkeypatch, tmp_path):
     edge, krb = _base_profiles()
     from database import db_manager as db
@@ -34,7 +63,7 @@ def test_success_with_fetch_result_sets_output_file_and_named_artifact(test_db, 
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None, **kwargs):
         captured["fetch_result"] = fetch_result
         captured["raw_output_path"] = local_output_path
         # Sortie brute simulée de spark-sql : tabulée, sans guillemets.
@@ -75,7 +104,7 @@ def test_run_passes_on_progress_through_to_run_spark_sql(test_db, monkeypatch, t
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None, **kwargs):
         captured["on_progress"] = on_progress
         if on_progress:
             on_progress("Exécution de la requête sur le cluster…", 40)
@@ -103,7 +132,7 @@ def test_success_without_fetch_result_does_not_touch_output_file(test_db, monkey
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None, **kwargs):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=True, local_output_path=None)
 
@@ -130,7 +159,7 @@ def test_resolves_tokens_in_spark_conf_and_query(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None, **kwargs):
         captured["spark_conf"] = spark_conf
         captured["query"] = query
         return _FakeSparkSqlResult(success=True)
@@ -197,7 +226,7 @@ def test_failure_cleans_up_local_temp_file(test_db, monkeypatch):
     captured = {}
 
     def fake_run_spark_sql(ssh_cfg, krb_cfg, spark_conf, query, fetch_result,
-                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None):
+                            local_output_path=None, timeout=3600, on_progress=None, cancel_event=None, **kwargs):
         captured["local_output_path"] = local_output_path
         return _FakeSparkSqlResult(success=False, error="spark-sql a échoué")
 

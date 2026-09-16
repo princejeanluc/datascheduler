@@ -108,7 +108,8 @@ def build_sqoop_import_command(connect_url: str, username: str, password: str, o
 
 def _run_sqoop(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, real_cmd: str, verb: str,
                timeout: int = 3600, elevation_cfg: ElevationConfig | None = None,
-               on_progress=None, cancel_event=None) -> SqoopCommandResult:
+               on_progress=None, cancel_event=None,
+               reuse_ticket: bool = False, grace_period_s: int = 0) -> SqoopCommandResult:
     """
     Exécution SSH d'une commande sqoop déjà construite — partagée par run_sqoop_export()/
     run_sqoop_import(), qui ne diffèrent que par la commande elle-même (`real_cmd`) et son verbe
@@ -130,6 +131,13 @@ def _run_sqoop(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, real_cmd:
     `on_progress(msg, pct)`, si fourni, reflète la phase bloquante en cours (connexion, kinit,
     export/import) — chemin élévation transmis tel quel à run_command_with_elevation(), qui a
     déjà ses propres phases (chantier O).
+
+    `reuse_ticket`/`grace_period_s` (chantier dédié) : transmis tel quel à _kinit()/
+    run_command_with_elevation(). Défauts (False/0) délibérément différents du défaut applicatif
+    (AppSettings.kerberos_reuse_valid_ticket=True) — ce module reste testable sans base de
+    données initialisée (voir tests/test_sqoop_run.py, historiquement sans fixture test_db) ;
+    c'est aux appelants (core/steps/sqoop_export.py, core/steps/sqoop_import.py) de lire
+    AppSettings et de transmettre les valeurs.
     """
     start = time.monotonic()
 
@@ -138,6 +146,7 @@ def _run_sqoop(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, real_cmd:
             ok, output = run_command_with_elevation(
                 ssh_cfg, real_cmd, timeout, elevation_cfg=elevation_cfg, krb_cfg=krb_cfg,
                 on_progress=on_progress, cancel_event=cancel_event,
+                reuse_ticket=reuse_ticket, grace_period_s=grace_period_s,
             )
             if not ok:
                 return SqoopCommandResult(
@@ -161,7 +170,10 @@ def _run_sqoop(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, real_cmd:
         if krb_cfg:
             if on_progress:
                 on_progress("Authentification Kerberos…", 25)
-            ok, message = _kinit(client, krb_cfg, cancel_event=cancel_event)
+            ok, message = _kinit(
+                client, krb_cfg, cancel_event=cancel_event,
+                reuse_ticket=reuse_ticket, grace_period_s=grace_period_s,
+            )
             if not ok:
                 return SqoopCommandResult(
                     success=False, error=f"Authentification Kerberos : {message}",
@@ -204,7 +216,8 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
                       hcatalog_database: str, hcatalog_table: str, oracle_table: str,
                       sqoop_conf: str, timeout: int = 3600,
                       elevation_cfg: ElevationConfig | None = None, on_progress=None,
-                      cancel_event=None) -> SqoopCommandResult:
+                      cancel_event=None, reuse_ticket: bool = False,
+                      grace_period_s: int = 0) -> SqoopCommandResult:
     """Construit la commande `sqoop export` (Hive/HCatalog → Oracle) puis délègue à _run_sqoop()
     pour toute la mécanique SSH/kinit/élévation — voir sa docstring pour le détail des deux
     chemins d'exécution possibles."""
@@ -213,14 +226,16 @@ def run_sqoop_export(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         hcatalog_database, hcatalog_table, oracle_table, sqoop_conf, masked=False,
     )
     return _run_sqoop(ssh_cfg, krb_cfg, real_cmd, "export", timeout=timeout,
-                       elevation_cfg=elevation_cfg, on_progress=on_progress, cancel_event=cancel_event)
+                       elevation_cfg=elevation_cfg, on_progress=on_progress, cancel_event=cancel_event,
+                       reuse_ticket=reuse_ticket, grace_period_s=grace_period_s)
 
 
 def run_sqoop_import(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, oracle_cfg: SqlDbConfig,
                       oracle_table: str, hcatalog_database: str, hcatalog_table: str,
                       num_mappers: int, split_by_column: str, sqoop_conf: str, timeout: int = 3600,
                       elevation_cfg: ElevationConfig | None = None, on_progress=None,
-                      cancel_event=None) -> SqoopCommandResult:
+                      cancel_event=None, reuse_ticket: bool = False,
+                      grace_period_s: int = 0) -> SqoopCommandResult:
     """Construit la commande `sqoop import` (Oracle → Hive/HCatalog, sens inverse de
     run_sqoop_export()) puis délègue à _run_sqoop() — même mécanique SSH/kinit/élévation,
     aucune duplication."""
@@ -230,4 +245,5 @@ def run_sqoop_import(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig | None, ora
         masked=False,
     )
     return _run_sqoop(ssh_cfg, krb_cfg, real_cmd, "import", timeout=timeout,
-                       elevation_cfg=elevation_cfg, on_progress=on_progress, cancel_event=cancel_event)
+                       elevation_cfg=elevation_cfg, on_progress=on_progress, cancel_event=cancel_event,
+                       reuse_ticket=reuse_ticket, grace_period_s=grace_period_s)

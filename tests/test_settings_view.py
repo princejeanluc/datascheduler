@@ -51,6 +51,44 @@ def test_settings_view_prefills_from_app_settings(qapp, test_db):
     assert view.spin_dashboard_refresh.value() == 60
 
 
+def test_kerberos_reuse_settings_prefill(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    db.update_app_settings(kerberos_reuse_valid_ticket=False, kerberos_ticket_grace_period_s=120)
+    view = SettingsView()
+
+    assert not view.chk_kerberos_reuse.isChecked()
+    assert view.spin_kerberos_grace.value() == 120
+    assert not view.spin_kerberos_grace.isEnabled()   # décoché -> désactivé
+
+
+def test_kerberos_reuse_checkbox_toggles_grace_field_enabled_state(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view.chk_kerberos_reuse.isChecked()          # activé par défaut
+    assert view.spin_kerberos_grace.isEnabled()
+
+    view.chk_kerberos_reuse.setChecked(False)
+    assert not view.spin_kerberos_grace.isEnabled()
+
+    view.chk_kerberos_reuse.setChecked(True)
+    assert view.spin_kerberos_grace.isEnabled()
+
+
+def test_kerberos_reuse_settings_save_round_trip(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.chk_kerberos_reuse.setChecked(False)
+    view.spin_kerberos_grace.setValue(300)
+    view._on_save()
+
+    settings = db.get_app_settings()
+    assert settings.kerberos_reuse_valid_ticket is False
+    assert settings.kerberos_ticket_grace_period_s == 300
+
+
 def test_select_category_shows_only_that_categorys_rows(qapp, test_db):
     from ui.main_window.settings_view import SettingsView
 

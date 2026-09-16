@@ -109,10 +109,13 @@ class SparkSqlStep(BaseStep):
             # on_progress lui est transmis directement plutôt que de deviner l'étape ici
             # (chantier O : un seul tick avant/après ce bloc masquait de longues minutes de
             # requête en cours derrière un libellé figé "Authentification Kerberos…").
+            app_settings = db.get_app_settings()
             spark_result = run_spark_sql(
                 ssh_cfg, kerberos_cfg, spark_conf, query, fetch_result,
                 local_output_path=raw_path, timeout=timeout, on_progress=on_progress,
                 cancel_event=cancel_event,
+                reuse_ticket=app_settings.kerberos_reuse_valid_ticket,
+                grace_period_s=app_settings.kerberos_ticket_grace_period_s,
             )
 
             if not spark_result.success:
