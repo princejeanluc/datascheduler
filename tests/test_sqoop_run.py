@@ -185,7 +185,7 @@ def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatc
     captured = {}
 
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None, cancel_event=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["command"] = command
         captured["elevation_cfg"] = elevation_cfg
         captured["krb_cfg"] = krb_cfg
@@ -211,7 +211,7 @@ def test_run_sqoop_export_delegates_to_elevation_path_when_configured(monkeypatc
 
 def test_run_sqoop_export_elevation_path_reports_failure(monkeypatch):
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None, cancel_event=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         return False, "sudo su : délai dépassé en attendant l'invite de mot de passe."
 
     monkeypatch.setattr(sqoop_module, "run_command_with_elevation", fake_run_command_with_elevation)
@@ -229,7 +229,7 @@ def test_run_sqoop_export_forwards_cancel_event_to_elevation_path(monkeypatch):
     captured = {}
 
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None, cancel_event=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["cancel_event"] = cancel_event
         return True, "ok"
 
@@ -352,7 +352,7 @@ def test_run_sqoop_import_delegates_to_elevation_path_when_configured(monkeypatc
     captured = {}
 
     def fake_run_command_with_elevation(ssh_cfg_arg, command, timeout, elevation_cfg=None,
-                                         krb_cfg=None, on_progress=None, cancel_event=None):
+                                         krb_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["command"] = command
         return True, "ok"
 

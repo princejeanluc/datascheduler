@@ -29,6 +29,35 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.38.0] - 2026-09-16
+
+### Ajouté
+- Réutilisation des tickets Kerberos valides — signalé par un utilisateur : un ticket kinit dure
+  ~24h, mais `kinit` était relancé sans aucune condition à chaque étape SPARK_SQL/SQOOP_EXPORT/
+  SQOOP_IMPORT (et à chaque tentative de relance), sans jamais vérifier via `klist` qu'un ticket
+  valide existait déjà. Confirmé par investigation du code : zéro `klist` nulle part avant ce
+  chantier. Nuance importante (voir `core/hadoop_edge.py`) : `kinit` n'est jamais appelé avec un
+  chemin de cache unique (`-c`), donc ce n'est pas nécessairement "N tickets accumulés" au sens
+  strict — chaque appel réutilise/écrase le cache par défaut de l'utilisateur OS connecté en SSH
+  sur le nœud edge (sauf configuration PAM particulière, invérifiable depuis ce dépôt) — mais les
+  appels `kinit` redondants (charge KDC, aller-retour SSH/PTY) étaient bien réels.
+  - Deux réglages dans Paramètres → Ordonnanceur : **Réutiliser un ticket Kerberos valide**
+    (activé par défaut — le nouveau chemin ne peut jamais être pire que l'ancien : toute
+    défaillance de détection retombe sur "aucun ticket valide", donc `kinit` est relancé comme
+    avant) et **Marge de grâce du ticket Kerberos** (0 par défaut = réutilisation dès qu'il reste
+    ne serait-ce qu'une seconde de validité ; une valeur positive force un renouvellement
+    anticipé si moins de N secondes restent avant expiration).
+  - Vérification "existe" (marge = 0) : `klist -s`, portable (MIT et Heimdal la supportent tous
+    les deux), aucune hypothèse sur un format de sortie.
+  - Vérification "temps restant" (marge > 0) : lit la date d'expiration réelle (`klist` + `awk` +
+    `date -d`), calculée entièrement sur le nœud edge lui-même pour ne jamais avoir à réconcilier
+    deux fuseaux horaires/horloges différents entre cette machine et le nœud edge — suppose un
+    format de sortie `klist` de type MIT (quasi universel sur les nœuds edge Hadoop, mais pas
+    garanti par ce dépôt).
+  - S'applique aussi bien au chemin SSH direct qu'au chemin avec élévation (`sudo su`), qui
+    utilise un canal shell interactif distinct (voir `core/hadoop_edge.py::
+    run_command_with_elevation`).
+
 ## [0.37.0] - 2026-09-15
 
 ### Ajouté

@@ -33,12 +33,43 @@ def _elevation_profile():
     return db.create_elevation_profile(name="NIFI", target_user="nifi", password="sharedpw")
 
 
+def test_run_reads_kerberos_reuse_settings_from_app_settings(test_db, monkeypatch):
+    """chantier réutilisation des tickets Kerberos : le step lit AppSettings et transmet les
+    valeurs à run_sqoop_import(), plutôt que de les câbler en dur ou de les lire lui-même au
+    niveau de core/sqoop.py (qui doit rester testable sans base de données, voir sa docstring)."""
+    from database import db_manager as db
+    edge, krb, oracle = _base_profiles()
+    db.update_app_settings(kerberos_reuse_valid_ticket=False, kerberos_ticket_grace_period_s=120)
+
+    captured = {}
+
+    def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
+                               hcatalog_table, num_mappers, split_by_column, sqoop_conf,
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None,
+                               reuse_ticket=False, grace_period_s=0):
+        captured["reuse_ticket"] = reuse_ticket
+        captured["grace_period_s"] = grace_period_s
+        return _FakeSqoopCommandResult(success=True)
+
+    monkeypatch.setattr(sqoop_module, "run_sqoop_import", fake_run_sqoop_import)
+
+    step = SqoopImportStep({
+        "edge_profile_id": edge.id, "kerberos_profile_id": krb.id, "oracle_profile_id": oracle.id,
+        "oracle_table": "xxx.xxxxx", "hcatalog_database": "DD",
+        "hcatalog_table": "FINAL_EQUIPEMENT_CLIENT",
+    })
+    result = step.run(StepContext())
+
+    assert result.success, result.error
+    assert captured == {"reuse_ticket": False, "grace_period_s": 120}
+
+
 def test_success(test_db, monkeypatch):
     edge, krb, oracle = _base_profiles()
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         return _FakeSqoopCommandResult(success=True)
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_import", fake_run_sqoop_import)
@@ -59,7 +90,7 @@ def test_resolves_tokens_in_table_fields(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["oracle_table"] = oracle_table
         captured["hcatalog_database"] = hcatalog_database
         captured["hcatalog_table"] = hcatalog_table
@@ -131,7 +162,7 @@ def test_kerberos_optional_is_skipped_when_not_configured(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["krb_cfg"] = krb_cfg
         return _FakeSqoopCommandResult(success=True)
 
@@ -154,7 +185,7 @@ def test_elevation_profile_is_resolved_and_passed_through(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["elevation_cfg"] = elevation_cfg
         return _FakeSqoopCommandResult(success=True)
 
@@ -176,7 +207,7 @@ def test_failure_propagates_error_message(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         return _FakeSqoopCommandResult(success=False, error="sqoop import a échoué")
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_import", fake_run_sqoop_import)
@@ -196,7 +227,7 @@ def test_password_never_appears_in_context_logs(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         return _FakeSqoopCommandResult(success=True)
 
     monkeypatch.setattr(sqoop_module, "run_sqoop_import", fake_run_sqoop_import)
@@ -237,7 +268,7 @@ def test_multiple_mappers_with_split_by_succeeds(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["num_mappers"] = num_mappers
         captured["split_by_column"] = split_by_column
         return _FakeSqoopCommandResult(success=True)
@@ -264,7 +295,7 @@ def test_default_num_mappers_is_one_when_not_configured(test_db, monkeypatch):
 
     def fake_run_sqoop_import(ssh_cfg, krb_cfg, oracle_cfg, oracle_table, hcatalog_database,
                                hcatalog_table, num_mappers, split_by_column, sqoop_conf,
-                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None):
+                               timeout=3600, elevation_cfg=None, on_progress=None, cancel_event=None, **kwargs):
         captured["num_mappers"] = num_mappers
         return _FakeSqoopCommandResult(success=True)
 

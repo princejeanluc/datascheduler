@@ -84,11 +84,14 @@ class SqoopExportStep(BaseStep):
             # run_sqoop_export() connaît les phases réelles (connexion, kinit/élévation, export
             # en cours) — on_progress lui est transmis directement plutôt que de deviner l'étape
             # ici (chantier O, même raisonnement que SparkSqlStep).
+            app_settings = db.get_app_settings()
             sqoop_result = run_sqoop_export(
                 ssh_cfg, krb_cfg, oracle_cfg,
                 hcatalog_database, hcatalog_table, oracle_table, sqoop_conf,
                 elevation_cfg=elevation_cfg, on_progress=on_progress,
                 cancel_event=cancel_event,
+                reuse_ticket=app_settings.kerberos_reuse_valid_ticket,
+                grace_period_s=app_settings.kerberos_ticket_grace_period_s,
             )
 
             if not sqoop_result.success:

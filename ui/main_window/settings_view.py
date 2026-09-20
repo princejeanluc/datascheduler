@@ -305,6 +305,27 @@ class SettingsView(QWidget):
                        "Déduit du dernier échantillon de ressources — le worker en écrit un en "
                        "continu tant qu'il tourne.", self.lbl_worker_status)
 
+        # Réutilisation des tickets Kerberos (chantier dédié) — jusqu'ici, kinit était relancé
+        # sans condition à chaque étape SPARK_SQL/SQOOP_EXPORT/SQOOP_IMPORT, même si un ticket
+        # valide de 24h existait déjà.
+        self.chk_kerberos_reuse = QCheckBox(); self.chk_kerberos_reuse.setStyleSheet(
+            f"color: {COLORS['text_main']};")
+        self._add_row("scheduler", "Réutiliser un ticket Kerberos valide",
+                       "Évite de relancer kinit à chaque étape SPARK_SQL/SQOOP_EXPORT/"
+                       "SQOOP_IMPORT si un ticket valide existe déjà sur le nœud edge. Désactiver "
+                       "revient au comportement historique (kinit systématique).",
+                       self.chk_kerberos_reuse)
+
+        self.spin_kerberos_grace = QSpinBox(); self.spin_kerberos_grace.setStyleSheet(_spinbox_style())
+        self.spin_kerberos_grace.setRange(0, 86400); self.spin_kerberos_grace.setSuffix(" s")
+        self.spin_kerberos_grace.setSpecialValueText("Aucune")
+        self.chk_kerberos_reuse.toggled.connect(self.spin_kerberos_grace.setEnabled)
+        self._add_row("scheduler", "Marge de grâce du ticket Kerberos",
+                       "Un ticket n'est réutilisé que s'il reste plus que cette durée avant "
+                       "expiration — « Aucune » (0s) : réutilisation dès qu'il reste ne serait-ce "
+                       "qu'une seconde de validité. Sans effet si la case ci-dessus est décochée.",
+                       self.spin_kerberos_grace)
+
         # Journalisation
         self.cb_log_level = QComboBox(); self.cb_log_level.setStyleSheet(_combo_style())
         self.cb_log_level.addItems(_LOG_LEVELS)
@@ -409,6 +430,10 @@ class SettingsView(QWidget):
 
         idx = self.cb_execution_mode.findData(settings.execution_mode)
         self.cb_execution_mode.setCurrentIndex(idx if idx >= 0 else 0)
+
+        self.chk_kerberos_reuse.setChecked(settings.kerberos_reuse_valid_ticket)
+        self.spin_kerberos_grace.setValue(settings.kerberos_ticket_grace_period_s)
+        self.spin_kerberos_grace.setEnabled(settings.kerberos_reuse_valid_ticket)
 
         idx = self.cb_log_level.findText(settings.log_level)
         self.cb_log_level.setCurrentIndex(idx if idx >= 0 else 1)
@@ -559,6 +584,8 @@ class SettingsView(QWidget):
             coalesce_missed_runs=self.chk_coalesce.isChecked(),
             max_concurrent_runs=self.spin_max_concurrent.value(),
             execution_mode=new_mode,
+            kerberos_reuse_valid_ticket=self.chk_kerberos_reuse.isChecked(),
+            kerberos_ticket_grace_period_s=self.spin_kerberos_grace.value(),
             log_level=self.cb_log_level.currentText(),
             log_max_bytes=self.spin_log_mb.value() * 1_000_000,
             log_backup_count=self.spin_log_backups.value(),

@@ -38,7 +38,8 @@ class SparkSqlResult:
 
 def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: str, query: str,
                    fetch_result: bool, local_output_path: Path | None = None,
-                   timeout: int = 3600, on_progress=None, cancel_event=None) -> SparkSqlResult:
+                   timeout: int = 3600, on_progress=None, cancel_event=None,
+                   reuse_ticket: bool = False, grace_period_s: int = 0) -> SparkSqlResult:
     """
     SSH → kinit → dépose la requête dans un fichier .sql temporaire distant (SFTP — évite tout
     problème d'échappement shell d'une requête inline) → exécute spark-sql non-interactivement,
@@ -54,6 +55,12 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
     avant `exec_command()` : c'est l'attente potentiellement la plus longue (la requête tourne
     réellement sur le cluster), auparavant indiscernable d'un kinit bloqué puisque aucun tick
     n'était émis entre le début et la toute fin de cette fonction (chantier O).
+
+    `reuse_ticket`/`grace_period_s` (chantier dédié) : transmis tel quel à `_kinit()`. Défauts
+    (False/0) délibérément différents du défaut applicatif (AppSettings.
+    kerberos_reuse_valid_ticket=True) — ce module reste testable sans base de données
+    initialisée (voir tests/test_spark.py, historiquement sans fixture test_db) ; c'est à
+    l'appelant (core/steps/spark_sql.py) de lire AppSettings et de transmettre les valeurs.
     """
     start = time.monotonic()
     client = None
@@ -69,7 +76,10 @@ def run_spark_sql(ssh_cfg: SshExecConfig, krb_cfg: KerberosConfig, spark_conf: s
 
         if on_progress:
             on_progress("Authentification Kerberos…", 15)
-        ok, message = _kinit(client, krb_cfg, cancel_event=cancel_event)
+        ok, message = _kinit(
+            client, krb_cfg, cancel_event=cancel_event,
+            reuse_ticket=reuse_ticket, grace_period_s=grace_period_s,
+        )
         if not ok:
             return SparkSqlResult(
                 success=False, error=f"Authentification Kerberos : {message}",
