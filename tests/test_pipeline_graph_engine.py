@@ -486,6 +486,28 @@ def test_condition_node_only_runs_the_selected_branch(test_db, monkeypatch, tmp_
     assert any("ignorée" in line for line in result.log_lines)
 
 
+def test_condition_node_forwards_upstream_file_to_the_selected_branch(test_db, monkeypatch, tmp_path):
+    """Régression : CONDITION ne republiait pas le fichier amont, l'étape suivante recevait
+    ctx.output_file=None (« Aucun fichier source disponible »)."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "sink.txt"
+
+    pipeline = db.create_pipeline(name="graph-condition-forward")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "DATA", "_step_key": "prod"}},
+        {"step_type": "CONDITION", "config": {"expression": "rows_count == 0", "_step_key": "cond"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "on_true"}},
+    ], edges=[_edge("prod", "cond"), _edge("cond", "on_true", from_port="true")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == "DATA"
+
+
 def test_cycle_prevents_any_execution(test_db, monkeypatch, tmp_path):
     monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
     monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
