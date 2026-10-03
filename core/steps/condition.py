@@ -227,7 +227,11 @@ def _evaluate(expression: str, ctx: StepContext) -> bool:
 
 class ConditionStep(BaseStep):
     REQUIRES: set[str] = set()
-    PRODUCES: set[str] = set()
+    # Passe-plat : run() ne touche jamais ctx.output_file, mais sans PRODUCES le moteur ne
+    # republie pas l'artefact sous la clé de cette étape, et l'étape suivante (réorientée vers
+    # ctx.artifacts[clé de la condition]) perdait le fichier amont — même mécanisme que
+    # GatewayParallelStep.
+    PRODUCES: set[str] = {"output_file"}
     OUTPUT_PORTS = ("true", "false")
     IS_ROUTING_NODE = True
 

@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.38.1] - 2026-09-26
+
+### Corrigé
+- Une étape placée après une CONDITION ne recevait plus le fichier produit en amont — signalé
+  en usage réel (DB_EXTRACT → CONDITION `rows_count > 0` → LOCAL_COPY) : « Aucun fichier source
+  disponible ». `ConditionStep` ne déclarait pas `PRODUCES = {"output_file"}`, donc le moteur ne
+  republiait pas l'artefact sous la clé de la condition, et l'étape suivante (réorientée vers cet
+  artefact) retombait sur `None`. CONDITION est désormais un passe-plat du fichier amont, comme
+  GATEWAY_PARALLEL — plus besoin du contournement `{artifact:nom}` pour ce cas. Effet de bord
+  voulu : la condition apparaît comme source possible dans le sélecteur « Source » des étapes
+  suivantes.
+
 ## [0.38.0] - 2026-09-16
 
 ### Ajouté
