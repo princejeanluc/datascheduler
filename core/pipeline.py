@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import queue
+import re
 import threading
 import time
 from datetime import datetime
@@ -1271,6 +1272,25 @@ def _test_reference_connection(ref_type: str, config: dict, obj) -> tuple[bool, 
         return False, str(e)
 
 
+_EXPR_TOKEN_RE = re.compile(r"\{expr:([^}]+)\}")
+
+
+def _iter_template_strings(value):
+    """Parcourt récursivement une valeur de config (str, ou dict/list imbriqués — ex.
+    PYTHON_SCRIPT.config["args"] est une list[str], EXTRACT_VARIABLES.config["mappings"] une
+    list[dict]) et produit chaque chaîne trouvée à n'importe quelle profondeur. Générique plutôt
+    que d'énumérer la forme de chaque type d'étape à la main, qui changerait à chaque nouveau
+    step — voir dry_run_pipeline()."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _iter_template_strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _iter_template_strings(v)
+
+
 def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunResult:
     """
     Valide un pipeline sans l'exécuter : (1) la forme (mêmes règles que
@@ -1278,13 +1298,17 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
     run_pipeline() utilise déjà — db.get_edges() non vide → chemin graphe), (2) que chaque
     profil/requête référencé existe encore (réutilise _STEP_REFERENCES/_resolve_reference de
     database/export_import.py — même table déclarative que l'export, pas de logique dupliquée),
-    et (3) si test_connections, qu'une connexion réelle réussit pour chaque profil résolu.
+    (3) si test_connections, qu'une connexion réelle réussit pour chaque profil résolu, et
+    (4) que chaque expression {expr:...} présente dans la config est syntaxiquement valide
+    (core/expr_lang.py::compile_expression() — jamais .eval() : une expression référençant une
+    variable/un artefact pas encore connu à cet instant n'est PAS une erreur, voir ce module).
 
-    Une référence absente est une erreur bloquante (le pipeline ne peut pas s'exécuter tel
-    quel) ; un échec de connexion réel est un avertissement (un blip réseau transitoire ne doit
-    pas bloquer indéfiniment, contrairement à une référence structurellement manquante).
+    Une référence absente et une expression malformée sont des erreurs bloquantes (le pipeline
+    ne peut pas s'exécuter tel quel) ; un échec de connexion réel est un avertissement (un blip
+    réseau transitoire ne doit pas bloquer indéfiniment, contrairement à un problème structurel).
     """
     from database.export_import import _STEP_REFERENCES, _resolve_reference
+    from core.expr_lang import compile_expression
 
     pipeline = db.get_pipeline(pipeline_id)
     if not pipeline:
@@ -1310,6 +1334,16 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
         step_type = step["step_type"]
         config    = step["config"]
         label     = step["label"] or f"Étape {i + 1}"
+
+        for raw_string in _iter_template_strings(config):
+            for expr_match in _EXPR_TOKEN_RE.finditer(raw_string):
+                expr = expr_match.group(1)
+                try:
+                    compile_expression(expr)
+                except ValueError as e:
+                    errors.append(
+                        f"Étape {i + 1} ({label}) : expression « {expr} » invalide — {e}"
+                    )
 
         for config_key, ref_type in _STEP_REFERENCES.get(step_type, []):
             raw_id = config.get(config_key)
