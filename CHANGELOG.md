@@ -29,6 +29,26 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.39.0] - 2026-10-03
+
+### Ajouté
+- Nouveau token `{expr:...}` — évalue une petite expression de calcul (arithmétique `+ - * /` et
+  fonctions `date_add`, `now`, `today`, `fmt`, `concat`, `upper`, `lower`, `round`) et insère son
+  résultat, utilisable dans n'importe quel champ templaté (chemins, noms de fichiers, sujets
+  d'email…) — pas seulement une substitution littérale comme `{artifact:}`/`{var:}`. Exemple :
+  `{expr:date_add(today(), -7)}` (date du jour moins 7 jours, sans aucune étape amont).
+- `core/expr_lang.py` : généralisation de la grammaire non-eval() autrefois propre à l'étape
+  CONDITION en un évaluateur partagé — conçu en deux phases (`compile_expression()` sans contexte
+  d'exécution, `evaluate()` avec) pour que la validation à blanc puisse détecter une expression
+  malformée avant exécution sans jamais produire de faux positif sur une référence `var:`/
+  `artifact:` légitime mais pas encore connue à cet instant.
+- L'étape **Condition** bénéficie de facto du même vocabulaire enrichi (arithmétique + fonctions),
+  pas seulement des comparaisons — une expression sans comparaison (ex. `rows_count`) y est
+  désormais valide, évaluée par sa valeur de vérité. Nouveau bouton **+ Variable** (sibling de
+  **+ Artefact**, jusqu'ici absent de ce dialogue) pour insérer un `var:nom` connu sans le retaper.
+- La validation à blanc (dry-run) détecte désormais une expression `{expr:...}` syntaxiquement
+  invalide comme erreur bloquante, avant toute exécution réelle.
+
 ## [0.38.1] - 2026-09-26
 
 ### Corrigé
