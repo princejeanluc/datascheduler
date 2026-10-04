@@ -25,6 +25,7 @@ from .sqoop_import_config_dialog import _SqoopImportConfigDialog
 from .gateway_parallel_config_dialog import _GatewayParallelConfigDialog
 from .gateway_join_config_dialog import _GatewayJoinConfigDialog
 from .extract_variables_config_dialog import _ExtractVariablesConfigDialog
+from .set_variable_config_dialog import _SetVariableConfigDialog
 
 __all__ = ["STEP_META", "PipelineSettingsDialog", "_open_config_dialog"]
 
@@ -67,6 +68,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         "GATEWAY_PARALLEL": _GatewayParallelConfigDialog,
         "GATEWAY_JOIN":      _GatewayJoinConfigDialog,
         "EXTRACT_VARIABLES": _ExtractVariablesConfigDialog,
+        "SET_VARIABLE":      _SetVariableConfigDialog,
     }
     cls = mapping.get(step_type)
     return cls(**kwargs) if cls else None
