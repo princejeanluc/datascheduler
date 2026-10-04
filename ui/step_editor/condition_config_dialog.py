@@ -6,7 +6,7 @@ Condition n'consomme pas "le fichier", il évalue le contexte ; sa vraie source 
 l'arête entrante dessinée dans l'éditeur graphique (chantier 6b).
 """
 
-from PySide6.QtWidgets import QVBoxLayout, QLabel, QMessageBox
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QMessageBox
 from ui.styles import COLORS, FONT_MONO_STACK
 from .base_config_dialog import _BaseStepConfigDialog
 
@@ -20,6 +20,7 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
                           retry_interval_s=_.get("retry_interval_s", 5),
                           run_always=_.get("run_always", False),
                           timeout_s=_.get("timeout_s", 0))
+        self._prior_steps = _.get("prior_steps") or []
         self.setWindowTitle("Étape — Condition / Routeur")
         self._build_ui()
         self._prefill()
@@ -33,24 +34,34 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
         form = self._form()
         self._add_label_row(form)
         self._add_execution_policy_row(form)
+        root.addLayout(form)
 
         self.inp_expression = self._input('ex : rows_count > 0 and artifact:rapport != ""')
-        form.addRow(self._lbl("Expression *"), self.inp_expression)
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        btn_row.addWidget(self._lbl("Expression *")); btn_row.addStretch()
+        btn_row.addWidget(self._artifact_reference_button(self.inp_expression, self._prior_steps))
+        btn_row.addWidget(self._variable_reference_button(self.inp_expression, self._prior_steps))
+        root.addLayout(btn_row)
+        root.addWidget(self.inp_expression)
 
         hint = QLabel(
             "Grammaire : <champ> <opérateur> <valeur>, combinables avec and / or / not et des "
-            "parenthèses.  Champs : rows_count, artifact:<nom> (citer le nom s'il contient un "
-            'espace : artifact:"nom avec espace").  Opérateurs : == != > >= < <=.  '
-            "Deux sorties (Vrai/Faux) à connecter dans le canevas."
+            "parenthèses.  Champs : rows_count, artifact:<nom>, var:<nom> (citer le nom s'il "
+            'contient un espace : artifact:"nom avec espace").  Opérateurs de comparaison : '
+            "== != > >= < <=.  Arithmétique : + - * /.  Fonctions : date_add(date, jours[, "
+            "format]), now(), today(), fmt(valeur, format), concat(...), upper(s), lower(s), "
+            "round(nombre, décimales).  Une expression sans comparaison (ex. rows_count) est "
+            "valide, évaluée par sa valeur de vérité.  Deux sorties (Vrai/Faux) à connecter dans "
+            "le canevas."
         )
         hint.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 10px; font-family: {FONT_MONO_STACK}; "
             f"font-style: italic;"
         )
         hint.setWordWrap(True)
-        form.addRow("", hint)
+        root.addWidget(hint)
 
-        root.addLayout(form)
         root.addStretch()
         self._buttons(root)
 

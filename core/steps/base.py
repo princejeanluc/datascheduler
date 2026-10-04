@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from core.expr_lang import evaluate as _evaluate_expr
+
 
 @dataclass
 class StepContext:
@@ -111,6 +113,19 @@ class StepContext:
             lambda m: str(self.variables[m.group(1)]) if m.group(1) in self.variables else m.group(0),
             t,
         )
+        # {expr:...} — expression calculée (core/expr_lang.py : arithmétique + fonctions date/
+        # texte, même grammaire non-eval() que CONDITION), utilisable dans n'importe quel champ
+        # templaté. Même convention que {artifact:}/{var:} ci-dessus : une expression qui échoue
+        # à l'évaluation (syntaxe invalide, type incompatible...) reste littérale dans le texte —
+        # un échec visible à l'exécution plutôt qu'une valeur silencieusement vidée. self (ce
+        # StepContext) est passé tel quel comme ctx — même objet que celui que reçoit
+        # ConditionStep.run().
+        def _resolve_expr(m):
+            try:
+                return str(_evaluate_expr(m.group(1), self))
+            except ValueError:
+                return m.group(0)
+        t = re.sub(r"\{expr:([^}]+)\}", _resolve_expr, t)
         return t
 
 

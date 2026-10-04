@@ -239,6 +239,22 @@ Utilisable dans n'importe quel champ templaté, et directement dans une expressi
 sans les accolades (`var:total > 1000`, `var:date_max >= "2026-01-01"`) — la comparaison utilise
 alors la valeur telle quelle (numérique ou chronologique), pas sa représentation texte.
 
+## Expressions calculées — pour un calcul, pas juste une valeur brute
+
+`{expr:...}` évalue une petite expression de calcul et insère son résultat — même convention que
+`{artifact:}`/`{var:}` (une expression invalide reste affichée telle quelle, sans faire échouer
+le pipeline). Arithmétique (`+ - * /`) et une liste de fonctions : `date_add(date, jours[, format])`,
+`now()`, `today()`, `fmt(valeur, format)`, `concat(...)`, `upper(s)`, `lower(s)`,
+`round(nombre, décimales)`. Peut combiner `var:`/`artifact:` et des littéraux.
+
+Exemples : `{expr:date_add(today(), -7)}` (date du jour moins 7 jours, sans aucune variable
+amont) ; `export_{expr:fmt(date_add(today(), -1), "{yyyy}{MM}{dd}")}.csv` (date d'hier, reformatée
+pour un nom de fichier) ; `{expr:var:total * 1.2}` (une variable existante, recalculée à la volée).
+
+Le même vocabulaire (arithmétique + fonctions) est aussi disponible directement dans l'expression
+d'une étape **Condition**, pas seulement comparaisons — une expression sans comparaison (ex.
+`rows_count`) y est valide, évaluée par sa valeur de vérité.
+
 ## Scripts Python — contrat JSON optionnel
 
 Un script peut aussi lire/écrire directement les artefacts du pipeline via deux jetons réservés à

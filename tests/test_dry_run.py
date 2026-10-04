@@ -182,6 +182,47 @@ def test_spark_sql_kerberos_test_fails_cleanly_without_sibling_edge_profile(test
     assert any("Aucun profil SSH configuré" in w for w in result.warnings)
 
 
+def test_malformed_expr_token_is_a_hard_error(test_db):
+    p = db.create_pipeline(name="dryrun-malformed-expr")
+    db.save_steps(p.id, [{
+        "step_type": "LOCAL_COPY",
+        "config": {"explicit_path": "/tmp/x.csv", "dest_dir": "/tmp/{expr:1 +}"},
+    }])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert not result.success
+    assert any("expression" in e and "invalide" in e for e in result.errors)
+
+
+def test_valid_expr_token_referencing_an_unknown_variable_is_not_an_error(test_db):
+    """Régression : compile_expression() ne doit JAMAIS évaluer — une expression référençant
+    une variable/un artefact pas encore connu à cet instant (normal avant exécution réelle)
+    n'est pas une erreur structurelle, contrairement à une expression mal formée."""
+    p = db.create_pipeline(name="dryrun-valid-expr-unknown-var")
+    db.save_steps(p.id, [{
+        "step_type": "LOCAL_COPY",
+        "config": {"explicit_path": "/tmp/x.csv", "dest_dir": "/tmp/{expr:var:pas_encore_connu}"},
+    }])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert result.success
+    assert result.errors == []
+
+
+def test_expr_token_inside_a_list_field_is_checked(test_db):
+    """PYTHON_SCRIPT.config["args"] est une list[str], pas une chaîne plate — confirme que le
+    parcours récursif de dry_run_pipeline() descend bien dans les listes."""
+    p = db.create_pipeline(name="dryrun-expr-in-list")
+    db.save_steps(p.id, [{
+        "step_type": "PYTHON_SCRIPT",
+        "config": {"script_path": "/tmp/s.py", "args": ["--since", "{expr:1 +}"]},
+    }])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert not result.success
+    assert any("expression" in e and "invalide" in e for e in result.errors)
+
+
 def test_uses_graph_validation_when_edges_exist(test_db):
     """Même bascule linéaire/graphe que run_pipeline() (db.get_edges() non vide -> graphe) —
     ici un cycle doit être détecté par validate_pipeline_graph(), pas validate_step_sequence()."""

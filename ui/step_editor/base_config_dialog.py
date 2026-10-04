@@ -265,6 +265,40 @@ class _BaseStepConfigDialog(QDialog):
         btn.setMenu(menu)
         return btn
 
+    def _variable_reference_button(self, target_field, prior_steps: list) -> QPushButton:
+        """
+        Sibling de _artifact_reference_button pour {var:nom} — les variables ne peuvent venir
+        que d'une étape EXTRACT_VARIABLES précédente (mappings[].target), contrairement aux
+        artefacts qui peuvent venir de n'importe quel type de step via "output_name" — d'où le
+        filtre par step_type ci-dessous, absent côté artefacts.
+        """
+        btn = QPushButton("+ Variable"); btn.setObjectName("secondary")
+        btn.setFixedHeight(28)
+
+        names: list[str] = []
+        for s in prior_steps or []:
+            if s.get("step_type") != "EXTRACT_VARIABLES":
+                continue
+            cfg = s.get("config") or {}
+            for mapping in cfg.get("mappings") or []:
+                target = (mapping.get("target") or "").strip()
+                if target:
+                    names.append(target)
+
+        if not names:
+            btn.setEnabled(False)
+            btn.setToolTip("Aucune variable disponible parmi les étapes précédentes.")
+            return btn
+
+        menu = QMenu(btn)
+        for name in dict.fromkeys(names):   # dédoublonne en gardant l'ordre
+            action = menu.addAction(name)
+            action.triggered.connect(
+                lambda checked=False, n=name: self._insert_at_cursor(target_field, f"{{var:{n}}}")
+            )
+        btn.setMenu(menu)
+        return btn
+
     @staticmethod
     def _insert_at_cursor(field, text: str) -> None:
         if hasattr(field, "insertPlainText"):   # QPlainTextEdit

@@ -121,6 +121,71 @@ def test_reference_button_inserts_token_into_plain_text_edit(qapp):
 
 
 # ──────────────────────────────────────────────
+#  Bouton de référence variable — _BaseStepConfigDialog._variable_reference_button
+# ──────────────────────────────────────────────
+
+def test_variable_reference_button_disabled_without_known_names(qapp):
+    dlg = _DummyDialog({}, None)
+    btn = dlg._variable_reference_button(QLineEdit(), [])
+    assert not btn.isEnabled()
+
+
+def test_variable_reference_button_lists_names_from_extract_variables_prior_steps(qapp):
+    dlg = _DummyDialog({}, None)
+    prior = [
+        {"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [
+            {"source": "date_max", "target": "date_max", "type": "date", "date_format": "{yyyy}-{MM}-{dd}"},
+            {"source": "total", "target": "total", "type": "number"},
+        ]}},
+        {"step_type": "DB_EXTRACT", "config": {"output_name": "ventes_csv"}},
+    ]
+    btn = dlg._variable_reference_button(QLineEdit(), prior)
+    assert btn.isEnabled()
+    labels = [a.text() for a in btn.menu().actions()]
+    assert labels == ["date_max", "total"]
+
+
+def test_variable_reference_button_deduplicates_repeated_names(qapp):
+    dlg = _DummyDialog({}, None)
+    prior = [
+        {"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "a", "target": "x"}]}},
+        {"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "b", "target": "x"}]}},
+    ]
+    btn = dlg._variable_reference_button(QLineEdit(), prior)
+    assert [a.text() for a in btn.menu().actions()] == ["x"]
+
+
+def test_variable_reference_button_inserts_token_into_line_edit(qapp):
+    dlg = _DummyDialog({}, None)
+    field = QLineEdit()
+    prior = [{"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "a", "target": "total"}]}}]
+    btn = dlg._variable_reference_button(field, prior)
+    btn.menu().actions()[0].trigger()
+    assert field.text() == "{var:total}"
+
+
+# ──────────────────────────────────────────────
+#  Dialogue CONDITION — câblage des deux boutons de référence
+# ──────────────────────────────────────────────
+
+def test_condition_dialog_accepts_and_stores_prior_steps(qapp):
+    prior = [
+        {"step_type": "DB_EXTRACT", "config": {"output_name": "ventes_csv"}},
+        {"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "a", "target": "total"}]}},
+    ]
+    dlg = _open("CONDITION", prior_steps=prior)
+    artifact_btn = dlg._artifact_reference_button(dlg.inp_expression, dlg._prior_steps)
+    variable_btn = dlg._variable_reference_button(dlg.inp_expression, dlg._prior_steps)
+    assert artifact_btn.isEnabled()
+    assert variable_btn.isEnabled()
+
+
+def test_condition_dialog_without_prior_steps_has_disabled_reference_buttons(qapp):
+    dlg = _open("CONDITION")
+    assert dlg._prior_steps == []
+
+
+# ──────────────────────────────────────────────
 #  Sélecteur "Source" (_source_row) — un producteur dynamique (SPARK_SQL) n'apparaissait jamais,
 # quelle que soit sa config (bug signalé par l'utilisateur : "un seul choix disponible").
 # ──────────────────────────────────────────────
