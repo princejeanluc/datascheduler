@@ -51,6 +51,11 @@ def _coerce(raw: str, type_: str, date_format: str, source: str) -> str | int | 
 
 class ExtractVariablesStep(BaseStep):
     REQUIRES = {"output_file"}
+    # Passe-plat : run() ne touche jamais ctx.output_file, mais sans PRODUCES le moteur ne
+    # republie pas l'artefact sous la clé de cette étape, et l'étape suivante (réorientée vers
+    # ctx.artifacts[clé de cette étape]) perdait le fichier amont — même mécanisme que
+    # ConditionStep/GatewayParallelStep (voir core/steps/condition.py).
+    PRODUCES: set[str] = {"output_file"}
 
     def run(self, ctx: StepContext, cancel_event=None, on_progress=None) -> StepResult:
         result = StepResult()

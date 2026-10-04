@@ -508,6 +508,31 @@ def test_condition_node_forwards_upstream_file_to_the_selected_branch(test_db, m
     assert sink.read_text() == "DATA"
 
 
+def test_extract_variables_node_forwards_upstream_file_to_the_selected_branch(test_db, monkeypatch, tmp_path):
+    """Régression : EXTRACT_VARIABLES ne republiait pas le fichier amont (même mécanisme que le
+    bug CONDITION ci-dessus) — l'étape suivante, reliée par une arête directe depuis
+    EXTRACT_VARIABLES, recevait ctx.output_file=None."""
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    src  = tmp_path / "src.txt"
+    sink = tmp_path / "sink.txt"
+
+    pipeline = db.create_pipeline(name="graph-extract-variables-forward")
+    db.save_pipeline_graph(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(src), "content": "COL\nDATA", "_step_key": "prod"}},
+        {"step_type": "EXTRACT_VARIABLES", "config": {
+            "mappings": [{"source": "COL", "target": "x"}], "_step_key": "extract",
+        }},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(sink), "_step_key": "cons"}},
+    ], edges=[_edge("prod", "extract"), _edge("extract", "cons")])
+
+    result = run_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    assert sink.read_text() == "COL\nDATA"
+
+
 def test_cycle_prevents_any_execution(test_db, monkeypatch, tmp_path):
     monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
     monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
