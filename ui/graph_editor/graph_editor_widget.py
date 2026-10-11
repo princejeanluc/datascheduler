@@ -545,6 +545,43 @@ class PipelineGraphEditorWidget(QWidget):
                 # déplié jusqu'à ce qu'on le double-clique (chantier relooking des nœuds).
                 c.set_profile_names(self._profile_names)
 
+    def _on_save_as_template(self):
+        """"Enregistrer comme modèle..." du menu contextuel (chantier bibliothèque d'étapes
+        réutilisables) — n'agit que si EXACTEMENT un nœud est sélectionné : la portée validée
+        avec l'utilisateur est une seule étape, jamais un groupe (voir docstring StepTemplate,
+        database/models.py)."""
+        from PySide6.QtWidgets import QInputDialog
+        from database import db_manager as db
+        from ui.step_editor.common import STEP_META
+        import copy as _copy
+
+        selected = [n for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)]
+        if len(selected) != 1:
+            return
+        node = selected[0]
+        step = node.step
+        default_name = step.get("label") or STEP_META[step["step_type"]]["label"]
+
+        name, ok = QInputDialog.getText(
+            self, "Enregistrer comme modèle", "Nom du modèle :", text=default_name,
+        )
+        name = name.strip()
+        if not ok or not name:
+            return
+
+        # config nettoyée de _step_key ICI, au seul point d'écriture — voir docstring
+        # StepTemplate (database/models.py) : aucun config_json stocké ne doit jamais en
+        # contenir, pour qu'un futur consommateur (insertion, duplication de modèle...) n'ait
+        # jamais à s'en souvenir lui-même.
+        config = _copy.deepcopy(step.get("config") or {})
+        config.pop("_step_key", None)
+
+        unique_name = db.unique_step_template_name(name)
+        db.create_step_template(
+            name=unique_name, step_type=step["step_type"], config=config,
+            label=step.get("label") or None,
+        )
+
     def _on_open_settings_dialog(self):
         """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif) —
         ce widget ne les gère pas lui-même ; évite l'aller-retour "fermer, retrouver la ligne,
