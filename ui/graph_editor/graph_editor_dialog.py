@@ -481,6 +481,19 @@ class PipelineGraphEditorDialog(QDialog):
             elif isinstance(item, ZoneItem):
                 self._scene.remove_zone(item)
 
+    def _on_duplicate_selected(self):
+        """Seul point d'appel réel des trois déclencheurs (bouton du rail, Ctrl+D, action
+        "Dupliquer" du menu contextuel) — contrairement à la suppression (dupliquée entre ce
+        dialogue et PipelineGraphScene.keyPressEvent()), une seule implémentation ici."""
+        originals = [n for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)]
+        if not originals:
+            return
+        copies = [self._scene.duplicate_node(n) for n in originals]
+        self._scene.clearSelection()
+        for c in copies:
+            if c:
+                c.setSelected(True)
+
     def _on_open_settings_dialog(self):
         """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif,
         chantier P puis fusion des éditeurs) — ce dialogue ne les gère pas lui-même (voir
