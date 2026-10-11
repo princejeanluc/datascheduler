@@ -21,10 +21,11 @@ def qapp():
     yield app
 
 
-def _open(step_type, config=None, prior_steps=None):
+def _open(step_type, config=None, prior_steps=None, pipeline_variable_names=None):
     return _open_config_dialog(
         step_type, config or {}, None, [], [], [],
         smtp_profiles=[], db_profiles=[], prior_steps=prior_steps or [],
+        pipeline_variable_names=pipeline_variable_names or [],
     )
 
 
@@ -164,6 +165,23 @@ def test_variable_reference_button_inserts_token_into_line_edit(qapp):
     assert field.text() == "{var:total}"
 
 
+def test_variable_reference_button_lists_pipeline_declared_names(qapp):
+    dlg = _DummyDialog({}, None)
+    btn = dlg._variable_reference_button(QLineEdit(), [], pipeline_variable_names=["base_date"])
+    assert btn.isEnabled()
+    assert [a.text() for a in btn.menu().actions()] == ["base_date"]
+
+
+def test_variable_reference_button_combines_pipeline_and_extract_variables_names_deduped(qapp):
+    dlg = _DummyDialog({}, None)
+    prior = [{"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [
+        {"source": "a", "target": "total"},
+        {"source": "b", "target": "base_date"},   # même nom qu'une variable de pipeline
+    ]}}]
+    btn = dlg._variable_reference_button(QLineEdit(), prior, pipeline_variable_names=["base_date"])
+    assert [a.text() for a in btn.menu().actions()] == ["base_date", "total"]
+
+
 # ──────────────────────────────────────────────
 #  Dialogue CONDITION — câblage des deux boutons de référence
 # ──────────────────────────────────────────────
@@ -177,6 +195,15 @@ def test_condition_dialog_accepts_and_stores_prior_steps(qapp):
     artifact_btn = dlg._artifact_reference_button(dlg.inp_expression, dlg._prior_steps)
     variable_btn = dlg._variable_reference_button(dlg.inp_expression, dlg._prior_steps)
     assert artifact_btn.isEnabled()
+    assert variable_btn.isEnabled()
+
+
+def test_condition_dialog_accepts_and_stores_pipeline_variable_names(qapp):
+    dlg = _open("CONDITION", pipeline_variable_names=["base_date"])
+    assert dlg._pipeline_variable_names == ["base_date"]
+    variable_btn = dlg._variable_reference_button(
+        dlg.inp_expression, dlg._prior_steps, dlg._pipeline_variable_names,
+    )
     assert variable_btn.isEnabled()
 
 

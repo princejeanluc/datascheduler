@@ -265,17 +265,21 @@ class _BaseStepConfigDialog(QDialog):
         btn.setMenu(menu)
         return btn
 
-    def _variable_reference_button(self, target_field, prior_steps: list) -> QPushButton:
+    def _variable_reference_button(self, target_field, prior_steps: list,
+                                    pipeline_variable_names: list[str] | None = None) -> QPushButton:
         """
-        Sibling de _artifact_reference_button pour {var:nom} — les variables ne peuvent venir
-        que d'une étape EXTRACT_VARIABLES précédente (mappings[].target), contrairement aux
-        artefacts qui peuvent venir de n'importe quel type de step via "output_name" — d'où le
-        filtre par step_type ci-dessous, absent côté artefacts.
+        Sibling de _artifact_reference_button pour {var:nom} — les variables viennent soit
+        d'une étape EXTRACT_VARIABLES précédente (mappings[].target), soit des variables
+        déclarées au niveau du pipeline (chantier variables de pipeline, déjà amorcées dans
+        ctx.variables avant la première étape — toujours "disponibles", quelle que soit la
+        position de l'étape en cours dans le graphe). Contrairement aux artefacts, qui peuvent
+        venir de n'importe quel type de step via "output_name" — d'où le filtre par step_type
+        ci-dessous, absent côté artefacts.
         """
         btn = QPushButton("+ Variable"); btn.setObjectName("secondary")
         btn.setFixedHeight(28)
 
-        names: list[str] = []
+        names: list[str] = list(pipeline_variable_names or [])
         for s in prior_steps or []:
             if s.get("step_type") != "EXTRACT_VARIABLES":
                 continue
