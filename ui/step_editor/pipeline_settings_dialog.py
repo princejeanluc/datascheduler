@@ -292,6 +292,14 @@ class PipelineSettingsDialog(QDialog):
             f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; }}"
             f"QHeaderView::section {{ background: {COLORS['bg_active']}; color: {COLORS['text_dim']}; "
             f"padding: 4px; border: none; font-size: 11px; }}"
+            # Surcharge locale de la règle globale QTableWidget::item:selected (bg_active) —
+            # sans elle, une ligne sélectionnée (ex: en train d'être éditée) prend exactement la
+            # même couleur que l'en-tête ci-dessus, et les deux se confondent visuellement en un
+            # seul bloc, rendant la zone de saisie réelle minuscule/indiscernable (signalé par
+            # l'utilisateur, capture à l'appui). bg_hover est déjà le ton "surbrillance
+            # temporaire" établi ailleurs dans l'app, distinct de bg_active.
+            f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}; "
+            f"color: {COLORS['text_main']}; border-left: 2px solid {COLORS['accent']}; }}"
         )
         vl.addWidget(self.tbl_variables)
 

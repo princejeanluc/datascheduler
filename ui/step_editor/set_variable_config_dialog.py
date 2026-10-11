@@ -74,6 +74,11 @@ class _SetVariableConfigDialog(_BaseStepConfigDialog):
             f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; }}"
             f"QHeaderView::section {{ background: {COLORS['bg_active']}; color: {COLORS['text_dim']}; "
             f"padding: 4px; border: none; font-size: 11px; }}"
+            # Surcharge locale de la règle globale QTableWidget::item:selected (bg_active) —
+            # sans elle, une ligne sélectionnée (ex: en train d'être éditée) prend exactement la
+            # même couleur que l'en-tête ci-dessus et les deux se confondent visuellement.
+            f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}; "
+            f"color: {COLORS['text_main']}; border-left: 2px solid {COLORS['accent']}; }}"
         )
         root.addWidget(self.tbl_assignments)
 

@@ -167,3 +167,17 @@ def test_timeout_s_round_trip(qapp, test_db):
     dlg = _ExtractVariablesConfigDialog({"timeout_s": 120}, None, "", timeout_s=120)
     assert dlg.inp_timeout.value() == 120
     assert dlg.result_step()["timeout_s"] == 120
+
+
+def test_table_selected_row_does_not_match_header_color(qapp, test_db):
+    """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
+    ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),
+    fusionnant visuellement en un seul bloc et rendant la zone de saisie réelle indiscernable."""
+    from ui.step_editor.extract_variables_config_dialog import _ExtractVariablesConfigDialog
+    from ui.styles import COLORS
+
+    dlg = _ExtractVariablesConfigDialog({}, None, "")
+    sheet = dlg.tbl_mappings.styleSheet()
+
+    assert f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}" in sheet
+    assert f"QHeaderView::section {{ background: {COLORS['bg_active']}" in sheet

@@ -269,6 +269,22 @@ def test_save_logs_an_audit_event(qapp, test_db):
 #  ④ Variables de pipeline
 # ──────────────────────────────────────────────
 
+def test_variables_table_selected_row_does_not_match_header_color(qapp, test_db):
+    """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
+    ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),
+    fusionnant visuellement en un seul bloc et rendant la zone de saisie réelle indiscernable."""
+    from database import db_manager as db
+    from ui.styles import COLORS
+
+    p = db.create_pipeline(name="settings-vars-selected-color")
+    dlg = _dialog_for(p)
+    sheet = dlg.tbl_variables.styleSheet()
+
+    assert f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}" in sheet
+    assert f"QHeaderView::section {{ background: {COLORS['bg_active']}" in sheet
+    assert COLORS["bg_hover"] != COLORS["bg_active"]   # la garde n'aurait aucun sens sinon
+
+
 def test_starts_with_no_variable_row_and_add_removes_rows(qapp, test_db):
     from database import db_manager as db
 

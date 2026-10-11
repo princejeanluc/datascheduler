@@ -43,6 +43,14 @@ bas pour son introduction).
   Le bouton "+ Variable" (déjà dans Condition) liste désormais aussi ces variables, pas
   seulement celles d'Extraction de variables.
 
+### Corrigé
+- Dans les trois dialogues à liste dynamique (Extraction de variables, Définir une variable,
+  Variables de pipeline), l'en-tête du tableau et une ligne sélectionnée (par exemple en cours
+  d'édition) partageaient la même couleur — les deux se confondaient visuellement en un seul
+  bloc, rendant la zone de saisie réelle minuscule et difficile à distinguer. Signalé par un
+  utilisateur, capture à l'appui. La ligne sélectionnée a désormais sa propre couleur, distincte
+  de l'en-tête.
+
 ## [0.41.0] - 2026-10-11
 
 ### Ajouté
