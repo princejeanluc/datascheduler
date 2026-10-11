@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.44.0] - 2026-10-11
+
+### Ajouté
+- **Relooking des nœuds** — chaque étape du canevas graphique peut désormais se déplier sur
+  place (chevron ▾/▸, ou le bouton "Tout déplier/replier" du rail d'outils) pour révéler ses
+  détails de configuration (profil utilisé, source, chemin, requête…) sans ouvrir son dialogue —
+  le double-clic continue d'ouvrir la configuration complète, inchangé. Les variables lues
+  (`↳ lit var:nom`) et écrites (`↳ écrit nom`) par l'étape sont mises en évidence par des puces
+  dédiées, remplaçant le besoin d'un panneau de repérage des variables séparé. Nouveau badge
+  d'icône rond coloré par type (remplace l'ancien glyphe géométrique des nœuds de routage —
+  croix/plus/cercle) et hiérarchie de texte inversée : le libellé donné à l'étape devient le
+  texte principal, le type d'étape redescend en second plan.
+
+### Corrigé
+- L'accrochage aux guides d'alignement pendant le glissé d'un nœud utilisait une hauteur
+  partagée par tous les nœuds plutôt que la hauteur réelle de chacun — un nœud de routage
+  (losange) ou un nœud déplié pouvait donc s'accrocher légèrement de travers par rapport à ses
+  voisins.
+
 ## [0.43.0] - 2026-10-11
 
 ### Ajouté
