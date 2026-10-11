@@ -185,34 +185,10 @@ def test_gateway_join_node_is_a_routing_node_diamond():
 
 
 # ──────────────────────────────────────────────
-#  Glyphes centraux façon BPMN (chantier identité visuelle) — fonction pure, pas besoin de qapp
+# Les tests test_gateway_glyph_* (glyphes BPMN cross/plus/circle) ont été retirés avec
+# _gateway_glyph()/_draw_gateway_glyph() (ui/graph_editor/node_item.py) — chantier relooking des
+# nœuds, remplacés par le badge d'icône rond (même traitement que les nœuds normaux).
 # ──────────────────────────────────────────────
-
-def test_gateway_glyph_condition_is_cross():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("CONDITION", {}) == "cross"
-
-
-def test_gateway_glyph_parallel_is_plus():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_PARALLEL", {}) == "plus"
-
-
-def test_gateway_glyph_join_and_mode_is_plus():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "AND"}) == "plus"
-
-
-def test_gateway_glyph_join_or_mode_or_default_is_circle():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "OR"}) == "circle"
-    assert _gateway_glyph("GATEWAY_JOIN", {}) == "circle"
-
-
-def test_gateway_glyph_non_routing_type_is_none():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("DB_EXTRACT", {}) is None
-
 
 # ──────────────────────────────────────────────
 #  Marge basse (chantier identité visuelle) — plus haute pour un losange (légende + glyphe

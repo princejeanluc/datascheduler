@@ -12,6 +12,9 @@ from ui.styles import COLORS
 from ui.step_editor import STEP_META
 from ui.step_editor.common import _icon
 from core.steps import get_step_output_ports, is_routing_node
+from .node_facts import (
+    compute_node_facts, extract_var_references_from_config, compute_written_variables,
+)
 
 PORT_RADIUS = 6
 # Marge supplémentaire sous le port "error" (au-delà de PORT_RADIUS) pour son étiquette "!",
@@ -120,40 +123,39 @@ _ROUTING_CAPTION_LINE_H  = 16
 _ROUTING_BOTTOM_MARGIN   = _ROUTING_CAPTION_TOP + 2 * _ROUTING_CAPTION_LINE_H
 
 
-def _gateway_glyph(step_type: str, config: dict) -> str | None:
-    """Glyphe central façon BPMN pour un nœud de routage (chantier identité visuelle, maquette
-    approuvée) — remplace l'icône de coin + le texte à l'intérieur du losange, qui débordaient de
-    son triangle intérieur réel (même constat que pour les ports, voir _error_port_local_pos).
-    "CONDITION" (exclusif, une seule branche) → croix ; "GATEWAY_PARALLEL" (fork, toutes les
-    branches) → plus ; "GATEWAY_JOIN" reflète son propre mode configuré (get_join_mode(),
-    core/steps/__init__.py) : plus en mode ET (même glyphe qu'un fork parallèle — cohérent avec
-    BPMN, où c'est la direction des arêtes qui distingue fork/join, pas le glyphe), cercle en
-    mode OU/défaut — visible sans ouvrir son dialogue de configuration. None pour tout autre type
-    (pas de glyphe dessiné)."""
-    if step_type == "CONDITION":
-        return "cross"
-    if step_type == "GATEWAY_PARALLEL":
-        return "plus"
-    if step_type == "GATEWAY_JOIN":
-        return "plus" if (config or {}).get("join_mode") == "AND" else "circle"
-    return None
+# Badge d'icône rond (chantier relooking des nœuds, maquette approuvée) — remplace le glyphe
+# BPMN (_gateway_glyph/_draw_gateway_glyph, retirés) pour TOUS les nœuds, routage compris :
+# même traitement visuel que les icônes STEP_META déjà utilisées partout ailleurs dans l'app,
+# plutôt qu'un vocabulaire de glyphes géométriques propre à cette seule classe.
+_BADGE_RADIUS = 12
+
+# Hiérarchie de texte (chantier relooking des nœuds) : le libellé UTILISATEUR devient le texte
+# PRINCIPAL (gras, text_main) ; le libellé de TYPE redescend en SECONDAIRE (petit, text_dim) et
+# disparaît complètement s'il n'y a pas de libellé utilisateur (jamais affiché deux fois) — même
+# règle appliquée à la carte (nœud normal) et à la légende sous le losange (nœud de routage).
+def _node_text_hierarchy(step: dict, meta: dict) -> tuple[str, str | None]:
+    """Fonction pure, testable sans Qt (même philosophie que _port_visual/_tinted_bg)."""
+    user_label = step.get("label") or ""
+    primary = user_label or meta["label"]
+    secondary = meta["label"] if user_label else None
+    return primary, secondary
 
 
-def _draw_gateway_glyph(painter, glyph: str, cx: float, cy: float, color: str, radius: float = 11) -> None:
-    """Dessine `glyph` ("cross"/"plus"/"circle") centré sur (cx, cy) — trait épais, largement à
-    l'intérieur du losange à ce point précis (hauteur pleine à x=WIDTH/2)."""
-    pen = QPen(QColor(color), 3)
-    pen.setCapStyle(Qt.RoundCap)
-    painter.setPen(pen)
-    painter.setBrush(Qt.NoBrush)
-    if glyph == "cross":
-        painter.drawLine(QPointF(cx - radius, cy - radius), QPointF(cx + radius, cy + radius))
-        painter.drawLine(QPointF(cx + radius, cy - radius), QPointF(cx - radius, cy + radius))
-    elif glyph == "plus":
-        painter.drawLine(QPointF(cx, cy - radius), QPointF(cx, cy + radius))
-        painter.drawLine(QPointF(cx - radius, cy), QPointF(cx + radius, cy))
-    elif glyph == "circle":
-        painter.drawEllipse(QPointF(cx, cy), radius * 0.75, radius * 0.75)
+# Contenu déplié (chantier relooking des nœuds) : hauteur additionnelle de boundingRect() selon
+# le nombre de faits/puces de variable — fonction pure, testable sans Qt.
+_FACT_LINE_H         = 16
+_VAR_BULLET_LINE_H   = 15
+_EXPANDED_TOP_PAD    = 8
+_EXPANDED_BOTTOM_PAD = 6
+
+
+def _expanded_content_height(num_facts: int, num_read_vars: int, num_written_vars: int) -> float:
+    if num_facts == 0 and num_read_vars == 0 and num_written_vars == 0:
+        return _EXPANDED_TOP_PAD + _FACT_LINE_H + _EXPANDED_BOTTOM_PAD   # placeholder "Aucun détail…"
+    return (_EXPANDED_TOP_PAD
+            + num_facts * _FACT_LINE_H
+            + (num_read_vars + num_written_vars) * _VAR_BULLET_LINE_H
+            + _EXPANDED_BOTTOM_PAD)
 
 
 class StepNodeItem(QGraphicsObject):
@@ -239,6 +241,36 @@ class StepNodeItem(QGraphicsObject):
     def is_expanded(self) -> bool:
         return self._expanded
 
+    def _resolve_step_label(self, step_key: str | None) -> str | None:
+        """Libellé lisible du nœud amont référencé par `step_key` (reads_from_step_key /
+        artifact_source_step_key) — pour le fait "Source"/"Artefact propagé" du contenu déplié.
+        Même règle de repli que search_text() : libellé utilisateur sinon libellé de type. None
+        si introuvable (nœud supprimé entre-temps, ou pas encore attaché à une scène)."""
+        if not step_key or not self.scene():
+            return None
+        node = self.scene().nodes.get(step_key)
+        if not node:
+            return None
+        label = node.step.get("label") or ""
+        if label:
+            return label
+        meta = STEP_META.get(node.step.get("step_type", ""), {})
+        return meta.get("label", node.step.get("step_type", ""))
+
+    def _facts_and_vars(self):
+        """Faits clés + variables lues/écrites de CE nœud — helper commun à boundingRect() et
+        paint() (jamais calculé deux fois différemment). Pas de cache : opérations pures bon
+        marché (pas de DB, pas de Qt), même tolérance de volumétrie que _layout_topology_nodes
+        ailleurs dans ce projet."""
+        step_type = self.step.get("step_type", "")
+        config = self.step.get("config") or {}
+        source_key = config.get("reads_from_step_key") or config.get("artifact_source_step_key")
+        source_label = self._resolve_step_label(source_key)
+        facts = compute_node_facts(step_type, config, self._profile_names, source_label=source_label)
+        read_vars = extract_var_references_from_config(config)
+        written_vars = compute_written_variables(step_type, config)
+        return facts, read_vars, written_vars
+
     def search_text(self) -> str:
         """Texte de correspondance pour B3 — exactement les deux libellés déjà peints par
         paint() (type + libellé utilisateur), pour que "ce qu'on voit" soit "ce qui se
@@ -305,8 +337,14 @@ class StepNodeItem(QGraphicsObject):
         # remplace le texte à l'intérieur de la forme, qui vit désormais SOUS elle, empilé sous
         # le port d'erreur + son étiquette.
         bottom_margin = _ROUTING_BOTTOM_MARGIN if self.is_routing_node else _ERROR_LABEL_MARGIN
+        # Contenu déplié (chantier relooking des nœuds) : hauteur additionnelle sous la marge
+        # basse déjà existante — jamais de cache, voir _facts_and_vars().
+        extra = 0.0
+        if self._expanded:
+            facts, read_vars, written_vars = self._facts_and_vars()
+            extra = _expanded_content_height(len(facts), len(read_vars), len(written_vars))
         return QRectF(-PORT_RADIUS, -PORT_RADIUS,
-                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + bottom_margin)
+                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + bottom_margin + extra)
 
     def paint(self, painter, option, widget=None):
         step_type = self.step.get("step_type", "")
@@ -326,8 +364,10 @@ class StepNodeItem(QGraphicsObject):
             path.lineTo(0, self.HEIGHT / 2)
             path.closeSubpath()
         else:
+            # Coins 12px (chantier relooking des nœuds, "carte plus aérée" — maquette
+            # approuvée) : avant, 8px.
             rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
-            path.addRoundedRect(rect, 8, 8)
+            path.addRoundedRect(rect, 12, 12)
 
         painter.setRenderHint(QPainter.Antialiasing)
         # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
@@ -347,49 +387,57 @@ class StepNodeItem(QGraphicsObject):
         painter.setPen(pen)
         painter.drawPath(path)
 
-        user_label = self.step.get("label") or ""
+        primary_text, secondary_text = _node_text_hierarchy(self.step, meta)
+
+        # Badge d'icône rond (chantier relooking des nœuds) — remplace l'ancien glyphe BPMN pour
+        # un nœud de routage (centré dans le losange, même emplacement) et l'icône de coin pour
+        # un nœud normal (déplacée en haut-gauche) : substitution, pas addition.
+        bx, by = (self.WIDTH / 2, self.HEIGHT / 2) if routing else (18, 18)
+        painter.setBrush(QBrush(QColor(meta["color"])))
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(QPointF(bx, by), _BADGE_RADIUS, _BADGE_RADIUS)
+        badge_icon = _icon(meta.get("icon", "fa5s.circle"), "#ffffff")
+        if badge_icon:
+            painter.drawPixmap(int(bx - 7), int(by - 7), badge_icon.pixmap(QSize(14, 14)))
 
         if routing:
-            # Glyphe central façon BPMN (chantier identité visuelle) — remplace l'icône de coin
-            # + le texte à l'intérieur du losange : ni l'un ni l'autre ne tenaient dans son
-            # triangle intérieur réel (même constat que pour les ports). Le losange redevient
-            # l'identifiant principal ; les libellés vivent désormais SOUS la forme, empilés
-            # sous le port d'erreur + son étiquette "!" (voir _error_port_local_pos/paint()
-            # plus bas).
-            glyph = _gateway_glyph(step_type, self.step.get("config") or {})
-            if glyph:
-                _draw_gateway_glyph(painter, glyph, self.WIDTH / 2, self.HEIGHT / 2, meta["color"])
-
-            painter.setPen(QColor(meta["color"]))
+            # Libellés SOUS la forme, empilés sous le port d'erreur + son étiquette "!" (voir
+            # _error_port_local_pos/paint() plus bas) — primary_text (gras, text_main) toujours
+            # présent, secondary_text (text_dim) seulement si un libellé utilisateur existe.
+            painter.setPen(QColor(COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
             cap_y = self.HEIGHT + _ROUTING_CAPTION_TOP
             painter.drawText(QRectF(-20, cap_y, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
-                              Qt.AlignCenter, meta["label"])
-            if user_label:
-                painter.setPen(QColor(COLORS["text_main"]))
+                              Qt.AlignCenter, primary_text)
+            if secondary_text:
+                painter.setPen(QColor(COLORS["text_dim"]))
                 font.setBold(False); font.setPointSize(8)
                 painter.setFont(font)
                 painter.drawText(
                     QRectF(-20, cap_y + _ROUTING_CAPTION_LINE_H, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
-                    Qt.AlignCenter, user_label)
+                    Qt.AlignCenter, secondary_text)
+            # Chevron ▾/▸ à côté de la légende.
+            self._paint_chevron(painter, routing)
         else:
-            painter.setPen(QColor(meta["color"]))
+            text_x = 36   # à droite du badge (18 + rayon 12 + marge)
+            painter.setPen(QColor(COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
-            painter.drawText(QRectF(10, 6, self.WIDTH - 40, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                              meta["label"])
-
-            type_icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
-            if type_icon:
-                painter.drawPixmap(self.WIDTH - 24, 6, type_icon.pixmap(QSize(16, 16)))
-
-            if user_label:
-                painter.setPen(QColor(COLORS["text_main"]))
-                font.setBold(False); font.setPointSize(8)
+            primary_y = 6 if secondary_text else 15
+            painter.drawText(QRectF(text_x, primary_y, self.WIDTH - text_x - 22, 18),
+                              Qt.AlignLeft | Qt.AlignVCenter, primary_text)
+            if secondary_text:
+                painter.setPen(QColor(COLORS["text_dim"]))
+                font.setBold(False); font.setPointSize(7)
                 painter.setFont(font)
-                painter.drawText(QRectF(10, 26, self.WIDTH - 20, 18), Qt.AlignLeft | Qt.AlignVCenter,
-                                  user_label)
+                painter.drawText(QRectF(text_x, 24, self.WIDTH - text_x - 10, 14),
+                                  Qt.AlignLeft | Qt.AlignVCenter, secondary_text)
+            # Chevron ▾/▸ en haut-droite.
+            self._paint_chevron(painter, routing)
+
+        if self._expanded:
+            self._paint_expanded_content(painter, routing)
 
         # Port d'entrée (toujours dessiné, connecté ou non).
         painter.setBrush(QBrush(QColor(COLORS["text_dim"])))
@@ -427,6 +475,72 @@ class StepNodeItem(QGraphicsObject):
             if label:
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
+
+    def _paint_chevron(self, painter, routing: bool) -> None:
+        """▾ (déplié) / ▸ (replié) — même rectangle que le hit-test de mousePressEvent
+        (_chevron_rect), discret (text_dim)."""
+        cx, cy, cw, ch = _chevron_rect(self.WIDTH, self.HEIGHT, routing)
+        painter.setBrush(QBrush(QColor(COLORS["text_dim"])))
+        painter.setPen(Qt.NoPen)
+        tri = QPainterPath()
+        if self._expanded:
+            tri.moveTo(cx + 2, cy + 3)
+            tri.lineTo(cx + cw - 2, cy + 3)
+            tri.lineTo(cx + cw / 2, cy + ch - 3)
+        else:
+            tri.moveTo(cx + 3, cy + 2)
+            tri.lineTo(cx + cw - 3, cy + ch / 2)
+            tri.lineTo(cx + 3, cy + ch - 2)
+        tri.closeSubpath()
+        painter.drawPath(tri)
+
+    def _paint_expanded_content(self, painter, routing: bool) -> None:
+        """Faits clés + puces de variables lues/écrites — sous la marge basse déjà existante
+        (bottom_margin, voir boundingRect()). Placeholder générique si rien à montrer (ex.
+        GATEWAY_PARALLEL, config toujours vide) plutôt que de masquer le chevron au cas par cas."""
+        facts, read_vars, written_vars = self._facts_and_vars()
+        bottom_margin = _ROUTING_BOTTOM_MARGIN if routing else _ERROR_LABEL_MARGIN
+        y = self.HEIGHT + bottom_margin + _EXPANDED_TOP_PAD
+
+        if not facts and not read_vars and not written_vars:
+            painter.setPen(QColor(COLORS["text_muted"]))
+            font = QFont(); font.setPointSize(8); font.setItalic(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(10, y, self.WIDTH - 20, _FACT_LINE_H),
+                              Qt.AlignLeft | Qt.AlignVCenter, "Aucun détail de configuration.")
+            return
+
+        base_font = QFont(); base_font.setPointSize(8)
+        for fact in facts:
+            painter.setFont(base_font)
+            painter.setPen(QColor(COLORS["text_dim"]))
+            painter.drawText(QRectF(10, y, 84, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
+                              f"{fact['label']} :")
+            painter.setPen(QColor(COLORS["text_main"]))
+            painter.drawText(QRectF(96, y, self.WIDTH - 106, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
+                              fact["value"])
+            y += _FACT_LINE_H
+
+        for name in read_vars:
+            painter.setPen(QPen(QColor(COLORS["border"]), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(QRectF(12, y + 4, 6, 6))   # pastille creuse — variable LUE
+            painter.setPen(QColor(COLORS["text_dim"]))
+            painter.setFont(base_font)
+            painter.drawText(QRectF(24, y, self.WIDTH - 34, _VAR_BULLET_LINE_H),
+                              Qt.AlignLeft | Qt.AlignVCenter, f"↳ lit var:{name}")
+            y += _VAR_BULLET_LINE_H
+
+        written_font = QFont(base_font); written_font.setBold(True)
+        for name in written_vars:
+            painter.setBrush(QBrush(QColor(COLORS["accent"])))
+            painter.setPen(Qt.NoPen)
+            painter.drawRect(QRectF(12, y + 4, 6, 6))   # pastille pleine accent — variable ÉCRITE
+            painter.setPen(QColor(COLORS["accent"]))
+            painter.setFont(written_font)
+            painter.drawText(QRectF(24, y, self.WIDTH - 34, _VAR_BULLET_LINE_H),
+                              Qt.AlignLeft | Qt.AlignVCenter, f"↳ écrit {name}")
+            y += _VAR_BULLET_LINE_H
 
     def mousePressEvent(self, event):
         # Hit-test du chevron ▾/▸ AVANT toute logique de drag — un clic dessus bascule l'état

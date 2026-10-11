@@ -1,9 +1,8 @@
 """
 DataScheduler — tests/test_node_item_expand.py
 État déplié/replié de StepNodeItem (chantier relooking des nœuds) — bascule, hit-test du
-chevron, prepareGeometryChange(). Le contenu peint et la croissance réelle de boundingRect()
-sont couverts une fois node_item.py::paint()/boundingRect() reliés à node_facts.py (voir la
-suite de ce fichier dans un commit ultérieur du même chantier) ; ici : la mécanique d'état seule.
+chevron, prepareGeometryChange(), croissance de boundingRect() et contenu peint une fois relié à
+node_facts.py.
 """
 
 import os
@@ -157,3 +156,103 @@ def test_search_text_unaffected_by_expanded_state(qapp):
     before = node.search_text()
     node.toggle_expanded()
     assert node.search_text() == before
+
+
+def test_fresh_node_bounding_rect_height_unchanged_by_this_chantier(qapp):
+    """Verrou de non-régression : un nœud frais (jamais déplié) garde exactement la même
+    hauteur qu'avant ce chantier — HEIGHT + PORT_RADIUS + marge basse, sans le terme
+    `extra` additionnel (nul tant que _expanded est False)."""
+    from ui.graph_editor.node_item import PORT_RADIUS, _ERROR_LABEL_MARGIN, StepNodeItem as N
+    node = _node()
+    assert node.boundingRect().height() == pytest.approx(N.HEIGHT + PORT_RADIUS + _ERROR_LABEL_MARGIN)
+
+
+# ──────────────────────────────────────────────
+#  Croissance de boundingRect() une fois déplié (relié à node_facts.py)
+# ──────────────────────────────────────────────
+
+def test_bounding_rect_grows_when_expanded(qapp):
+    node = _node(step_type="DB_EXTRACT")   # 2 faits (Profil, Requête) via node_facts.py
+    collapsed_height = node.boundingRect().height()
+
+    node.set_expanded(True)
+
+    assert node.boundingRect().height() > collapsed_height
+
+
+def test_bounding_rect_expanded_height_matches_expanded_content_height_exactly(qapp):
+    from ui.graph_editor.node_item import PORT_RADIUS, _ERROR_LABEL_MARGIN, _expanded_content_height
+
+    node = _node(step_type="DB_EXTRACT")
+    node.set_expanded(True)
+    facts, read_vars, written_vars = node._facts_and_vars()
+    expected_extra = _expanded_content_height(len(facts), len(read_vars), len(written_vars))
+
+    expected = node.HEIGHT + PORT_RADIUS + _ERROR_LABEL_MARGIN + expected_extra
+    assert node.boundingRect().height() == pytest.approx(expected)
+
+
+def test_bounding_rect_grows_for_routing_node_too(qapp):
+    node = _node(step_type="CONDITION")   # 1 fait (Expression)
+    collapsed_height = node.boundingRect().height()
+
+    node.set_expanded(True)
+
+    assert node.boundingRect().height() > collapsed_height
+
+
+def test_gateway_parallel_expanded_still_grows_via_placeholder(qapp):
+    """GATEWAY_PARALLEL n'a aucun fait ni variable (config toujours {}) — le contenu déplié
+    retombe sur le placeholder générique, boundingRect() grandit quand même (ne lève pas)."""
+    node = _node(step_type="GATEWAY_PARALLEL")
+    collapsed_height = node.boundingRect().height()
+
+    node.set_expanded(True)
+
+    assert node.boundingRect().height() > collapsed_height
+
+
+# ──────────────────────────────────────────────
+#  Fumée paint() déplié — même patron que test_routing_node_paint_does_not_crash
+#  (tests/test_graph_editor_dialog.py)
+# ──────────────────────────────────────────────
+
+def _paint_smoke(node):
+    from PySide6.QtGui import QPixmap, QPainter as RealQPainter
+    rect = node.boundingRect()
+    pixmap = QPixmap(int(rect.width()) + 20, int(rect.height()) + 20)
+    painter = RealQPainter(pixmap)
+    try:
+        painter.translate(-rect.left(), -rect.top())
+        node.paint(painter, None, None)
+    finally:
+        painter.end()
+
+
+def test_paint_does_not_crash_when_expanded_regular_node(qapp):
+    node = _node(step_type="FTP_UPLOAD", label="Dépôt quotidien")
+    node.set_expanded(True)
+    _paint_smoke(node)
+
+
+def test_paint_does_not_crash_when_expanded_routing_node(qapp):
+    node = _node(step_type="CONDITION", label="Seuil atteint ?")
+    node.set_expanded(True)
+    _paint_smoke(node)
+
+
+def test_paint_does_not_crash_when_expanded_with_no_facts_or_vars(qapp):
+    node = _node(step_type="GATEWAY_PARALLEL")
+    node.set_expanded(True)
+    _paint_smoke(node)
+
+
+def test_paint_does_not_crash_when_expanded_with_variable_chips(qapp):
+    node = StepNodeItem({
+        "step_type": "SET_VARIABLE", "label": "",
+        "config": {"_step_key": "a", "assignments": [
+            {"target": "limite", "expression": "date_add(var:base_date, -7)"},
+        ]},
+    })
+    node.set_expanded(True)
+    _paint_smoke(node)
