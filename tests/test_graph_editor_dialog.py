@@ -185,34 +185,10 @@ def test_gateway_join_node_is_a_routing_node_diamond():
 
 
 # ──────────────────────────────────────────────
-#  Glyphes centraux façon BPMN (chantier identité visuelle) — fonction pure, pas besoin de qapp
+# Les tests test_gateway_glyph_* (glyphes BPMN cross/plus/circle) ont été retirés avec
+# _gateway_glyph()/_draw_gateway_glyph() (ui/graph_editor/node_item.py) — chantier relooking des
+# nœuds, remplacés par le badge d'icône rond (même traitement que les nœuds normaux).
 # ──────────────────────────────────────────────
-
-def test_gateway_glyph_condition_is_cross():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("CONDITION", {}) == "cross"
-
-
-def test_gateway_glyph_parallel_is_plus():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_PARALLEL", {}) == "plus"
-
-
-def test_gateway_glyph_join_and_mode_is_plus():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "AND"}) == "plus"
-
-
-def test_gateway_glyph_join_or_mode_or_default_is_circle():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("GATEWAY_JOIN", {"join_mode": "OR"}) == "circle"
-    assert _gateway_glyph("GATEWAY_JOIN", {}) == "circle"
-
-
-def test_gateway_glyph_non_routing_type_is_none():
-    from ui.graph_editor.node_item import _gateway_glyph
-    assert _gateway_glyph("DB_EXTRACT", {}) is None
-
 
 # ──────────────────────────────────────────────
 #  Marge basse (chantier identité visuelle) — plus haute pour un losange (légende + glyphe
@@ -945,3 +921,83 @@ def test_on_search_jump_with_no_matches_is_a_no_op(qapp, test_db, monkeypatch):
     dlg._on_search_jump()
 
     assert centered == []
+
+
+# ──────────────────────────────────────────────
+#  Chantier relooking des nœuds — résolution des noms de profil, "Tout déplier/replier"
+# ──────────────────────────────────────────────
+
+def test_profile_names_dict_is_built_at_construction(qapp, test_db):
+    ftp = db.create_ftp_profile(name="SFTP_PARTENAIRE", host="h", port=22, username="u", password="p")
+    pipeline = db.create_pipeline(name="profile-names-built-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert dlg._profile_names["ftp"][ftp.id] == "SFTP_PARTENAIRE"
+
+
+def test_loaded_node_has_profile_names_resolved(qapp, test_db):
+    """Chaque nœud chargé depuis _load_graph() reçoit profile_names — vérifié indirectement via
+    un fait affiché (plutôt qu'un attribut privé), même esprit que les autres tests de ce fichier
+    qui préfèrent le comportement observable."""
+    ftp = db.create_ftp_profile(name="SFTP_PARTENAIRE", host="h", port=22, username="u", password="p")
+    pipeline = db.create_pipeline(name="profile-names-loaded-node-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "a", "ftp_profile_id": ftp.id}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    facts, _reads, _writes = dlg._scene.nodes["a"]._facts_and_vars()
+    assert {"label": "Profil FTP", "value": "SFTP_PARTENAIRE"} in facts
+
+
+def test_duplicated_node_has_profile_names_resolved_without_reopening_its_dialog(qapp, test_db):
+    ftp = db.create_ftp_profile(name="SFTP_PARTENAIRE", host="h", port=22, username="u", password="p")
+    pipeline = db.create_pipeline(name="profile-names-duplicate-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "FTP_UPLOAD", "config": {"_step_key": "a", "ftp_profile_id": ftp.id}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    dlg._scene.nodes["a"].setSelected(True)
+
+    dlg._on_duplicate_selected()
+
+    new_key = next(k for k in dlg._scene.nodes if k != "a")
+    facts, _reads, _writes = dlg._scene.nodes[new_key]._facts_and_vars()
+    assert {"label": "Profil FTP", "value": "SFTP_PARTENAIRE"} in facts
+
+
+def test_toggle_all_expanded_expands_then_collapses_every_node(qapp, test_db):
+    pipeline = db.create_pipeline(name="toggle-all-expanded-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    assert all(not n.is_expanded for n in dlg._scene.nodes.values())
+
+    dlg._on_toggle_all_expanded()
+    assert all(n.is_expanded for n in dlg._scene.nodes.values())
+
+    dlg._on_toggle_all_expanded()
+    assert all(not n.is_expanded for n in dlg._scene.nodes.values())
+
+
+def test_toggle_all_expanded_with_one_already_expanded_expands_the_rest(qapp, test_db):
+    pipeline = db.create_pipeline(name="toggle-all-expanded-partial-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    dlg._scene.nodes["a"].set_expanded(True)
+
+    dlg._on_toggle_all_expanded()
+
+    assert all(n.is_expanded for n in dlg._scene.nodes.values())
+
+
+def test_toggle_all_expanded_on_empty_graph_does_not_raise(qapp, test_db):
+    pipeline = db.create_pipeline(name="toggle-all-expanded-empty-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    dlg._on_toggle_all_expanded()   # ne doit pas lever

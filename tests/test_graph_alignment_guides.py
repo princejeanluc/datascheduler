@@ -103,6 +103,36 @@ def test_snap_node_position_snaps_and_shows_a_guide(qapp):
     assert h_line.isVisible()
 
 
+def test_snap_node_position_uses_each_node_s_real_bounding_rect_not_a_shared_class_constant(qapp):
+    """Chantier relooking des nœuds : snap_node_position() lit désormais boundingRect() sur
+    CHAQUE instance plutôt que StepNodeItem.WIDTH/HEIGHT (constante de classe partagée) — un
+    nœud de routage (losange, bottom_margin plus grand) et un nœud normal ont déjà, aujourd'hui,
+    des hauteurs réelles différentes ; sans cette correction, l'accrochage les traiterait comme
+    identiques. (Un nœud DÉPLIÉ sera lui aussi plus haut qu'un nœud replié une fois
+    StepNodeItem.boundingRect() relié à l'état _expanded — voir le commit suivant de ce même
+    chantier.)"""
+    scene = PipelineGraphScene()
+    routing = StepNodeItem({"step_type": "CONDITION", "config": {"_step_key": "a"}})
+    routing.setPos(0, 0)
+    scene.addItem(routing)
+    scene.nodes["a"] = routing
+    plain = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "b"}})
+    plain.setPos(400, 20)
+    scene.addItem(plain)
+    scene.nodes["b"] = plain
+
+    assert routing.boundingRect().height() != plain.boundingRect().height()
+
+    # La position candidate place le BAS de `plain` juste sous le BAS réel de `routing` (plus
+    # bas que s'ils partageaient tous deux HEIGHT=64) — un calcul basé sur la constante de
+    # classe manquerait cet accord.
+    routing_bottom = routing.pos().y() + routing.boundingRect().height()
+    candidate_top = routing_bottom - plain.boundingRect().height() + 3   # à 3px du bas réel
+    result = scene.snap_node_position(plain, QPointF(400, candidate_top))
+
+    assert result.y() == pytest.approx(routing_bottom - plain.boundingRect().height())
+
+
 def test_snap_node_position_leaves_candidate_unchanged_when_nothing_nearby(qapp):
     scene, n1, n2 = _two_node_scene()
 

@@ -141,11 +141,36 @@ class PipelineGraphEditorWidget(QWidget):
 
     def _load_profiles(self):
         from database import db_manager as db
-        self._oracle_profiles = db.get_oracle_profiles()
-        self._ftp_profiles    = db.get_ftp_profiles()
-        self._sql_queries     = db.get_sql_queries()
-        self._smtp_profiles   = db.get_smtp_profiles()
-        self._db_profiles     = db.list_all_db_profiles()
+        self._oracle_profiles    = db.get_oracle_profiles()
+        self._ftp_profiles       = db.get_ftp_profiles()
+        self._sql_queries        = db.get_sql_queries()
+        self._smtp_profiles      = db.get_smtp_profiles()
+        self._db_profiles        = db.list_all_db_profiles()
+        # Chantier relooking des nœuds — nécessaires pour résoudre edge_profile_id/
+        # kerberos_profile_id/elevation_profile_id (SPARK_SQL/SQOOP_*) sans requête DB depuis le
+        # rendu d'un nœud ; absentes ici jusqu'à ce chantier (seuls leurs combos de dialogue les
+        # chargeaient à la demande).
+        self._ssh_profiles       = db.get_ssh_profiles()
+        self._kerberos_profiles  = db.get_kerberos_profiles()
+        self._elevation_profiles = db.get_elevation_profiles()
+        self._profile_names = self._build_profile_names()
+
+    def _build_profile_names(self) -> dict:
+        """Dict de résolution ID -> nom pour le contenu déplié des nœuds (node_facts.py) —
+        construit UNE FOIS ici à partir des listes déjà chargées, jamais recalculé depuis le
+        rendu d'un nœud. "db" est keyé par (db_type, id) : list_all_db_profiles() fusionne
+        OracleProfile et DatabaseProfile, dont les id PEUVENT se chevaucher entre les deux
+        tables — une simple clé "id" résoudrait parfois le mauvais profil."""
+        return {
+            "db":        {(p["db_type"], p["id"]): p["name"] for p in self._db_profiles},
+            "oracle":    {p.id: p.name for p in self._oracle_profiles},
+            "ftp":       {p.id: p.name for p in self._ftp_profiles},
+            "smtp":      {p.id: p.name for p in self._smtp_profiles},
+            "ssh":       {p.id: p.name for p in self._ssh_profiles},
+            "kerberos":  {p.id: p.name for p in self._kerberos_profiles},
+            "elevation": {p.id: p.name for p in self._elevation_profiles},
+            "sql_query": {q.id: q.name for q in self._sql_queries},
+        }
 
     # ── Construction UI ──────────────────────
 
@@ -259,7 +284,9 @@ class PipelineGraphEditorWidget(QWidget):
                 pos = QPointF(_START_X + col * _NODE_SPACING_X, _START_Y + row * _ROW_HEIGHT)
             else:
                 pos = QPointF(s.pos_x, s.pos_y)
-            self._scene.add_node(step, pos)
+            node = self._scene.add_node(step, pos)
+            if node is not None:   # add_node() renvoie None si _step_key manque (jamais censé
+                node.set_profile_names(self._profile_names)   # arriver sur un pipeline sauvegardé)
 
         for e in edges:
             self._scene.add_edge(e.from_step_key, e.from_port, e.to_step_key)
@@ -383,6 +410,18 @@ class PipelineGraphEditorWidget(QWidget):
         self._minimap.setVisible(self._minimap.isHidden())
         self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
 
+    def _on_toggle_all_expanded(self):
+        """"Tout déplier/replier" (chantier relooking des nœuds) — recalcule la cible à CHAQUE
+        clic à partir de l'état réel des nœuds (pas d'état supplémentaire à maintenir sur ce
+        widget) : au moins un nœud replié -> déplie tout ; sinon -> replie tout. Robuste même
+        après des bascules individuelles (chevron par chevron) entre deux clics du bouton."""
+        nodes = list(self._scene.nodes.values())
+        if not nodes:
+            return
+        target = any(not n.is_expanded for n in nodes)
+        for n in nodes:
+            n.set_expanded(target)
+
     def _on_show_help(self):
         """Aide contextuelle (chantier UX éditeur, Lot 3, C2) — réutilise le même rendu Markdown
         que l'onglet "Aide" global, seule la rubrique "graph-editor" est affichée ici."""
@@ -442,7 +481,9 @@ class PipelineGraphEditorWidget(QWidget):
         )
         if config_dlg and config_dlg.exec():
             step = config_dlg.result_step()
-            self._scene.add_node(step, self._next_new_node_pos())
+            node = self._scene.add_node(step, self._next_new_node_pos())
+            if node is not None:
+                node.set_profile_names(self._profile_names)
 
     def _on_node_double_clicked(self, node: StepNodeItem):
         from ui.step_editor import _open_config_dialog
@@ -462,8 +503,13 @@ class PipelineGraphEditorWidget(QWidget):
             pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
         )
         if config_dlg and config_dlg.exec():
+            # prepareGeometryChange() avant de réassigner step : le nombre de faits affichés
+            # (si ce nœud est déplié) peut changer avec la nouvelle config (chantier relooking
+            # des nœuds) — sans danger de l'appeler même quand la géométrie ne change pas
+            # réellement (nœud replié, ou même nombre de faits).
+            node.prepareGeometryChange()
             node.step = config_dlg.result_step()
-            node.update()
+            node.set_profile_names(self._profile_names)   # update() déjà inclus
 
     def _on_delete_selected(self):
         for item in list(self._scene.selectedItems()):
@@ -495,6 +541,9 @@ class PipelineGraphEditorWidget(QWidget):
         for c in copies:
             if c:
                 c.setSelected(True)
+                # Sans ça, le doublon afficherait des IDs de profil bruts dans son contenu
+                # déplié jusqu'à ce qu'on le double-clique (chantier relooking des nœuds).
+                c.set_profile_names(self._profile_names)
 
     def _on_open_settings_dialog(self):
         """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif) —
