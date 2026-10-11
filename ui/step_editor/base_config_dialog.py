@@ -3,6 +3,7 @@ DataScheduler — ui/step_editor/base_config_dialog.py
 Classe de base commune à tous les dialogues de configuration d'étape.
 """
 
+import re
 import uuid
 
 from PySide6.QtWidgets import (
@@ -12,6 +13,29 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 from .common import STEP_META, TOKENS_HINT
+
+# Même charset que _TOKEN_RE (core/expr_lang.py, ARTIFACT/VAR non cités) — un nom qui contient un
+# de ces caractères doit être cité pour rester un seul token une fois inséré en forme NUE (bug
+# réel trouvé : CONDITION.expression est évalué directement par expr_lang.evaluate(), qui ne
+# comprend QUE "artifact:nom"/"var:nom" SANS accolades — jamais "{artifact:nom}"/"{var:nom}",
+# cette dernière forme étant la syntaxe de StepContext.resolve_tokens() (core/steps/base.py),
+# un mécanisme différent, propre aux champs templatés des autres types d'étape).
+_SAFE_BARE_REFERENCE_RE = re.compile(r'^[^\s()=!<>+*/,]+$')
+
+
+def _reference_insertion_text(prefix: str, name: str, braced: bool) -> str:
+    """Texte à insérer pour une référence `prefix:name` (artifact/var) — forme ACCOLÉE
+    ({prefix:name}, pour un champ résolu par StepContext.resolve_tokens(), le cas par défaut) ou
+    NUE (prefix:name, citée si besoin, pour un champ évalué directement par expr_lang — à ce
+    jour CONDITION.expression, seul consommateur direct d'expr_lang côté UI). Fonction pure,
+    testable sans Qt."""
+    if braced:
+        return f"{{{prefix}:{name}}}"
+    if _SAFE_BARE_REFERENCE_RE.match(name):
+        return f"{prefix}:{name}"
+    if '"' not in name:
+        return f'{prefix}:"{name}"'
+    return f"{prefix}:'{name}'"
 
 
 class _BaseStepConfigDialog(QDialog):
@@ -233,14 +257,21 @@ class _BaseStepConfigDialog(QDialog):
         form.addRow(self._lbl("Nom de sortie"), inp)
         return inp
 
-    def _artifact_reference_button(self, target_field, prior_steps: list) -> QPushButton:
+    def _artifact_reference_button(self, target_field, prior_steps: list,
+                                    braced: bool = True) -> QPushButton:
         """
         Bouton listant les noms d'artefact déclarés par les étapes précédentes (via
-        _output_name_row ou le champ "Sortie(s) publiées" de PYTHON_SCRIPT) — un clic insère
-        {artifact:nom} dans target_field à la position du curseur. Complète _tokens_hint() :
-        ceci résout la découvrabilité des noms, {artifact:nom} (core/steps/base.py) est le
-        mécanisme de référence lui-même — deux problèmes distincts, pas redondants.
-        """
+        _output_name_row ou le champ "Sortie(s) publiées" de PYTHON_SCRIPT) — un clic insère une
+        référence dans target_field à la position du curseur. Complète _tokens_hint() : ceci
+        résout la découvrabilité des noms, {artifact:nom} (core/steps/base.py) est le mécanisme
+        de référence lui-même — deux problèmes distincts, pas redondants.
+
+        `braced` (défaut True) : forme {artifact:nom}, comprise par StepContext.resolve_tokens()
+        — le cas de la plupart des champs (chemins, URLs, corps de mail...). Passer braced=False
+        pour un champ évalué DIRECTEMENT par core/expr_lang.py (à ce jour, uniquement
+        CONDITION.expression) — ce module ne comprend QUE la forme nue "artifact:nom", jamais
+        accolée (bug réel trouvé : le bouton insérait {artifact:nom} dans l'expression d'une
+        Condition, qui échouait alors systématiquement à l'évaluation)."""
         btn = QPushButton("+ Artefact"); btn.setObjectName("secondary")
         btn.setFixedHeight(28)
 
@@ -260,21 +291,23 @@ class _BaseStepConfigDialog(QDialog):
         for name in dict.fromkeys(names):   # dédoublonne en gardant l'ordre
             action = menu.addAction(name)
             action.triggered.connect(
-                lambda checked=False, n=name: self._insert_at_cursor(target_field, f"{{artifact:{n}}}")
+                lambda checked=False, n=name: self._insert_at_cursor(
+                    target_field, _reference_insertion_text("artifact", n, braced))
             )
         btn.setMenu(menu)
         return btn
 
     def _variable_reference_button(self, target_field, prior_steps: list,
-                                    pipeline_variable_names: list[str] | None = None) -> QPushButton:
+                                    pipeline_variable_names: list[str] | None = None,
+                                    braced: bool = True) -> QPushButton:
         """
-        Sibling de _artifact_reference_button pour {var:nom} — les variables viennent soit
-        d'une étape EXTRACT_VARIABLES précédente (mappings[].target), soit des variables
-        déclarées au niveau du pipeline (chantier variables de pipeline, déjà amorcées dans
-        ctx.variables avant la première étape — toujours "disponibles", quelle que soit la
-        position de l'étape en cours dans le graphe). Contrairement aux artefacts, qui peuvent
-        venir de n'importe quel type de step via "output_name" — d'où le filtre par step_type
-        ci-dessous, absent côté artefacts.
+        Sibling de _artifact_reference_button pour var:nom — les variables viennent soit d'une
+        étape EXTRACT_VARIABLES précédente (mappings[].target), soit des variables déclarées au
+        niveau du pipeline (chantier variables de pipeline, déjà amorcées dans ctx.variables
+        avant la première étape — toujours "disponibles", quelle que soit la position de l'étape
+        en cours dans le graphe). Contrairement aux artefacts, qui peuvent venir de n'importe
+        quel type de step via "output_name" — d'où le filtre par step_type ci-dessous, absent
+        côté artefacts. `braced` : voir _artifact_reference_button, même raisonnement.
         """
         btn = QPushButton("+ Variable"); btn.setObjectName("secondary")
         btn.setFixedHeight(28)
@@ -298,7 +331,8 @@ class _BaseStepConfigDialog(QDialog):
         for name in dict.fromkeys(names):   # dédoublonne en gardant l'ordre
             action = menu.addAction(name)
             action.triggered.connect(
-                lambda checked=False, n=name: self._insert_at_cursor(target_field, f"{{var:{n}}}")
+                lambda checked=False, n=name: self._insert_at_cursor(
+                    target_field, _reference_insertion_text("var", n, braced))
             )
         btn.setMenu(menu)
         return btn

@@ -9,6 +9,7 @@ l'arête entrante dessinée dans l'éditeur graphique (chantier 6b).
 from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QLabel, QMessageBox
 from ui.styles import COLORS, FONT_MONO_STACK
 from .base_config_dialog import _BaseStepConfigDialog
+from core.expr_lang import compile_expression
 
 
 class _ConditionConfigDialog(_BaseStepConfigDialog):
@@ -41,9 +42,17 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
 
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
         btn_row.addWidget(self._lbl("Expression *")); btn_row.addStretch()
-        btn_row.addWidget(self._artifact_reference_button(self.inp_expression, self._prior_steps))
+        # braced=False sur les deux : contrairement à la plupart des champs (chemins, URLs, corps
+        # de mail...) résolus par StepContext.resolve_tokens() ({artifact:nom}/{var:nom}),
+        # l'expression d'une Condition est évaluée DIRECTEMENT par core/expr_lang.py (voir
+        # core/steps/condition.py::ConditionStep.run()), qui ne comprend que la forme NUE
+        # (artifact:nom/var:nom, sans accolades) — bug réel corrigé, les boutons inséraient
+        # jusqu'ici une syntaxe que cette étape ne pouvait jamais évaluer avec succès.
+        btn_row.addWidget(self._artifact_reference_button(
+            self.inp_expression, self._prior_steps, braced=False,
+        ))
         btn_row.addWidget(self._variable_reference_button(
-            self.inp_expression, self._prior_steps, self._pipeline_variable_names,
+            self.inp_expression, self._prior_steps, self._pipeline_variable_names, braced=False,
         ))
         root.addLayout(btn_row)
         root.addWidget(self.inp_expression)
@@ -75,7 +84,17 @@ class _ConditionConfigDialog(_BaseStepConfigDialog):
         return {"expression": self.inp_expression.text().strip()}
 
     def _on_ok(self):
-        if not self.inp_expression.text().strip():
+        expression = self.inp_expression.text().strip()
+        if not expression:
             QMessageBox.warning(self, "Champ requis", "Saisir une expression.")
+            return
+        # Validation syntaxique à l'enregistrement (même patron que SET_VARIABLE,
+        # set_variable_config_dialog.py) — avant ce correctif, une expression malformée (y
+        # compris celle produite par le bug ci-dessus) s'enregistrait silencieusement et
+        # n'échouait qu'à l'exécution réelle du pipeline.
+        try:
+            compile_expression(expression)
+        except ValueError as e:
+            QMessageBox.warning(self, "Expression invalide", str(e))
             return
         self.accept()

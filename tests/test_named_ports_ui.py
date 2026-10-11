@@ -9,7 +9,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit
+from PySide6.QtWidgets import QApplication, QLineEdit, QPlainTextEdit, QPushButton
 
 from ui.step_editor import _open_config_dialog
 from ui.step_editor.base_config_dialog import _BaseStepConfigDialog
@@ -231,3 +231,136 @@ def test_source_selector_omits_spark_sql_step_when_fetch_result_unchecked(qapp):
     dlg = _open("LOCAL_COPY", prior_steps=prior)
     labels = [dlg.cb_source.itemText(i) for i in range(dlg.cb_source.count())]
     assert labels == ["Étape précédente (par défaut)"]
+
+
+# ──────────────────────────────────────────────
+#  _reference_insertion_text — fonction pure, forme nue vs accolée
+# ──────────────────────────────────────────────
+
+def test_reference_insertion_text_braced_form():
+    from ui.step_editor.base_config_dialog import _reference_insertion_text
+    assert _reference_insertion_text("artifact", "ventes", braced=True) == "{artifact:ventes}"
+    assert _reference_insertion_text("var", "total", braced=True) == "{var:total}"
+
+
+def test_reference_insertion_text_bare_form_simple_name():
+    from ui.step_editor.base_config_dialog import _reference_insertion_text
+    assert _reference_insertion_text("var", "total", braced=False) == "var:total"
+    assert _reference_insertion_text("artifact", "3f9a1c2b-uuid", braced=False) == "artifact:3f9a1c2b-uuid"
+
+
+def test_reference_insertion_text_bare_form_quotes_name_with_space():
+    from ui.step_editor.base_config_dialog import _reference_insertion_text
+    assert _reference_insertion_text("var", "nom avec espace", braced=False) == 'var:"nom avec espace"'
+
+
+def test_reference_insertion_text_bare_form_quotes_name_with_operator_char():
+    from ui.step_editor.base_config_dialog import _reference_insertion_text
+    assert _reference_insertion_text("var", "a+b", braced=False) == 'var:"a+b"'
+
+
+def test_reference_insertion_text_bare_form_falls_back_to_single_quotes_if_name_has_double_quote():
+    from ui.step_editor.base_config_dialog import _reference_insertion_text
+    assert _reference_insertion_text("var", 'nom "cité"', braced=False) == "var:'nom \"cité\"'"
+
+
+# ──────────────────────────────────────────────
+#  braced=False — câblage des deux boutons, directement
+# ──────────────────────────────────────────────
+
+def test_artifact_reference_button_braced_false_inserts_bare_form(qapp):
+    dlg = _DummyDialog({}, None)
+    field = QLineEdit()
+    prior = [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a", "output_name": "ventes"}}]
+    btn = dlg._artifact_reference_button(field, prior, braced=False)
+    btn.menu().actions()[0].trigger()
+    assert field.text() == "artifact:ventes"
+
+
+def test_variable_reference_button_braced_false_inserts_bare_form(qapp):
+    dlg = _DummyDialog({}, None)
+    field = QLineEdit()
+    prior = [{"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "a", "target": "total"}]}}]
+    btn = dlg._variable_reference_button(field, prior, braced=False)
+    btn.menu().actions()[0].trigger()
+    assert field.text() == "var:total"
+
+
+# ──────────────────────────────────────────────
+#  Dialogue CONDITION — les deux boutons insèrent désormais la forme NUE (bug réel corrigé :
+#  CONDITION.expression est évalué directement par core/expr_lang.py, qui ne comprend que
+#  artifact:nom/var:nom, jamais {artifact:nom}/{var:nom})
+# ──────────────────────────────────────────────
+
+def _reference_button_with_action(dlg, action_text: str) -> QPushButton:
+    return next(
+        w for w in dlg.findChildren(QPushButton)
+        if w.menu() and action_text in [a.text() for a in w.menu().actions()]
+    )
+
+
+def test_condition_dialog_artifact_button_inserts_bare_form(qapp):
+    prior = [{"step_type": "DB_EXTRACT", "config": {"output_name": "ventes_csv"}}]
+    dlg = _open("CONDITION", prior_steps=prior)
+    btn = _reference_button_with_action(dlg, "ventes_csv")
+    btn.menu().actions()[0].trigger()
+    assert dlg.inp_expression.text() == "artifact:ventes_csv"
+
+
+def test_condition_dialog_variable_button_inserts_bare_form(qapp):
+    prior = [{"step_type": "EXTRACT_VARIABLES", "config": {"mappings": [{"source": "a", "target": "total"}]}}]
+    dlg = _open("CONDITION", prior_steps=prior)
+    btn = _reference_button_with_action(dlg, "total")
+    btn.menu().actions()[0].trigger()
+    assert dlg.inp_expression.text() == "var:total"
+
+
+# ──────────────────────────────────────────────
+#  Dialogue CONDITION — validation syntaxique à l'enregistrement (même patron que SET_VARIABLE)
+# ──────────────────────────────────────────────
+
+def test_condition_dialog_rejects_malformed_expression_on_ok(qapp, monkeypatch):
+    import ui.step_editor.condition_config_dialog as mod
+    dlg = _open("CONDITION")
+    dlg.inp_expression.setText("rows_count >")   # comparaison tronquée — invalide
+
+    warnings = []
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+
+    dlg._on_ok()
+
+    assert warnings
+    assert accepted == []
+
+
+def test_condition_dialog_accepts_valid_expression_on_ok(qapp, monkeypatch):
+    dlg = _open("CONDITION")
+    dlg.inp_expression.setText("rows_count > 0")
+
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+
+    dlg._on_ok()
+
+    assert accepted == [1]
+
+
+def test_condition_dialog_rejects_the_bug_s_own_old_braced_syntax(qapp, monkeypatch):
+    """Preuve directe du bug corrigé : l'ancienne forme accolée, si jamais retapée ou restée
+    d'une sauvegarde antérieure, est désormais détectée à l'enregistrement plutôt que de
+    silencieusement passer puis échouer à l'exécution."""
+    import ui.step_editor.condition_config_dialog as mod
+    dlg = _open("CONDITION")
+    dlg.inp_expression.setText("{var:seuil} > 0")
+
+    warnings = []
+    monkeypatch.setattr(mod.QMessageBox, "warning", lambda *a, **k: warnings.append(a) or None)
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+
+    dlg._on_ok()
+
+    assert warnings
+    assert accepted == []
