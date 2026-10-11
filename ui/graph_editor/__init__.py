@@ -4,5 +4,6 @@ Package de l'éditeur graphique de pipeline (chantier 6b) — voir docs/ARCHITEC
 """
 
 from .graph_editor_dialog import PipelineGraphEditorDialog
+from .graph_editor_widget import PipelineGraphEditorWidget
 
-__all__ = ["PipelineGraphEditorDialog"]
+__all__ = ["PipelineGraphEditorDialog", "PipelineGraphEditorWidget"]
