@@ -8,17 +8,26 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
     QMessageBox, QFileDialog, QMenu, QInputDialog, QApplication,
 )
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
     _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
-    _make_status_badge, _ordered_with_chains, PipelineFlowThumbnail,
+    _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail,
 )
 
 
 class PipelinesView(QWidget):
+    # Chantier Atelier Pipelines (écran 2) : remplace l'ouverture directe de
+    # PipelineGraphEditorDialog/PipelineSettingsDialog — MainWindow écoute ce signal et bascule
+    # vers l'Atelier (AtelierPipelinesView, 9e vue du QStackedWidget), jamais une entrée de la
+    # nav rail. Args : pipeline_id, highlight_step_key (toujours None depuis cette vue — voir
+    # HistoryView pour l'autre émetteur), is_new_pipeline (voir AtelierPipelinesView.open_pipeline
+    # — True uniquement depuis _on_new_pipeline, pour reproduire à l'identique son comportement
+    # "coquille vide supprimée au retour" / "planifié dès le premier enregistrement du graphe").
+    open_atelier_requested = Signal(int, object, bool)
+
     def __init__(self):
         super().__init__()
         self._build_ui()
@@ -109,10 +118,12 @@ class PipelinesView(QWidget):
         if QApplication.activePopupWidget() is not None:
             return
 
+        import json
         from database import db_manager as db
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested, is_pipeline_running
         from core.scheduler import describe_schedule
+        from core.steps import is_routing_node
         pipelines = db.get_pipelines()
         ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
@@ -130,7 +141,24 @@ class PipelinesView(QWidget):
             steps_str  = " → ".join(
                 STEP_META.get(t, {}).get("label", t) for t in step_types
             ) or "—"
-            step_colors = [STEP_META.get(t, {}).get("color", COLORS["border"]) for t in step_types]
+            # Vignette mini-DAG (chantier Atelier Pipelines, écran 1) : step_key lu depuis
+            # config_json (pas de colonne ORM dédiée — voir save_pipeline_graph()/
+            # log_pipeline_edit() dans database/db_manager.py) ; repli synthétique "__step_<id>"
+            # purement d'affichage si absent (jamais censé arriver, jamais écrit en base).
+            step_nodes = [
+                {
+                    "step_key": (
+                        json.loads(s.config_json or "{}").get("_step_key") or f"__step_{s.id}"
+                    ),
+                    "color": STEP_META.get(t, {}).get("color", COLORS["border"]),
+                    "is_routing": is_routing_node(t),
+                }
+                for s, t in zip(p.steps or [], step_types)
+            ]
+            edge_rows = [
+                {"from_step_key": e.from_step_key, "to_step_key": e.to_step_key}
+                for e in (p.edges or [])
+            ]
 
             trigger_tooltip = ""
             if p.trigger_after_pipeline_id:
@@ -163,7 +191,7 @@ class PipelinesView(QWidget):
                     steps_hl = QHBoxLayout(steps_w)
                     steps_hl.setContentsMargins(4, 0, 4, 0)
                     steps_hl.setSpacing(8)
-                    steps_hl.addWidget(PipelineFlowThumbnail(step_colors))
+                    steps_hl.addWidget(PipelineStepDagThumbnail(step_nodes, edge_rows))
                     # QLabel ne s'élide pas tout seul selon la largeur disponible (contrairement
                     # à un QTableWidgetItem) — troncature statique + "…" plutôt qu'une coupe en
                     # plein mot sans indication visuelle (repéré sur une capture réelle) ; le
@@ -244,37 +272,36 @@ class PipelinesView(QWidget):
     def _on_new_pipeline(self):
         """Un seul point d'entrée de création (chantier fusion des éditeurs — l'ancien dialogue
         lourd imposait au moins une étape avant d'enregistrer, ET toute la planification d'un
-        coup, avant même d'avoir pu tester le pipeline). Juste un nom, puis directement l'éditeur
-        graphique — planification/déclenchement/actif restent modifiables ensuite via
-        « Paramètres »."""
+        coup, avant même d'avoir pu tester le pipeline). Juste un nom, puis directement l'Atelier
+        (chantier Atelier Pipelines) — planification/déclenchement/actif restent modifiables
+        ensuite via « Paramètres ». is_new_pipeline=True : voir
+        AtelierPipelinesView.open_pipeline() pour la règle de suppression de la coquille vide et
+        la planification au premier enregistrement, qui reproduisent à l'identique le
+        if/else ci-dessous tel qu'il existait avant la fusion dans l'Atelier (git blame)."""
         name, ok = QInputDialog.getText(self, "Nouveau pipeline", "Nom du pipeline :")
         name = (name or "").strip()
         if not ok or not name:
             return
 
         from database import db_manager as db
-        from ui.graph_editor import PipelineGraphEditorDialog
 
         p = db.create_pipeline(name=name)
-        if PipelineGraphEditorDialog(self, pipeline=p).exec():
-            self._schedule_if_possible(p.id)
-            self.refresh()
-        else:
-            # Rien enregistré (annulé sans ajouter d'étape) — un pipeline coquille à 0 étape
-            # ne servirait qu'à encombrer la liste.
-            db.delete_pipeline(p.id)
+        self.open_atelier_requested.emit(p.id, None, True)
 
     def _on_start_from_template(self):
         """Modèle de démarrage (chantier UX éditeur, Lot 1, C1) — même mécanisme que l'import
         d'un vrai fichier .dspipeline (plan_import()/apply_import() n'exigent pas qu'un bundle
         vienne d'un vrai export), mais sans dialogue de revue : le modèle n'a ni profil ni
         collision à arbitrer (aucune référence de profil dans son bundle, nom toujours unique
-        via _unique_name côté apply_import). Ouvre directement l'éditeur graphique sur le
-        résultat pour que l'utilisateur atterrisse droit sur les champs à compléter."""
+        via _unique_name côté apply_import). Ouvre directement l'Atelier sur le résultat pour que
+        l'utilisateur atterrisse droit sur les champs à compléter. _schedule_if_possible()
+        s'exécute ICI, de façon synchrone, pas dans l'Atelier (contrairement à _on_new_pipeline
+        ci-dessus) : le pipeline importé a déjà de vraies étapes (jamais une coquille à
+        protéger), donc rien n'empêche de planifier tout de suite, comme avant la fusion dans
+        l'Atelier — is_new_pipeline=False (défaut)."""
         from database.export_import import plan_import, apply_import
         from database.pipeline_templates import build_starter_template_bundle
         from database import db_manager as db
-        from ui.graph_editor import PipelineGraphEditorDialog
 
         plan = plan_import(build_starter_template_bundle())
         if not plan.success:
@@ -288,9 +315,8 @@ class PipelinesView(QWidget):
         self.refresh()
         pipeline = db.get_pipeline(result.pipeline_id) if result.pipeline_id else None
         if pipeline:
-            PipelineGraphEditorDialog(self, pipeline=pipeline).exec()
             self._schedule_if_possible(pipeline.id)
-            self.refresh()
+            self.open_atelier_requested.emit(pipeline.id, None, False)
 
     def _on_import_pipeline(self):
         from database.export_import import plan_import_from_file, apply_import
@@ -343,18 +369,14 @@ class PipelinesView(QWidget):
         self.refresh()
 
     def _on_edit_pipeline_settings(self, pipeline_id: int):
-        from database import db_manager as db
-        from ui.step_editor import PipelineSettingsDialog
-        p = db.get_pipeline(pipeline_id)
-        if p and PipelineSettingsDialog(self, pipeline=p).exec():
-            self.refresh()
+        # Chantier Atelier Pipelines : ouvre désormais l'Atelier (panneau de droite déjà
+        # visible) plutôt que PipelineSettingsDialog seul — is_new_pipeline=False (défaut),
+        # simple édition, jamais la règle "coquille vide"/planification au premier
+        # enregistrement, qui ne concerne que _on_new_pipeline.
+        self.open_atelier_requested.emit(pipeline_id, None, False)
 
     def _on_edit_pipeline_graph(self, pipeline_id: int):
-        from database import db_manager as db
-        from ui.graph_editor import PipelineGraphEditorDialog
-        p = db.get_pipeline(pipeline_id)
-        if p and PipelineGraphEditorDialog(self, pipeline=p).exec():
-            self.refresh()
+        self.open_atelier_requested.emit(pipeline_id, None, False)
 
     def _on_export_pipeline(self, pipeline_id: int):
         from database import db_manager as db

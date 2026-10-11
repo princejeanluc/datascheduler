@@ -22,6 +22,7 @@ from .queries_view import QueriesView
 from .history_view import HistoryView
 from .resources_view import ResourcesView
 from .settings_view import SettingsView
+from .atelier_pipelines_view import AtelierPipelinesView
 
 
 class MainWindow(QMainWindow):
@@ -104,6 +105,12 @@ class MainWindow(QMainWindow):
             ResourcesView(),
             SettingsView(),
             HelpView(),
+            # Atelier Pipelines (chantier Atelier Pipelines, écran 2) — 9e vue, indice 8, HORS
+            # des 8 indices connus de nav_items ci-dessus : jamais une entrée de la nav rail,
+            # atteinte uniquement via open_atelier() (voir plus bas). set_active_index(8) sur
+            # NavRail ne surligne simplement aucun des 8 boutons existants (aucune modification
+            # de NavRail nécessaire).
+            AtelierPipelinesView(),
         ]
         for v in self._views:
             self._stack.addWidget(v)
@@ -111,6 +118,9 @@ class MainWindow(QMainWindow):
 
         self._views[0].navigate_to_history.connect(self._on_dashboard_navigate_to_history)
         self._views[0].navigate_to_settings.connect(self._on_dashboard_navigate_to_settings)
+        self._views[1].open_atelier_requested.connect(self.open_atelier)
+        self._views[4].open_atelier_requested.connect(self.open_atelier)
+        self._views[8].back_requested.connect(lambda: self._navigate(1))
 
         # Statut bar
         status = QStatusBar()
@@ -147,6 +157,18 @@ class MainWindow(QMainWindow):
     def _on_dashboard_navigate_to_settings(self, category: str):
         self._navigate(6)
         self._views[6].select_category(category)
+
+    def open_atelier(self, pipeline_id: int, highlight_step_key: str | None = None,
+                      is_new_pipeline: bool = False):
+        """Ouvre l'Atelier Pipelines (chantier Atelier Pipelines, écran 2) sur `pipeline_id` —
+        point d'entrée unique depuis PipelinesView.open_atelier_requested/
+        HistoryView.open_atelier_requested. open_pipeline() AVANT _navigate(8), jamais l'inverse
+        : _navigate() appelle view.refresh() en atterrissant, qui ne doit rafraîchir que la
+        sidebar (voir AtelierPipelinesView.refresh()) — le canevas/panneau doivent déjà être en
+        place à ce moment-là."""
+        self._views[8].open_pipeline(pipeline_id, highlight_step_key=highlight_step_key,
+                                      is_new_pipeline=is_new_pipeline)
+        self._navigate(8)
 
     def _navigate(self, index: int):
         self._stack.setCurrentIndex(index)

@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QHeaderView, QGraphicsOpacityEffect, QWidget, QToolTip,
 )
 from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QEvent
-from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush
+from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush, QPainterPath
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
 
 
@@ -835,6 +835,153 @@ class PipelineFlowThumbnail(QWidget):
         for x, color in zip(positions, self._colors):
             painter.setBrush(QBrush(QColor(color)))
             painter.drawEllipse(QPointF(x, y), self.DOT_R, self.DOT_R)
+
+
+def _paint_dot_chain(painter: QPainter, colors: list, height: float) -> None:
+    """Chaîne plate de points reliés — extrait de l'ancien PipelineFlowThumbnail.paintEvent
+    (chantier Atelier Pipelines, écran 1) ; repli de PipelineStepDagThumbnail quand le graphe
+    contient un cycle (_layout_step_dag_thumbnail renvoie alors None — jamais censé arriver sur
+    un pipeline sauvegardé, validate_pipeline_graph() l'empêche à la sauvegarde, mais une base
+    modifiée hors de l'appli reste possible)."""
+    if not colors:
+        return
+    y = height / 2
+    gap = PipelineFlowThumbnail.GAP
+    r = PipelineFlowThumbnail.DOT_R
+    positions = [r + i * gap for i in range(len(colors))]
+
+    painter.setPen(QPen(QColor(COLORS["border"]), 1.4))
+    for x1, x2 in zip(positions, positions[1:]):
+        painter.drawLine(int(x1), int(y), int(x2), int(y))
+
+    painter.setPen(Qt.NoPen)
+    for x, color in zip(positions, colors):
+        painter.setBrush(QBrush(QColor(color)))
+        painter.drawEllipse(QPointF(x, y), r, r)
+
+
+def _layout_step_dag_thumbnail(step_keys: list, edges: list) -> dict | None:
+    """Position (colonne=rang, ligne=index dans le rang) de chaque étape pour la vignette
+    mini-DAG de PipelinesView (chantier Atelier Pipelines, écran 1) — géométrie pure, pas de Qt,
+    testable isolément (même philosophie que _layout_topology_nodes ci-dessous).
+    topological_ranks() (core/pipeline.py) fait tout le travail de tri ; cette fonction ne fait
+    que répartir les nœuds d'un même rang sur des lignes successives, dans l'ordre d'apparition
+    de step_keys (= step_order, déjà l'ordre de p.steps). Retourne None si le graphe contient un
+    cycle (même convention que topological_ranks/validate_pipeline_graph)."""
+    from core.pipeline import topological_ranks
+    ranks = topological_ranks(step_keys, edges)
+    if ranks is None:
+        return None
+    by_rank: dict = {}
+    for k in step_keys:
+        by_rank.setdefault(ranks.get(k, 0), []).append(k)
+    return {k: (rank, row) for rank, keys in by_rank.items() for row, k in enumerate(keys)}
+
+
+class PipelineStepDagThumbnail(QWidget):
+    """Mini-DAG par rang (chantier Atelier Pipelines, écran 1) — remplace PipelineFlowThumbnail
+    dans la colonne Étapes de PipelinesView : points pour étapes normales, losanges pour nœuds
+    de routage (is_routing_node, core/steps/__init__.py — CONDITION/GATEWAY_PARALLEL/
+    GATEWAY_JOIN), colorés via STEP_META[type]['color']. Reflète les vraies branches (edges),
+    contrairement à PipelineFlowThumbnail qui ne connaît que la séquence plate de p.steps.
+
+    `nodes` : liste de dicts {"step_key", "color", "is_routing"} dans l'ordre step_order (=
+    l'ordre de p.steps). `edges` : liste de dicts {"from_step_key", "to_step_key"} (même forme
+    que core/pipeline.py::topological_ranks)."""
+
+    DOT_R = 3
+    DIAMOND_R = 4
+    COL_GAP = 16
+    ROW_GAP = 9
+    MARGIN = DIAMOND_R
+    MAX_VISIBLE_ROWS = 3   # la cellule du tableau a une hauteur fixe (table.setRowHeight(r_idx,
+                           # 52), pipelines_view.py) — un rang à 4+ nœuds parallèles doit
+                           # tronquer avec un repère "+N", pas déborder.
+    HEIGHT = 2 * MARGIN + (MAX_VISIBLE_ROWS - 1) * ROW_GAP
+
+    def __init__(self, nodes: list = None, edges: list = None):
+        super().__init__()
+        self._nodes = nodes or []
+        self._edges = edges or []
+        self.setFixedSize(self._width_for(self._nodes, self._edges), self.HEIGHT)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def set_data(self, nodes: list, edges: list):
+        self._nodes = nodes or []
+        self._edges = edges or []
+        self.setFixedWidth(self._width_for(self._nodes, self._edges))
+        self.update()
+
+    def _width_for(self, nodes: list, edges: list) -> int:
+        if not nodes:
+            return 1
+        positions = _layout_step_dag_thumbnail([n["step_key"] for n in nodes], edges)
+        if positions is None:
+            n = len(nodes)
+            return ((n - 1) * PipelineFlowThumbnail.GAP + 2 * PipelineFlowThumbnail.DOT_R) if n else 1
+        max_col = max(col for col, _row in positions.values())
+        return 2 * self.MARGIN + max_col * self.COL_GAP
+
+    def paintEvent(self, event):
+        if not self._nodes:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+
+        step_keys = [n["step_key"] for n in self._nodes]
+        positions = _layout_step_dag_thumbnail(step_keys, self._edges)
+        if positions is None:
+            _paint_dot_chain(painter, [n["color"] for n in self._nodes], self.height())
+            return
+
+        by_key = {n["step_key"]: n for n in self._nodes}
+        rows_per_col: dict = {}
+        xy: dict = {}
+        for key, (col, row) in positions.items():
+            visible_row = min(row, self.MAX_VISIBLE_ROWS - 1)
+            x = self.MARGIN + col * self.COL_GAP
+            y = self.MARGIN + visible_row * self.ROW_GAP
+            xy[key] = (x, y)
+            rows_per_col[col] = max(rows_per_col.get(col, 0), row + 1)
+
+        # Arêtes d'abord (sous les nœuds) — seulement entre deux nœuds tous deux visibles.
+        painter.setPen(QPen(QColor(COLORS["border"]), 1.2))
+        for e in self._edges:
+            frm, to = e.get("from_step_key"), e.get("to_step_key")
+            if frm in xy and to in xy:
+                x1, y1 = xy[frm]
+                x2, y2 = xy[to]
+                painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+        painter.setPen(Qt.NoPen)
+        for key, (x, y) in xy.items():
+            node = by_key[key]
+            painter.setBrush(QBrush(QColor(node["color"])))
+            if node.get("is_routing"):
+                r = self.DIAMOND_R
+                path = QPainterPath()
+                path.moveTo(x, y - r)
+                path.lineTo(x + r, y)
+                path.lineTo(x, y + r)
+                path.lineTo(x - r, y)
+                path.closeSubpath()
+                painter.drawPath(path)
+            else:
+                painter.drawEllipse(QPointF(x, y), self.DOT_R, self.DOT_R)
+
+        # Repère "+N" par colonne tronquée — aucun nœud supplémentaire dessiné au-delà de
+        # MAX_VISIBLE_ROWS, juste un indicateur textuel (même esprit que la troncature
+        # steps_str[:44] + "…" déjà utilisée dans PipelinesView.refresh()).
+        painter.setPen(QColor(COLORS["text_muted"]))
+        font = QFont(FONT_UI); font.setPointSize(7)
+        painter.setFont(font)
+        for col, count in rows_per_col.items():
+            overflow = count - self.MAX_VISIBLE_ROWS
+            if overflow > 0:
+                x = self.MARGIN + col * self.COL_GAP
+                y = self.MARGIN + (self.MAX_VISIBLE_ROWS - 1) * self.ROW_GAP
+                painter.drawText(QRectF(x + self.DIAMOND_R, y - 6, 20, 12),
+                                  Qt.AlignLeft | Qt.AlignVCenter, f"+{overflow}")
 
 
 # ──────────────────────────────────────────────

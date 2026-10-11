@@ -29,6 +29,26 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.43.0] - 2026-10-11
+
+### Ajouté
+- **Atelier Pipelines** — l'édition d'un pipeline (étapes/connexions + paramètres) n'ouvre plus
+  deux dialogues modaux imbriqués : un nouvel écran non-modal, intégré à la fenêtre principale,
+  réunit une sidebar de pipelines repliable à gauche, le canevas graphique (toolbar, minimap,
+  rail d'outils, zoom, recherche — inchangés) au centre, et un panneau de paramètres (Général,
+  Planification, Déclenchement, Variables) à droite, avec deux boutons "Enregistrer" explicites
+  et indépendants (graphe / paramètres). Atteint depuis la liste des pipelines ("Ouvrir
+  l'éditeur", "Paramètres du pipeline…", "+ Nouveau pipeline") ou depuis l'historique ("Voir
+  dans le graphe" sur un run en échec) — jamais une entrée de la navigation latérale. La
+  vignette "Étapes" de la liste des pipelines montre désormais un mini-schéma par rangs
+  (branches/embranchements réels, losanges pour les nœuds de routage CONDITION/GATEWAY) au lieu
+  d'une simple chaîne de points dans l'ordre de création.
+
+### Changé
+- Le lien "Voir dans le graphe" d'une ligne d'historique en échec ouvre désormais l'Atelier
+  Pipelines (voir ci-dessus) plutôt qu'un dialogue modal séparé — en sortir ramène à l'écran
+  "Pipelines" (gestion rapide), pas à l'Historique, puisque l'Atelier n'a qu'une seule sortie.
+
 ## [0.42.0] - 2026-10-11
 
 ### Ajouté

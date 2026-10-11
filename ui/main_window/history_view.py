@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
 )
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from .widgets import (
@@ -33,6 +33,12 @@ _STATUS_FILTER_OPTIONS = [
 
 
 class HistoryView(QWidget):
+    # Chantier Atelier Pipelines (écran 2) — même signal/contrat que PipelinesView
+    # (pipeline_id, highlight_step_key, is_new_pipeline) ; ici is_new_pipeline est toujours
+    # False (un lien "Voir dans le graphe" depuis l'historique n'édite jamais une création) et
+    # highlight_step_key est toujours renseigné (voir _open_graph).
+    open_atelier_requested = Signal(int, object, bool)
+
     def __init__(self):
         super().__init__()
         self._build_ui()
@@ -348,11 +354,15 @@ class HistoryView(QWidget):
         """Lien "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1). db.get_run() ne
         joinedload pas Pipeline — accéder à run.pipeline après la fermeture de sa session
         lèverait DetachedInstanceError ; db.get_pipeline(run.pipeline_id) refait une requête
-        dédiée plutôt que de suivre cette relation (même prudence que PipelineDetailDialog)."""
+        dédiée plutôt que de suivre cette relation (même prudence que PipelineDetailDialog).
+
+        Chantier Atelier Pipelines : ouvre désormais l'Atelier plutôt qu'un dialogue modal —
+        changement de comportement assumé, pas une régression cachée (voir CHANGELOG) : quitter
+        l'Atelier ramène à l'écran "Pipelines" (gestion rapide), pas à l'Historique, puisque
+        l'Atelier n'a qu'une seule sortie (back_requested → MainWindow._navigate(1))."""
         if row >= len(self._run_ids):
             return
         from database import db_manager as db
-        from ui.graph_editor import PipelineGraphEditorDialog
 
         run = db.get_run(self._run_ids[row])
         if not run or not run.failed_step_key:
@@ -360,7 +370,7 @@ class HistoryView(QWidget):
         pipeline = db.get_pipeline(run.pipeline_id)
         if not pipeline:
             return
-        PipelineGraphEditorDialog(self, pipeline=pipeline, highlight_step_key=run.failed_step_key).exec()
+        self.open_atelier_requested.emit(pipeline.id, run.failed_step_key, False)
 
     @staticmethod
     def _build_audit_table(events) -> QTableWidget:

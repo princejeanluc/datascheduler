@@ -11,7 +11,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication
 
 from database import db_manager as db
 
@@ -53,20 +53,27 @@ def test_starter_template_imports_cleanly_with_expected_steps_and_edge(test_db):
     assert edges[0].to_step_key == "depot"
 
 
-def test_starter_template_button_creates_pipeline_and_opens_graph_editor(qapp, test_db, monkeypatch):
+def test_starter_template_button_creates_pipeline_and_requests_the_atelier(qapp, test_db, monkeypatch):
+    """Chantier Atelier Pipelines : ouvre désormais l'Atelier via open_atelier_requested plutôt
+    qu'un PipelineGraphEditorDialog construit directement. _schedule_if_possible() s'exécute de
+    façon synchrone AVANT l'émission du signal (le pipeline a déjà de vraies étapes — jamais une
+    coquille à protéger, contrairement à _on_new_pipeline — voir sa docstring)."""
     from ui.main_window.pipelines_view import PipelinesView
 
     view = PipelinesView()
     assert db.get_pipelines() == []
 
-    exec_calls = []
-    monkeypatch.setattr(QDialog, "exec", lambda self: exec_calls.append(True) or QDialog.Accepted)
+    scheduled = []
+    monkeypatch.setattr(view, "_schedule_if_possible", lambda pid: scheduled.append(pid))
+    captured = []
+    view.open_atelier_requested.connect(lambda *args: captured.append(args))
 
     view._on_start_from_template()
 
     pipelines = db.get_pipelines()
     assert len(pipelines) == 1
-    assert exec_calls == [True]   # PipelineGraphEditorDialog().exec() bien atteint
+    assert scheduled == [pipelines[0].id]
+    assert captured == [(pipelines[0].id, None, False)]
 
 
 def test_starter_template_can_be_created_more_than_once(test_db):

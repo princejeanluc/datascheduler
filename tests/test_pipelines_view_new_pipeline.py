@@ -1,9 +1,16 @@
 """
 DataScheduler — tests/test_pipelines_view_new_pipeline.py
 Fumée (offscreen Qt) : bouton "Nouveau pipeline" de PipelinesView (chantier gouvernance/UX G.4,
-puis généralisé comme unique point d'entrée de création lors de la fusion des éditeurs) — crée un
-pipeline avec juste un nom, puis ouvre directement l'éditeur graphique, sans jamais imposer une
-étape ou une planification avant de pouvoir enregistrer.
+puis généralisé comme unique point d'entrée de création lors de la fusion des éditeurs, puis de
+nouveau lors du chantier Atelier Pipelines) — crée un pipeline avec juste un nom, puis émet
+open_atelier_requested(pipeline_id, None, is_new_pipeline=True) pour que MainWindow ouvre
+l'Atelier, sans jamais imposer une étape ou une planification avant de pouvoir enregistrer.
+
+La planification au premier enregistrement du graphe et la suppression de la coquille vide au
+retour sans étape (anciennement testées ici via un PipelineGraphEditorDialog factice) sont
+désormais la responsabilité d'AtelierPipelinesView — voir
+tests/test_atelier_pipelines_view.py::test_new_pipeline_schedules_once_the_graph_is_first_saved
+et ::test_new_pipeline_back_without_any_step_deletes_the_shell.
 """
 
 import os
@@ -11,7 +18,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication, QDialog, QInputDialog
+from PySide6.QtWidgets import QApplication, QInputDialog
 
 from database import db_manager as db
 
@@ -22,32 +29,22 @@ def qapp():
     yield app
 
 
-class _FakeGraphDialog:
-    last_pipeline_id = None
-    accept = True
-
-    def __init__(self, parent, pipeline):
-        _FakeGraphDialog.last_pipeline_id = pipeline.id
-
-    def exec(self):
-        return QDialog.Accepted if _FakeGraphDialog.accept else QDialog.Rejected
-
-
-def test_new_pipeline_creates_shell_and_opens_graph_editor(qapp, test_db, monkeypatch):
+def test_new_pipeline_creates_shell_and_requests_the_atelier(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("mon-pipeline", True)))
-    _FakeGraphDialog.accept = True
-    monkeypatch.setattr("ui.graph_editor.PipelineGraphEditorDialog", _FakeGraphDialog)
 
     view = PipelinesView()
+    captured = []
+    view.open_atelier_requested.connect(lambda *args: captured.append(args))
+
     view._on_new_pipeline()
 
     pipelines = db.get_pipelines()
     assert len(pipelines) == 1
     assert pipelines[0].name == "mon-pipeline"
-    assert _FakeGraphDialog.last_pipeline_id == pipelines[0].id
-    assert len(db.get_steps(pipelines[0].id)) == 0   # pipeline vide, à remplir dans le graphe
+    assert len(db.get_steps(pipelines[0].id)) == 0   # pipeline vide, à remplir dans l'Atelier
+    assert captured == [(pipelines[0].id, None, True)]
 
 
 def test_new_pipeline_cancelled_name_prompt_creates_nothing(qapp, test_db, monkeypatch):
@@ -56,9 +53,13 @@ def test_new_pipeline_cancelled_name_prompt_creates_nothing(qapp, test_db, monke
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("", False)))
 
     view = PipelinesView()
+    captured = []
+    view.open_atelier_requested.connect(lambda *args: captured.append(args))
+
     view._on_new_pipeline()
 
     assert db.get_pipelines() == []
+    assert captured == []
 
 
 def test_new_pipeline_blank_name_creates_nothing(qapp, test_db, monkeypatch):
@@ -67,37 +68,10 @@ def test_new_pipeline_blank_name_creates_nothing(qapp, test_db, monkeypatch):
     monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("   ", True)))
 
     view = PipelinesView()
+    captured = []
+    view.open_atelier_requested.connect(lambda *args: captured.append(args))
+
     view._on_new_pipeline()
 
     assert db.get_pipelines() == []
-
-
-def test_new_pipeline_schedules_the_pipeline_on_accept(qapp, test_db, monkeypatch):
-    """Bug réel : un pipeline créé via ce raccourci restait actif en base mais n'était jamais
-    enregistré auprès d'APScheduler avant le prochain redémarrage de l'app."""
-    from ui.main_window.pipelines_view import PipelinesView
-
-    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("scheduled-shell", True)))
-    _FakeGraphDialog.accept = True
-    monkeypatch.setattr("ui.graph_editor.PipelineGraphEditorDialog", _FakeGraphDialog)
-
-    calls = []
-    view = PipelinesView()
-    monkeypatch.setattr(view, "_schedule_if_possible", lambda pid: calls.append(pid))
-    view._on_new_pipeline()
-
-    p = next(p for p in db.get_pipelines() if p.name == "scheduled-shell")
-    assert calls == [p.id]
-
-
-def test_new_pipeline_deletes_shell_when_editor_cancelled(qapp, test_db, monkeypatch):
-    from ui.main_window.pipelines_view import PipelinesView
-
-    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("jamais-enregistre", True)))
-    _FakeGraphDialog.accept = False
-    monkeypatch.setattr("ui.graph_editor.PipelineGraphEditorDialog", _FakeGraphDialog)
-
-    view = PipelinesView()
-    view._on_new_pipeline()
-
-    assert db.get_pipelines() == []   # le pipeline coquille n'est pas resté orphelin
+    assert captured == []

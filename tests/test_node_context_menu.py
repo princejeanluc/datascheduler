@@ -85,7 +85,9 @@ def test_right_click_on_unselected_node_selects_it_before_opening_menu(qapp, tes
                                 QPointF(0, 0))
 
     opened = []
-    monkeypatch.setattr("ui.graph_editor.graph_editor_dialog.build_node_context_menu",
+    # Chantier Atelier Pipelines : _on_node_context_menu() a déménagé vers
+    # graph_editor_widget.py — c'est son build_node_context_menu qu'il faut patcher.
+    monkeypatch.setattr("ui.graph_editor.graph_editor_widget.build_node_context_menu",
                          lambda n, d: opened.append(n) or type("M", (), {"exec": lambda self, p: None})())
 
     assert not node.isSelected()
@@ -108,7 +110,7 @@ def test_right_click_on_already_selected_node_in_multi_selection_keeps_selection
     dlg._scene.nodes["a"].setSelected(True)
     dlg._scene.nodes["b"].setSelected(True)
 
-    monkeypatch.setattr("ui.graph_editor.graph_editor_dialog.build_node_context_menu",
+    monkeypatch.setattr("ui.graph_editor.graph_editor_widget.build_node_context_menu",
                          lambda n, d: type("M", (), {"exec": lambda self, p: None})())
 
     dlg._on_node_context_menu(dlg._scene.nodes["a"], QPoint(10, 10))
