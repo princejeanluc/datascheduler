@@ -14,7 +14,7 @@ from ui.styles import COLORS
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
     _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
-    _make_status_badge, _ordered_with_chains, PipelineFlowThumbnail,
+    _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail,
 )
 
 
@@ -109,10 +109,12 @@ class PipelinesView(QWidget):
         if QApplication.activePopupWidget() is not None:
             return
 
+        import json
         from database import db_manager as db
         from ui.step_editor import STEP_META
         from core.pipeline import is_cancel_requested, is_pipeline_running
         from core.scheduler import describe_schedule
+        from core.steps import is_routing_node
         pipelines = db.get_pipelines()
         ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
@@ -130,7 +132,24 @@ class PipelinesView(QWidget):
             steps_str  = " → ".join(
                 STEP_META.get(t, {}).get("label", t) for t in step_types
             ) or "—"
-            step_colors = [STEP_META.get(t, {}).get("color", COLORS["border"]) for t in step_types]
+            # Vignette mini-DAG (chantier Atelier Pipelines, écran 1) : step_key lu depuis
+            # config_json (pas de colonne ORM dédiée — voir save_pipeline_graph()/
+            # log_pipeline_edit() dans database/db_manager.py) ; repli synthétique "__step_<id>"
+            # purement d'affichage si absent (jamais censé arriver, jamais écrit en base).
+            step_nodes = [
+                {
+                    "step_key": (
+                        json.loads(s.config_json or "{}").get("_step_key") or f"__step_{s.id}"
+                    ),
+                    "color": STEP_META.get(t, {}).get("color", COLORS["border"]),
+                    "is_routing": is_routing_node(t),
+                }
+                for s, t in zip(p.steps or [], step_types)
+            ]
+            edge_rows = [
+                {"from_step_key": e.from_step_key, "to_step_key": e.to_step_key}
+                for e in (p.edges or [])
+            ]
 
             trigger_tooltip = ""
             if p.trigger_after_pipeline_id:
@@ -163,7 +182,7 @@ class PipelinesView(QWidget):
                     steps_hl = QHBoxLayout(steps_w)
                     steps_hl.setContentsMargins(4, 0, 4, 0)
                     steps_hl.setSpacing(8)
-                    steps_hl.addWidget(PipelineFlowThumbnail(step_colors))
+                    steps_hl.addWidget(PipelineStepDagThumbnail(step_nodes, edge_rows))
                     # QLabel ne s'élide pas tout seul selon la largeur disponible (contrairement
                     # à un QTableWidgetItem) — troncature statique + "…" plutôt qu'une coupe en
                     # plein mot sans indication visuelle (repéré sur une capture réelle) ; le

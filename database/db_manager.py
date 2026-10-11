@@ -1029,6 +1029,12 @@ def get_pipelines(active_only=False) -> list[Pipeline]:
                    joinedload(Pipeline.ftp_profile),
                    joinedload(Pipeline.sql_query),
                    joinedload(Pipeline.steps),
+                   # Pipeline.edges (chantier Atelier Pipelines, écran 1) : la vignette mini-DAG
+                   # de PipelinesView a besoin des arêtes pour calculer les rangs/branches —
+                   # sans ce joinedload, p.edges lèverait DetachedInstanceError (la session est
+                   # déjà fermée au retour de get_pipelines(), même piège documenté pour
+                   # trigger_after_pipeline ci-dessous).
+                   joinedload(Pipeline.edges),
                    joinedload(Pipeline.trigger_after_pipeline),
                )
                .order_by(Pipeline.name))
