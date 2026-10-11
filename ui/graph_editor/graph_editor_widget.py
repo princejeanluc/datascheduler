@@ -470,8 +470,12 @@ class PipelineGraphEditorWidget(QWidget):
         dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
         if not dlg.exec():
             return
+        # dlg.chosen_config (chantier bibliothèque d'étapes réutilisables) : {} pour un choix de
+        # type normal, préremplie si le choix vient de la section "Mes modèles" — même chemin
+        # que _on_node_double_clicked() ci-dessous (config déjà non vide pour une étape
+        # existante), aucune modification des dialogues individuels n'est nécessaire.
         config_dlg = _open_config_dialog(
-            dlg.chosen_type, {}, self,
+            dlg.chosen_type, dlg.chosen_config, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles, self._db_profiles,
             prior_steps=[n.step for n in self._scene.nodes.values()],

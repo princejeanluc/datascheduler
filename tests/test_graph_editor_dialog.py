@@ -590,6 +590,78 @@ def test_on_add_step_passes_all_scene_steps_as_prior_steps(qapp, test_db, monkey
     assert [s["config"]["_step_key"] for s in captured["prior_steps"]] == ["a"]
 
 
+def test_on_add_step_passes_chosen_config_from_a_template(qapp, test_db, monkeypatch):
+    """Chantier bibliothèque d'étapes réutilisables : choisir une carte "Mes modèles" dans
+    StepTypeChooserDialog doit préremplir le dialogue de configuration avec la config du
+    modèle — _on_add_step() doit lire dlg.chosen_config, jamais {} en dur."""
+    from PySide6.QtWidgets import QDialog
+    import ui.step_editor as step_editor_module
+    from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+
+    pipeline = db.create_pipeline(name="add-step-chosen-config-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    def _fake_exec(self):
+        # Simule le clic sur une carte "Mes modèles" (_choose_template) — mute les attributs
+        # d'INSTANCE réels, pas une classe (self.chosen_type/_config sont déjà posés par
+        # __init__, un monkeypatch de classe serait masqué par eux).
+        self.chosen_type = "FTP_UPLOAD"
+        self.chosen_config = {"ftp_profile_id": 9, "remote_path_tpl": "/export/"}
+        return QDialog.Accepted
+
+    monkeypatch.setattr(StepTypeChooserDialog, "exec", _fake_exec)
+
+    captured = {}
+
+    class _FakeConfigDialog:
+        def exec(self):
+            return QDialog.Rejected
+
+    def _fake_open_config_dialog(step_type, config, *args, **kwargs):
+        captured["step_type"] = step_type
+        captured["config"] = config
+        return _FakeConfigDialog()
+
+    monkeypatch.setattr(step_editor_module, "_open_config_dialog", _fake_open_config_dialog)
+
+    dlg._on_add_step()
+
+    assert captured["step_type"] == "FTP_UPLOAD"
+    assert captured["config"] == {"ftp_profile_id": 9, "remote_path_tpl": "/export/"}
+
+
+def test_on_add_step_passes_empty_config_for_a_plain_type_choice(qapp, test_db, monkeypatch):
+    """Non-régression : choisir un type normal (pas un modèle) continue de préremplir avec {}."""
+    from PySide6.QtWidgets import QDialog
+    import ui.step_editor as step_editor_module
+    from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
+
+    pipeline = db.create_pipeline(name="add-step-empty-config-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    def _fake_exec(self):
+        self.chosen_type = "LOCAL_COPY"
+        return QDialog.Accepted   # chosen_config reste {} (valeur par défaut de __init__)
+
+    monkeypatch.setattr(StepTypeChooserDialog, "exec", _fake_exec)
+
+    captured = {}
+
+    class _FakeConfigDialog:
+        def exec(self):
+            return QDialog.Rejected
+
+    def _fake_open_config_dialog(step_type, config, *args, **kwargs):
+        captured["config"] = config
+        return _FakeConfigDialog()
+
+    monkeypatch.setattr(step_editor_module, "_open_config_dialog", _fake_open_config_dialog)
+
+    dlg._on_add_step()
+
+    assert captured["config"] == {}
+
+
 def test_settings_button_opens_settings_dialog_and_refreshes_title(qapp, test_db, monkeypatch):
     """Raccourci vers les métadonnées du pipeline (chantier déclenchement conditionnel, puis
     fusion des éditeurs) — évite l'aller-retour "fermer, retrouver la ligne, cliquer Paramètres"
