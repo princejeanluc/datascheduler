@@ -134,6 +134,14 @@ class EditorToolRail(QWidget):
         self.btn_toggle_minimap.clicked.connect(dialog._on_toggle_minimap)
         layout.addWidget(self.btn_toggle_minimap)
 
+        self.btn_toggle_expand_all = _action_btn(
+            "fa5s.expand-alt", object_name="secondary", size=_BUTTON_SIZE,
+            tooltip="Tout déplier/replier — révèle les détails de configuration de toutes les "
+                    "étapes si au moins une est repliée, les replie toutes sinon.",
+        )
+        self.btn_toggle_expand_all.clicked.connect(dialog._on_toggle_all_expanded)
+        layout.addWidget(self.btn_toggle_expand_all)
+
         layout.addWidget(_separator())
 
         # Groupe "Aide" (chantier UX éditeur, Lot 3, C2)

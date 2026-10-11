@@ -246,6 +246,22 @@ def test_rail_toggle_minimap_button_click_flips_visibility(qapp, test_db):
     assert not dlg._minimap.isHidden()
 
 
+def test_rail_toggle_expand_all_button_click_reaches_the_handler(qapp, test_db):
+    """Chantier relooking des nœuds — même esprit que le test ci-dessus : vérifie que le CLIC
+    réel atteint _on_toggle_all_expanded() (déjà testé en détail dans
+    test_graph_editor_dialog.py), pas une réécriture de son comportement."""
+    pipeline = db.create_pipeline(name="rail-toggle-expand-all-click-test")
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+    ], edges=[])
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    assert not dlg._scene.nodes["a"].is_expanded
+
+    dlg._rail.btn_toggle_expand_all.click()
+
+    assert dlg._scene.nodes["a"].is_expanded
+
+
 def test_settings_button_click_reaches_the_handler(qapp, test_db, monkeypatch):
     """Le bouton "Paramètres du pipeline" reste un bouton texte dans la barre du haut (pas dans
     le rail) — le comportement complet de _on_open_settings_dialog() est déjà couvert par
