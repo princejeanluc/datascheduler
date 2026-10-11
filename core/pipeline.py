@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from database import db_manager as db
+from core.expr_lang import evaluate
 from core.steps import (
     get_step, get_step_requirements, get_step_output_ports, step_produces_output_file,
     get_join_mode, preserves_output, StepContext, StepResult,
@@ -1449,6 +1450,22 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # Effectuée AVANT create_run() : un échec de validation de reprise ne doit pas laisser
         # de ligne d'historique vide, comme les autres sorties anticipées ci-dessus.
         ctx = StepContext()
+
+        # ── Amorçage des variables de pipeline (chantier variables de pipeline) ──
+        # Une par une, DANS L'ORDRE déclaré : la valeur par défaut d'une variable peut
+        # référencer var:nom d'une variable déclarée plus haut (core/expr_lang.py::
+        # _resolve_operand ne lève jamais pour une clé absente — un batch comme
+        # SetVariableStep.run() masquerait silencieusement un oubli d'ordre). Échec
+        # d'évaluation = échec immédiat AVANT create_run(), même patron que "pipeline
+        # introuvable"/"aucune étape" ci-dessus : aucune ligne d'historique pour un run
+        # qui n'a jamais vraiment démarré.
+        for pv in db.get_pipeline_variables(pipeline_id):
+            try:
+                ctx.variables[pv.name] = evaluate(pv.default_expression, ctx)
+            except ValueError as e:
+                result.fail(f"Variable de pipeline « {pv.name} » : expression invalide — {e}")
+                result.finish(); return result
+
         skip_step_keys: set = set()
         active_ports_seed: dict = {}
 
