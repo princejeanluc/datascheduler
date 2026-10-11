@@ -5,7 +5,10 @@ PortItem séparée — les ports sont de petites zones de tolérance calculées 
 testées via un hit-test ici plutôt que via des QGraphicsItem enfants dédiés.
 """
 
-from PySide6.QtCore import QPointF, Qt, Signal
+import copy
+import uuid
+
+from PySide6.QtCore import QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPen, QTransform
 from PySide6.QtWidgets import QGraphicsLineItem, QGraphicsScene
 
@@ -21,6 +24,11 @@ HIT_RADIUS = PORT_RADIUS + 6
 # un guide dépasse les rectangles qu'il relie, pour rester bien visible.
 _SNAP_THRESHOLD = 6.0
 _GUIDE_MARGIN = 40.0
+
+# Décalage du doublon par rapport à l'original (chantier duplication de nœud) — purement visuel,
+# évite qu'il n'atterrisse exactement superposé ; choix pragmatique, pas de spec précise.
+_DUPLICATE_OFFSET_X = 32.0
+_DUPLICATE_OFFSET_Y = 32.0
 
 
 def _find_snap(left: float, top: float, width: float, height: float,
@@ -67,6 +75,7 @@ def _find_snap(left: float, top: float, width: float, height: float,
 class PipelineGraphScene(QGraphicsScene):
     node_double_clicked = Signal(object)   # StepNodeItem
     zone_double_clicked = Signal(object)   # ZoneItem — chantier UX éditeur, Lot 2, A4
+    node_context_menu_requested = Signal(object, QPoint)   # StepNodeItem, position écran
 
     def __init__(self):
         super().__init__()
@@ -89,6 +98,25 @@ class PipelineGraphScene(QGraphicsScene):
         self.addItem(node)
         self.nodes[key] = node
         return node
+
+    def duplicate_node(self, node: StepNodeItem) -> StepNodeItem | None:
+        """Copie de configuration, jamais de câblage (chantier duplication de nœud) : le doublon
+        atterrit comme un nœud neuf, sans arête — jamais un clone de la topologie, qui changerait
+        la structure d'exécution du pipeline sans que l'utilisateur l'ait décidé explicitement.
+        copy.deepcopy() (pas un dict(step) superficiel) : évite qu'une liste/dict imbriqué dans
+        `config` (ex: mappings/assignments) soit partagé par référence entre original et copie.
+        _step_key est TOUJOURS régénéré, jamais copié — aucun validateur n'existe pour une clé
+        dupliquée (validate_pipeline_graph()/add_node() écraseraient silencieusement l'entrée
+        existante). output_name/output_names sont vidés : les laisser tels quels déclencherait
+        une collision de sauvegarde garantie (_duplicate_output_name_errors), détectable mais
+        évitable dès la duplication plutôt qu'au moment de sauvegarder."""
+        new_step = copy.deepcopy(node.step)
+        config = new_step.setdefault("config", {})
+        config["_step_key"] = str(uuid.uuid4())
+        config["output_name"] = ""
+        config["output_names"] = []
+        new_pos = node.pos() + QPointF(_DUPLICATE_OFFSET_X, _DUPLICATE_OFFSET_Y)
+        return self.add_node(new_step, new_pos)
 
     def add_zone(self, name: str, pos: QPointF, width: float = 240, height: float = 160) -> ZoneItem:
         zone = ZoneItem(name, width, height)
@@ -272,6 +300,16 @@ class PipelineGraphScene(QGraphicsScene):
             self.zone_double_clicked.emit(item)
             return
         super().mouseDoubleClickEvent(event)
+
+    def contextMenuEvent(self, event):
+        """Premier clic-droit de cet éditeur (chantier duplication de nœud) — même patron de
+        hit-test que mouseDoubleClickEvent ci-dessus. Seuls les nœuds ont un menu pour l'instant ;
+        un clic-droit ailleurs (arête, zone, canevas vide) ne fait rien de spécifique."""
+        item = self.itemAt(event.scenePos(), QTransform())
+        if isinstance(item, StepNodeItem):
+            self.node_context_menu_requested.emit(item, event.screenPos())
+            return
+        super().contextMenuEvent(event)
 
     # ── Suppression ───────────────────────────
 

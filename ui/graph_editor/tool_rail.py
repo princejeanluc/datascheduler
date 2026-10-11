@@ -10,6 +10,7 @@ icône-seul — object_name="secondary" obligatoire sur chacun, sans quoi la rè
 globale de DIALOG_STYLE (fond orange plein) s'applique.
 """
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QFrame
 
 from ui.styles import COLORS
@@ -32,11 +33,33 @@ class EditorToolRail(QWidget):
         super().__init__(parent)
         self._dialog = dialog
         self.setObjectName("toolRailPanel")
+        # Sans cet attribut, un QWidget brut (contrairement à QFrame) n'honore pas de façon
+        # fiable son propre fond/bordure/arrondi défini en QSS une fois composé comme enfant
+        # flottant par-dessus un autre widget à rendu complexe (ici le viewport de
+        # PipelineGraphView) — signalé par l'utilisateur (panneau invisible, boutons seuls
+        # visibles). La mini-carte (minimap_widget.py) n'a jamais eu ce problème parce qu'elle
+        # dessine son propre fond via paintEvent() plutôt que de compter sur le QSS.
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             QWidget#toolRailPanel {{
                 background-color: rgba(28, 26, 23, 0.92);
                 border: 1px solid {COLORS['border']};
                 border-radius: 12px;
+            }}
+            /* Boutons du rail (maquette duplication de nœud, validée) : bordure invisible au
+               repos, révélée seulement au survol — contrairement à #secondary partout ailleurs
+               dans l'app (bordure permanente), ce panneau se veut un bloc compact d'icônes
+               flottantes, pas une grille de cases bordées. Sélecteur descendant qualifié par
+               #toolRailPanel : n'affecte que les boutons de ce rail, jamais #secondary ailleurs
+               (DIALOG_STYLE). setStyleSheet() direct sur un bouton (ex: l'état actif de la
+               mini-carte, refresh_minimap_button_style) l'emporte toujours sur cette règle. */
+            QWidget#toolRailPanel QPushButton#secondary {{
+                border: 1px solid transparent;
+            }}
+            QWidget#toolRailPanel QPushButton#secondary:hover {{
+                background-color: {COLORS['bg_hover']};
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
             }}
         """)
 
@@ -59,6 +82,13 @@ class EditorToolRail(QWidget):
         )
         self.btn_add_zone.clicked.connect(dialog._on_add_zone)
         layout.addWidget(self.btn_add_zone)
+
+        self.btn_duplicate = _action_btn(
+            "fa5s.clone", object_name="secondary", tooltip="Dupliquer la sélection (Ctrl+D)",
+            size=_BUTTON_SIZE,
+        )
+        self.btn_duplicate.clicked.connect(dialog._on_duplicate_selected)
+        layout.addWidget(self.btn_duplicate)
 
         self.btn_delete = _action_btn(
             "fa5s.trash-alt", object_name="secondary", tooltip="Supprimer la sélection",

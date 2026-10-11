@@ -29,6 +29,32 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.41.0] - 2026-10-11
+
+### Ajouté
+- **Dupliquer un nœud** dans l'éditeur graphique — jusqu'ici aucun moyen de copier une étape
+  pour éviter de retaper des paramètres identiques. Le doublon reprend la configuration
+  complète (copie profonde), atterrit décalé et sans aucune arête (comme un nœud neuf ajouté
+  via « + »), avec un nom de sortie vidé s'il en avait un (évite une collision de sauvegarde
+  garantie). Trois façons d'y accéder : bouton dans le rail de l'éditeur, raccourci `Ctrl+D`,
+  et premier **menu contextuel** (clic-droit) de l'éditeur graphique — pensé comme point
+  d'extension réutilisable pour de futures actions ciblées sur un nœud.
+
+### Corrigé
+- Tout `QMenu` de l'application (menu "⋯" de la liste des pipelines, bouton "+ Artefact", et le
+  nouveau menu contextuel ci-dessus) s'affichait avec l'apparence par défaut de Qt — aucun
+  arrondi, aucune bordure, aucun retour visuel au survol ou sur une entrée désactivée — hérité
+  silencieusement de la seule règle `QWidget` générale du style global. Repéré sur le nouveau
+  menu contextuel, corrigé une seule fois pour tous les menus de l'app via une règle `QMenu`
+  dédiée dans le style global.
+- Le panneau du rail de l'éditeur graphique (fond sombre arrondi) ne s'affichait pas sur la
+  vraie application — seuls les boutons restaient visibles, flottant directement sur le canevas.
+  Un `QWidget` brut (contrairement à `QFrame`) n'honore pas de façon fiable son propre fond/
+  bordure/arrondi défini en QSS une fois composé comme enfant flottant par-dessus un widget à
+  rendu complexe (ici le canevas de l'éditeur) sans l'attribut Qt dédié — jamais posé. Reproduit
+  et confirmé par un test comparant un pixel à l'intérieur du panneau à un pixel juste à
+  l'extérieur (identiques avant le correctif, distincts après).
+
 ## [0.40.0] - 2026-10-04
 
 ### Ajouté

@@ -25,6 +25,34 @@ def qapp():
     yield app
 
 
+def test_rail_panel_background_actually_composites_over_the_canvas(qapp, test_db):
+    """Régression : sans Qt.WA_StyledBackground, un QWidget brut (contrairement à QFrame)
+    n'honore pas de façon fiable son propre fond QSS une fois composé comme enfant flottant
+    par-dessus le viewport de PipelineGraphView — le panneau du rail devenait invisible (seuls
+    les boutons restaient visibles), signalé par l'utilisateur sur la vraie app. Reproduit en
+    comparant un pixel à l'intérieur du panneau à un pixel juste à l'extérieur (sur le canevas) :
+    identiques si le fond ne se compose pas, différents sinon."""
+    from PySide6.QtCore import Qt
+
+    pipeline = db.create_pipeline(name="rail-panel-composites-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    dlg.resize(700, 550)
+    dlg.show()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    assert dlg._rail.testAttribute(Qt.WA_StyledBackground)
+
+    pix = dlg.grab()
+    img = pix.toImage()
+    rail = dlg._rail
+    top_left = rail.mapTo(dlg, rail.rect().topLeft())
+    inside = img.pixelColor(top_left.x() + 10, top_left.y() + 100)
+    outside = img.pixelColor(top_left.x() + rail.width() + 15, top_left.y() + 100)
+
+    assert inside.getRgb() != outside.getRgb()
+
+
 def test_rail_repositions_without_crashing_on_empty_and_populated_scene(qapp, test_db):
     pipeline = db.create_pipeline(name="rail-reposition-test")
     db.save_pipeline_graph(pipeline.id, steps=[
@@ -90,6 +118,41 @@ def test_rail_delete_button_click_removes_selected_node(qapp, test_db):
     dlg._rail.btn_delete.click()
 
     assert dlg._scene.nodes == {}
+
+
+def test_rail_duplicate_button_click_duplicates_selected_node(qapp, test_db):
+    pipeline = db.create_pipeline(name="rail-duplicate-click-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    node = dlg._scene.add_node({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+                                dlg._next_new_node_pos())
+    node.setSelected(True)
+
+    dlg._rail.btn_duplicate.click()
+
+    assert len(dlg._scene.nodes) == 2
+
+
+def test_duplicate_shortcut_reaches_the_same_handler(qapp, test_db):
+    """Ctrl+D doit déclencher la même duplication que le bouton du rail — vérifié par
+    comportement (un nœud de plus dans la scène), pas par interception d'appel : un QShortcut
+    capture la méthode liée au moment de la connexion, un monkeypatch ultérieur de l'attribut
+    d'instance ne la réécrirait pas. Émission directe du signal activated() plutôt que
+    QTest.keySequence() : la délivrance réelle de la séquence de touches exige une fenêtre
+    visible/active (Qt.WindowShortcut), indisponible en offscreen sans dlg.show()."""
+    from PySide6.QtGui import QShortcut, QKeySequence
+
+    pipeline = db.create_pipeline(name="rail-duplicate-shortcut-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    node = dlg._scene.add_node({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+                                dlg._next_new_node_pos())
+    node.setSelected(True)
+
+    shortcut = next(
+        s for s in dlg.findChildren(QShortcut) if s.key() == QKeySequence("Ctrl+D")
+    )
+    shortcut.activated.emit()
+
+    assert len(dlg._scene.nodes) == 2
 
 
 def test_rail_auto_layout_button_click_repositions_nodes(qapp, test_db):
