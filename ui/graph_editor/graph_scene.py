@@ -170,25 +170,33 @@ class PipelineGraphScene(QGraphicsScene):
         interactif réel — jamais lors d'un setPos() programmatique (rangement, undo), voir
         StepNodeItem._dragging. Ajuste candidate_pos si un autre nœud est à portée de
         _SNAP_THRESHOLD sur un axe ou l'autre, affiche/masque les guides en conséquence."""
+        # boundingRect() de chaque instance, pas StepNodeItem.WIDTH/HEIGHT (constantes de
+        # classe) — chantier relooking des nœuds : un nœud déplié est plus haut que son voisin
+        # replié, l'accrochage/les guides doivent refléter sa taille RÉELLE, pas une taille
+        # nominale partagée par tous. boundingRect() englobe aussi les ports (-PORT_RADIUS de
+        # marge de chaque côté) — légèrement plus large/haut que WIDTH×HEIGHT nu, ce qui est
+        # *plus* correct pour l'accrochage visuel, pas un problème.
+        rect = node.boundingRect()
+        width, height = rect.width(), rect.height()
         other_rects = [
-            (n.pos().x(), n.pos().y(), StepNodeItem.WIDTH, StepNodeItem.HEIGHT)
+            (n.pos().x(), n.pos().y(), n.boundingRect().width(), n.boundingRect().height())
             for n in self.nodes.values() if n is not node
         ]
         snap_left, snap_top, guide_x, guide_y = _find_snap(
-            candidate_pos.x(), candidate_pos.y(), StepNodeItem.WIDTH, StepNodeItem.HEIGHT,
-            other_rects,
+            candidate_pos.x(), candidate_pos.y(), width, height, other_rects,
         )
         result_x = snap_left if snap_left is not None else candidate_pos.x()
         result_y = snap_top if snap_top is not None else candidate_pos.y()
 
         if guide_x is not None or guide_y is not None:
-            self._show_alignment_guides(guide_x, guide_y, other_rects, result_x, result_y)
+            self._show_alignment_guides(guide_x, guide_y, other_rects, result_x, result_y, width, height)
         else:
             self.clear_alignment_guides()
 
         return QPointF(result_x, result_y)
 
-    def _show_alignment_guides(self, guide_x, guide_y, other_rects, node_left, node_top):
+    def _show_alignment_guides(self, guide_x, guide_y, other_rects, node_left, node_top,
+                                node_width, node_height):
         while len(self._alignment_guides) < 2:
             line = QGraphicsLineItem()
             pen = QPen(QColor(COLORS["accent"]))
@@ -200,8 +208,8 @@ class PipelineGraphScene(QGraphicsScene):
             self._alignment_guides.append(line)
         v_line, h_line = self._alignment_guides
 
-        xs = [node_left, node_left + StepNodeItem.WIDTH]
-        ys = [node_top, node_top + StepNodeItem.HEIGHT]
+        xs = [node_left, node_left + node_width]
+        ys = [node_top, node_top + node_height]
         for o_left, o_top, o_w, o_h in other_rects:
             xs += [o_left, o_left + o_w]
             ys += [o_top, o_top + o_h]
