@@ -1,7 +1,8 @@
 """
 DataScheduler — tests/test_history_view_graph_link.py
 Chantier UX éditeur, Lot 1 (B1b) : bouton "Voir dans le graphe" sur une ligne d'historique en
-échec — ouvre PipelineGraphEditorDialog avec le nœud fautif surligné. Visible seulement quand
+échec — émet open_atelier_requested (chantier Atelier Pipelines) pour que MainWindow ouvre
+l'Atelier avec le nœud fautif surligné. Visible seulement quand
 run.status == "FAILED" ET run.failed_step_key est renseigné (pas status seul — certains échecs
 n'ont jamais traversé la boucle d'étapes, voir core/pipeline.py, et n'ont donc jamais de
 failed_step_key, y compris toute ligne antérieure à la migration de cette colonne).
@@ -72,7 +73,11 @@ def test_graph_link_visible_for_a_failed_run_with_step_key(qapp, test_db):
     assert _has_graph_link_button(view, 0)
 
 
-def test_open_graph_opens_dialog_with_pipeline_and_highlight(qapp, test_db, monkeypatch):
+def test_open_graph_emits_open_atelier_requested_with_pipeline_and_highlight(qapp, test_db):
+    """Chantier Atelier Pipelines : "Voir dans le graphe" ouvre désormais l'Atelier (vue
+    non-modale intégrée à la fenêtre principale) plutôt qu'un PipelineGraphEditorDialog modal —
+    HistoryView ne construit plus ce dialogue elle-même, elle émet un signal que MainWindow
+    écoute (voir ui/main_window/window.py::open_atelier)."""
     from ui.main_window.history_view import HistoryView
 
     pipeline = db.create_pipeline(name="hist-graph-link-open")
@@ -86,26 +91,12 @@ def test_open_graph_opens_dialog_with_pipeline_and_highlight(qapp, test_db, monk
     db.finish_run(run.id, status="FAILED", failed_step_key="fails")
 
     view = HistoryView()
-
-    captured = {}
-
-    class _FakeGraphDialog:
-        def __init__(self, parent, pipeline, highlight_step_key=None):
-            captured["pipeline_id"] = pipeline.id
-            captured["highlight_step_key"] = highlight_step_key
-
-        def exec(self):
-            captured["exec_called"] = True
-
-    monkeypatch.setattr(
-        "ui.graph_editor.PipelineGraphEditorDialog", _FakeGraphDialog,
-    )
+    captured = []
+    view.open_atelier_requested.connect(lambda *args: captured.append(args))
 
     view._open_graph(0)
 
-    assert captured["pipeline_id"] == pipeline.id
-    assert captured["highlight_step_key"] == "fails"
-    assert captured["exec_called"] is True
+    assert captured == [(pipeline.id, "fails", False)]
 
 
 def test_open_graph_out_of_range_row_does_not_raise(qapp, test_db):
