@@ -47,6 +47,13 @@ bas pour son introduction).
   silencieusement de la seule règle `QWidget` générale du style global. Repéré sur le nouveau
   menu contextuel, corrigé une seule fois pour tous les menus de l'app via une règle `QMenu`
   dédiée dans le style global.
+- Le panneau du rail de l'éditeur graphique (fond sombre arrondi) ne s'affichait pas sur la
+  vraie application — seuls les boutons restaient visibles, flottant directement sur le canevas.
+  Un `QWidget` brut (contrairement à `QFrame`) n'honore pas de façon fiable son propre fond/
+  bordure/arrondi défini en QSS une fois composé comme enfant flottant par-dessus un widget à
+  rendu complexe (ici le canevas de l'éditeur) sans l'attribut Qt dédié — jamais posé. Reproduit
+  et confirmé par un test comparant un pixel à l'intérieur du panneau à un pixel juste à
+  l'extérieur (identiques avant le correctif, distincts après).
 
 ## [0.40.0] - 2026-10-04
 

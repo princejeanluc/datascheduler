@@ -25,6 +25,34 @@ def qapp():
     yield app
 
 
+def test_rail_panel_background_actually_composites_over_the_canvas(qapp, test_db):
+    """Régression : sans Qt.WA_StyledBackground, un QWidget brut (contrairement à QFrame)
+    n'honore pas de façon fiable son propre fond QSS une fois composé comme enfant flottant
+    par-dessus le viewport de PipelineGraphView — le panneau du rail devenait invisible (seuls
+    les boutons restaient visibles), signalé par l'utilisateur sur la vraie app. Reproduit en
+    comparant un pixel à l'intérieur du panneau à un pixel juste à l'extérieur (sur le canevas) :
+    identiques si le fond ne se compose pas, différents sinon."""
+    from PySide6.QtCore import Qt
+
+    pipeline = db.create_pipeline(name="rail-panel-composites-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    dlg.resize(700, 550)
+    dlg.show()
+    qapp.processEvents()
+    qapp.processEvents()
+
+    assert dlg._rail.testAttribute(Qt.WA_StyledBackground)
+
+    pix = dlg.grab()
+    img = pix.toImage()
+    rail = dlg._rail
+    top_left = rail.mapTo(dlg, rail.rect().topLeft())
+    inside = img.pixelColor(top_left.x() + 10, top_left.y() + 100)
+    outside = img.pixelColor(top_left.x() + rail.width() + 15, top_left.y() + 100)
+
+    assert inside.getRgb() != outside.getRgb()
+
+
 def test_rail_repositions_without_crashing_on_empty_and_populated_scene(qapp, test_db):
     pipeline = db.create_pipeline(name="rail-reposition-test")
     db.save_pipeline_graph(pipeline.id, steps=[

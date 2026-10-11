@@ -10,6 +10,7 @@ icône-seul — object_name="secondary" obligatoire sur chacun, sans quoi la rè
 globale de DIALOG_STYLE (fond orange plein) s'applique.
 """
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QFrame
 
 from ui.styles import COLORS
@@ -32,6 +33,13 @@ class EditorToolRail(QWidget):
         super().__init__(parent)
         self._dialog = dialog
         self.setObjectName("toolRailPanel")
+        # Sans cet attribut, un QWidget brut (contrairement à QFrame) n'honore pas de façon
+        # fiable son propre fond/bordure/arrondi défini en QSS une fois composé comme enfant
+        # flottant par-dessus un autre widget à rendu complexe (ici le viewport de
+        # PipelineGraphView) — signalé par l'utilisateur (panneau invisible, boutons seuls
+        # visibles). La mini-carte (minimap_widget.py) n'a jamais eu ce problème parce qu'elle
+        # dessine son propre fond via paintEvent() plutôt que de compter sur le QSS.
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(f"""
             QWidget#toolRailPanel {{
                 background-color: rgba(28, 26, 23, 0.92);
