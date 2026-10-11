@@ -263,3 +263,112 @@ def test_save_logs_an_audit_event(qapp, test_db):
 
     events = db.get_audit_events(pipeline_id=p.id)
     assert any(e.event_type == "pipeline_edited" for e in events)
+
+
+# ──────────────────────────────────────────────
+#  ④ Variables de pipeline
+# ──────────────────────────────────────────────
+
+def test_starts_with_no_variable_row_and_add_removes_rows(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-vars-add-remove")
+    dlg = _dialog_for(p)
+    assert dlg.tbl_variables.rowCount() == 0
+
+    dlg._add_variable_row("a", "1")
+    dlg._add_variable_row("b", "2")
+    assert dlg.tbl_variables.rowCount() == 2
+
+    dlg.tbl_variables.selectRow(0)
+    dlg._remove_selected_variable_row()
+    assert dlg.tbl_variables.rowCount() == 1
+
+
+def test_variables_prefilled_from_existing_pipeline(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-vars-prefill")
+    db.save_pipeline_variables(p.id, [
+        {"name": "base_date", "default_expression": "today()"},
+        {"name": "limite", "default_expression": "date_add(var:base_date, -7)"},
+    ])
+
+    dlg = _dialog_for(db.get_pipeline(p.id))
+
+    assert dlg.tbl_variables.rowCount() == 2
+    assert dlg.tbl_variables.item(0, 0).text() == "base_date"
+    assert dlg.tbl_variables.item(1, 1).text() == "date_add(var:base_date, -7)"
+
+
+def test_variables_round_trip_through_save(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-vars-save-roundtrip")
+    dlg = _dialog_for(p)
+    dlg._add_variable_row("env", '"PROD"')
+
+    dlg._on_save()
+
+    variables = db.get_pipeline_variables(p.id)
+    assert [v.name for v in variables] == ["env"]
+    assert variables[0].default_expression == '"PROD"'
+
+
+def test_save_rejects_duplicate_variable_names(qapp, test_db, monkeypatch):
+    import ui.step_editor.pipeline_settings_dialog as module
+    from database import db_manager as db
+
+    warnings = []
+    monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **kw: warnings.append(a) or None)
+
+    p = db.create_pipeline(name="settings-vars-duplicate")
+    dlg = _dialog_for(p)
+    dlg._add_variable_row("x", "1")
+    dlg._add_variable_row("x", "2")
+
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+    dlg._on_save()
+
+    assert warnings
+    assert accepted == []
+    assert db.get_pipeline_variables(p.id) == []   # rien persisté
+
+
+def test_save_rejects_incomplete_variable(qapp, test_db, monkeypatch):
+    import ui.step_editor.pipeline_settings_dialog as module
+    from database import db_manager as db
+
+    warnings = []
+    monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **kw: warnings.append(a) or None)
+
+    p = db.create_pipeline(name="settings-vars-incomplete")
+    dlg = _dialog_for(p)
+    dlg._add_variable_row("x", "")   # expression manquante
+
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+    dlg._on_save()
+
+    assert warnings
+    assert accepted == []
+
+
+def test_save_rejects_syntactically_invalid_variable_expression(qapp, test_db, monkeypatch):
+    import ui.step_editor.pipeline_settings_dialog as module
+    from database import db_manager as db
+
+    warnings = []
+    monkeypatch.setattr(module.QMessageBox, "warning", lambda *a, **kw: warnings.append(a) or None)
+
+    p = db.create_pipeline(name="settings-vars-invalid-expr")
+    dlg = _dialog_for(p)
+    dlg._add_variable_row("x", "1 +")
+
+    accepted = []
+    monkeypatch.setattr(dlg, "accept", lambda: accepted.append(1))
+    dlg._on_save()
+
+    assert warnings
+    assert accepted == []
