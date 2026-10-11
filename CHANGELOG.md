@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.44.1] - 2026-10-11
+
+### Corrigé
+- Les boutons "+ Artefact" et "+ Variable" du dialogue Condition / Routeur inséraient une
+  syntaxe (`{artifact:nom}`/`{var:nom}`, avec accolades) que l'expression d'une condition ne sait
+  pas évaluer — elle attend la forme sans accolades (`artifact:nom`/`var:nom`), déjà celle
+  documentée dans l'aide du dialogue. Toute expression construite avec ces boutons échouait donc
+  systématiquement à l'exécution. L'enregistrement valide désormais aussi la syntaxe de
+  l'expression (comme c'était déjà le cas pour Définir une variable) plutôt que de la laisser
+  passer silencieusement jusqu'à l'exécution réelle du pipeline.
+
 ## [0.44.0] - 2026-10-11
 
 ### Ajouté
