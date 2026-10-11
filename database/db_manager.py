@@ -356,6 +356,15 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Repli de la sidebar de pipelines dans l'Atelier Pipelines (chantier Atelier Pipelines,
+        # écran 2) — même situation que nav_collapsed ci-dessus : colonne ajoutée à app_settings,
+        # table déjà existante pour les bases antérieures à ce chantier.
+        if "atelier_sidebar_collapsed" not in app_settings_cols:
+            conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN atelier_sidebar_collapsed BOOLEAN NOT NULL DEFAULT 0"
+            ))
+            conn.commit()
+
         # Parallélisme intra-pipeline (chantier dédié) — bascule + plafond de branches ajoutés à
         # pipelines, table déjà existante pour toute base antérieure à ce chantier.
         pipeline_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipelines)")).fetchall()}

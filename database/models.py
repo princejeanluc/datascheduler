@@ -671,6 +671,13 @@ class AppSettings(Base):
     # d'expiration réelle (voir core/hadoop_edge.py::_ticket_remaining_seconds).
     kerberos_ticket_grace_period_s = Column(Integer, default=0, nullable=False)
 
+    # Interface — repli de la sidebar de pipelines dans l'Atelier Pipelines (chantier Atelier
+    # Pipelines, écran 2), même patron que nav_collapsed ci-dessus mais indépendant (deux
+    # composants distincts, pas de sous-classe partagée — voir ui/main_window/atelier_sidebar.py).
+    # Défaut = False (déplié) : même raison que nav_collapsed, un nouveau réglage ne doit jamais
+    # changer le comportement silencieusement pour qui n'a jamais touché à l'Atelier.
+    atelier_sidebar_collapsed = Column(Boolean, default=False, nullable=False)
+
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"
 
