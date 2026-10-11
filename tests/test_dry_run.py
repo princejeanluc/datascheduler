@@ -251,6 +251,30 @@ def test_set_variable_expression_referencing_an_unknown_variable_is_not_an_error
     assert result.errors == []
 
 
+def test_pipeline_variable_malformed_default_expression_is_a_hard_error(test_db):
+    """Une seule fois par variable de pipeline, pas par étape — contrairement au scan générique
+    {expr:...}, les variables de pipeline ne sont pas attachées à la config d'une étape."""
+    p = db.create_pipeline(name="dryrun-pipeline-variable-malformed")
+    db.save_pipeline_variables(p.id, [{"name": "x", "default_expression": "1 +"}])
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "config": {}}])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert not result.success
+    assert any("Variable de pipeline" in e and "invalide" in e for e in result.errors)
+
+
+def test_pipeline_variable_default_referencing_an_unknown_variable_is_not_an_error(test_db):
+    """Même garde anti-faux-positif que SET_VARIABLE/{expr:...} : jamais .eval(), seulement
+    compile_expression() — une référence en avant n'est pas une erreur structurelle."""
+    p = db.create_pipeline(name="dryrun-pipeline-variable-valid-unknown-var")
+    db.save_pipeline_variables(p.id, [{"name": "x", "default_expression": "var:pas_encore_connu + 1"}])
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "config": {}}])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert result.success
+    assert result.errors == []
+
+
 def test_uses_graph_validation_when_edges_exist(test_db):
     """Même bascule linéaire/graphe que run_pipeline() (db.get_edges() non vide -> graphe) —
     ici un cycle doit être détecté par validate_pipeline_graph(), pas validate_step_sequence()."""

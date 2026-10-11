@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, PipelineVariable, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -1796,6 +1796,30 @@ def get_edges(pipeline_id: int) -> list[PipelineEdge]:
 def get_zones(pipeline_id: int) -> list[PipelineZone]:
     with get_session() as s:
         return s.query(PipelineZone).filter_by(pipeline_id=pipeline_id).all()
+
+
+def get_pipeline_variables(pipeline_id: int) -> list[PipelineVariable]:
+    """order_by(id) : l'ordre de déclaration compte (core/pipeline.py évalue une par une, dans
+    l'ordre) — garanti par le patron délete-tout-puis-réinsère de save_pipeline_variables(),
+    qui attribue des id auto-incrémentés frais dans l'ordre de la liste à chaque sauvegarde."""
+    with get_session() as s:
+        return (s.query(PipelineVariable).filter_by(pipeline_id=pipeline_id)
+                 .order_by(PipelineVariable.id).all())
+
+
+def save_pipeline_variables(pipeline_id: int, variables: list[dict]) -> None:
+    """Remplace toutes les variables déclarées d'un pipeline. Chaque dict :
+    {"name": str, "default_expression": str}. Fonction autonome (pas un paramètre de
+    save_pipeline_graph()) : les variables sont des métadonnées de PipelineSettingsDialog, pas
+    de la topologie du graphe."""
+    with get_session() as s:
+        s.query(PipelineVariable).filter_by(pipeline_id=pipeline_id).delete()
+        for v in variables:
+            s.add(PipelineVariable(
+                pipeline_id=pipeline_id,
+                name=(v.get("name") or "").strip(),
+                default_expression=v.get("default_expression", ""),
+            ))
 
 
 def _diff_pipeline_graph(old_steps: list[tuple[str, str]], new_steps: list[tuple[str, str]],

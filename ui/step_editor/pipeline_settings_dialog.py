@@ -16,10 +16,14 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QScrollArea, QLabel,
     QLineEdit, QSpinBox, QComboBox, QPushButton, QFrame, QWidget, QRadioButton,
     QButtonGroup, QCheckBox, QMessageBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PySide6.QtCore import Qt
 from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 from .common import DAYS_OF_WEEK
+from core.expr_lang import compile_expression
+
+_COL_VAR_NAME, _COL_VAR_EXPR = range(2)
 
 
 class PipelineSettingsDialog(QDialog):
@@ -92,6 +96,11 @@ class PipelineSettingsDialog(QDialog):
         # ③ Déclenchement conditionnel
         fr.addWidget(self._section_label("③ Déclenchement conditionnel"))
         fr.addLayout(self._build_trigger_ui())
+        fr.addWidget(self._sep())
+
+        # ④ Variables
+        fr.addWidget(self._section_label("④ Variables"))
+        fr.addLayout(self._build_variables_ui())
         fr.addStretch()
 
         sep_btn = QFrame(); sep_btn.setFrameShape(QFrame.HLine)
@@ -253,6 +262,94 @@ class PipelineSettingsDialog(QDialog):
     def _on_trigger_parent_changed(self):
         self.cb_trigger_condition.setEnabled(self.cb_trigger_parent.currentData() is not None)
 
+    def _build_variables_ui(self) -> QVBoxLayout:
+        """Variables nommées amorçant ctx.variables avant la première étape (chantier variables
+        de pipeline) — même patron de liste dynamique que _SetVariableConfigDialog
+        (ui/step_editor/set_variable_config_dialog.py), 2 colonnes seulement : evaluate() renvoie
+        déjà une valeur typée, pas de colonne Type/Format. L'ORDRE des lignes compte : la valeur
+        par défaut d'une variable peut référencer var:nom d'une variable déclarée plus haut
+        (core/pipeline.py les évalue une par une, dans l'ordre déclaré)."""
+        vl = QVBoxLayout(); vl.setSpacing(10)
+
+        hint = QLabel(
+            "Amorce ctx.variables avant la première étape — une ligne par variable (var:nom). "
+            "Une valeur par défaut peut référencer une variable déclarée plus haut dans la "
+            "liste, ex : date_add(var:base_date, -7)."
+        )
+        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
+        hint.setWordWrap(True)
+        vl.addWidget(hint)
+
+        self.tbl_variables = QTableWidget(0, 2)
+        self.tbl_variables.setHorizontalHeaderLabels(["Nom", "Valeur par défaut (expression)"])
+        self.tbl_variables.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_variables.verticalHeader().setVisible(False)
+        # La hauteur de ligne par défaut de Qt (30px) ne tient pas compte du padding QSS déclaré
+        # sur QTableWidget::item — confirmé : resizeRowsToContents() ne change rien, le calcul
+        # de taille par défaut d'un QTableWidgetItem ignore ce padding. Trop serré pour
+        # accueillir confortablement l'éditeur de cellule en cours de saisie (rendu réel vérifié
+        # avant/après ce correctif, signalé par l'utilisateur).
+        # 52px, pas une estimation au jugé : le padding vertical de QTableWidget::item (8px+8px,
+        # règle globale) est retranché DEUX FOIS — une fois pour placer l'éditeur de cellule dans
+        # la ligne, une fois de plus par le padding propre du QLineEdit (7px+7px, confirmé via
+        # editor.geometry() avant/après ce correctif) — avant de clipper le texte. 52 = hauteur de
+        # police (~17px) + padding QLineEdit (14px) + padding QTableWidget::item (16px) + marge.
+        # Une hauteur insuffisante ici (38px essayé d'abord, rejeté) laisse le texte de l'éditeur
+        # visuellement coupé en cours de saisie, même si la ligne elle-même paraît assez grande —
+        # signalé par l'utilisateur avec capture à l'appui, reproduit en rendu réel avant correction.
+        self.tbl_variables.verticalHeader().setDefaultSectionSize(52)
+        self.tbl_variables.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.tbl_variables.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.tbl_variables.setMinimumHeight(120)
+        self.tbl_variables.setStyleSheet(
+            f"QTableWidget {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; }}"
+            f"QHeaderView::section {{ background: {COLORS['bg_active']}; color: {COLORS['text_dim']}; "
+            f"padding: 4px; border: none; font-size: 11px; }}"
+            # Surcharge locale de la règle globale QTableWidget::item:selected (bg_active) —
+            # sans elle, une ligne sélectionnée (ex: en train d'être éditée) prend exactement la
+            # même couleur que l'en-tête ci-dessus, et les deux se confondent visuellement en un
+            # seul bloc, rendant la zone de saisie réelle minuscule/indiscernable (signalé par
+            # l'utilisateur, capture à l'appui). bg_hover est déjà le ton "surbrillance
+            # temporaire" établi ailleurs dans l'app, distinct de bg_active.
+            f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}; "
+            f"color: {COLORS['text_main']}; border-left: 2px solid {COLORS['accent']}; }}"
+        )
+        vl.addWidget(self.tbl_variables)
+
+        btn_row = QHBoxLayout(); btn_row.setSpacing(8)
+        btn_add = QPushButton("+ Ajouter"); btn_add.setObjectName("secondary")
+        btn_add.setFixedHeight(30); btn_add.clicked.connect(lambda: self._add_variable_row())
+        btn_remove = QPushButton("− Retirer"); btn_remove.setObjectName("secondary")
+        btn_remove.setFixedHeight(30); btn_remove.clicked.connect(self._remove_selected_variable_row)
+        btn_row.addWidget(btn_add); btn_row.addWidget(btn_remove); btn_row.addStretch()
+        vl.addLayout(btn_row)
+
+        return vl
+
+    def _add_variable_row(self, name: str = "", default_expression: str = ""):
+        row = self.tbl_variables.rowCount()
+        self.tbl_variables.insertRow(row)
+        self.tbl_variables.setItem(row, _COL_VAR_NAME, QTableWidgetItem(name))
+        self.tbl_variables.setItem(row, _COL_VAR_EXPR, QTableWidgetItem(default_expression))
+
+    def _remove_selected_variable_row(self):
+        rows = {i.row() for i in self.tbl_variables.selectedIndexes()}
+        for row in sorted(rows, reverse=True):
+            self.tbl_variables.removeRow(row)
+
+    def _collect_variables(self) -> list[dict]:
+        variables = []
+        for row in range(self.tbl_variables.rowCount()):
+            name_item = self.tbl_variables.item(row, _COL_VAR_NAME)
+            expr_item = self.tbl_variables.item(row, _COL_VAR_EXPR)
+            name = name_item.text().strip() if name_item else ""
+            expr = expr_item.text().strip() if expr_item else ""
+            if not name and not expr:
+                continue
+            variables.append({"name": name, "default_expression": expr})
+        return variables
+
     # ── Planification ─────────────────────────
 
     def _on_freq_changed(self):
@@ -328,6 +425,7 @@ class PipelineSettingsDialog(QDialog):
             max_parallel_branches=self.spin_max_parallel_branches.value(),
         )
         db.set_pipeline_active(pipeline_id, self.chk_active.isChecked())
+        db.save_pipeline_variables(pipeline_id, self._collect_variables())
 
         trigger_parent_id = self.cb_trigger_parent.currentData()
         trigger_condition = self.cb_trigger_condition.currentData() if trigger_parent_id else None
@@ -356,6 +454,29 @@ class PipelineSettingsDialog(QDialog):
             self.inp_name.setStyleSheet(self._input_style(error=True))
             self.inp_name.setFocus()
             return False
+
+        seen_names = set()
+        for v in self._collect_variables():
+            if not v["name"] or not v["default_expression"]:
+                QMessageBox.warning(
+                    self, "Variable incomplète",
+                    "Chaque variable de pipeline doit avoir un nom et une expression."
+                )
+                return False
+            try:
+                compile_expression(v["default_expression"])
+            except ValueError as e:
+                QMessageBox.warning(
+                    self, "Expression invalide", f"« {v['name']} » : {e}"
+                )
+                return False
+            if v["name"] in seen_names:
+                QMessageBox.warning(
+                    self, "Variable en double",
+                    f"Le nom de variable « {v['name']} » est utilisé plusieurs fois."
+                )
+                return False
+            seen_names.add(v["name"])
         return True
 
     # ── Remplissage ────────────────────────────
@@ -397,6 +518,10 @@ class PipelineSettingsDialog(QDialog):
             if idx_cond >= 0:
                 self.cb_trigger_condition.setCurrentIndex(idx_cond)
         self._on_trigger_parent_changed()
+
+        from database import db_manager as db
+        for v in db.get_pipeline_variables(p.id):
+            self._add_variable_row(v.name, v.default_expression)
 
     # ── Helpers visuels ──────────────────────
 

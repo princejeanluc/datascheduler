@@ -383,6 +383,8 @@ class Pipeline(Base):
                                   cascade="all, delete-orphan")
     zones          = relationship("PipelineZone",  back_populates="pipeline",
                                   cascade="all, delete-orphan")
+    variables      = relationship("PipelineVariable", back_populates="pipeline",
+                                  cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Pipeline name={self.name} active={self.is_active}>"
@@ -473,6 +475,28 @@ class PipelineZone(Base):
 
     def __repr__(self):
         return f"<PipelineZone name={self.name} pipeline_id={self.pipeline_id}>"
+
+
+class PipelineVariable(Base):
+    """
+    Variable nommée déclarée au niveau du pipeline (type "paramètre de pipeline" Azure Data
+    Factory) : ctx.variables est pré-amorcé avec ces valeurs avant la première étape — plus
+    besoin d'un SET_VARIABLE juste pour établir une base. L'ordre de déclaration compte : la
+    valeur par défaut d'une variable peut référencer une variable déclarée plus haut via
+    var:nom (core/pipeline.py les évalue une par une, dans l'ordre, jamais en lot). Table
+    entièrement neuve : aucune migration nécessaire, même mécanisme que PipelineZone.
+    """
+    __tablename__ = "pipeline_variables"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    pipeline_id = Column(Integer, ForeignKey("pipelines.id"), nullable=False)
+    name        = Column(String(100), nullable=False)
+    default_expression = Column(Text, nullable=False, default="")
+
+    pipeline = relationship("Pipeline", back_populates="variables")
+
+    def __repr__(self):
+        return f"<PipelineVariable name={self.name} pipeline_id={self.pipeline_id}>"
 
 
 # ──────────────────────────────────────────────

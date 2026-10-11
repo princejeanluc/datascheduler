@@ -36,7 +36,8 @@ def _open_config_dialog(step_type: str, config: dict, parent,
                         label: str = "", retry_count: int = 0,
                         retry_interval_s: int = 5,
                         run_always: bool = False, timeout_s: int = 0,
-                        prior_steps: list | None = None) -> _BaseStepConfigDialog | None:
+                        prior_steps: list | None = None,
+                        pipeline_variable_names: list | None = None) -> _BaseStepConfigDialog | None:
     kwargs = dict(
         config=config, parent=parent, label=label,
         oracle_profiles=oracle_profiles,
@@ -49,6 +50,7 @@ def _open_config_dialog(step_type: str, config: dict, parent,
         run_always=run_always,
         timeout_s=timeout_s,
         prior_steps=prior_steps,
+        pipeline_variable_names=pipeline_variable_names,
     )
     mapping = {
         "DB_EXTRACT":     _DbExtractConfigDialog,

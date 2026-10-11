@@ -114,6 +114,14 @@ class _ExtractVariablesConfigDialog(_BaseStepConfigDialog):
         )
         self.tbl_mappings.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_mappings.verticalHeader().setVisible(False)
+        # 52px, pas une estimation au jugé : le padding vertical de QTableWidget::item (8px+8px,
+        # règle globale) est retranché DEUX FOIS — une fois pour placer l'éditeur de cellule dans
+        # la ligne, une fois de plus par le padding propre du QLineEdit (7px+7px) — avant de
+        # clipper le texte (confirmé via editor.geometry() avant/après ce correctif ; 38px essayé
+        # d'abord, rejeté — le texte de l'éditeur restait visuellement coupé en cours de saisie
+        # même si la ligne elle-même paraissait assez grande). Signalé par l'utilisateur, capture
+        # à l'appui.
+        self.tbl_mappings.verticalHeader().setDefaultSectionSize(52)
         self.tbl_mappings.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_mappings.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_mappings.setMinimumHeight(160)
@@ -122,6 +130,11 @@ class _ExtractVariablesConfigDialog(_BaseStepConfigDialog):
             f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; }}"
             f"QHeaderView::section {{ background: {COLORS['bg_active']}; color: {COLORS['text_dim']}; "
             f"padding: 4px; border: none; font-size: 11px; }}"
+            # Surcharge locale de la règle globale QTableWidget::item:selected (bg_active) —
+            # sans elle, une ligne sélectionnée (ex: en train d'être éditée) prend exactement la
+            # même couleur que l'en-tête ci-dessus et les deux se confondent visuellement.
+            f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}; "
+            f"color: {COLORS['text_main']}; border-left: 2px solid {COLORS['accent']}; }}"
         )
         root.addWidget(self.tbl_mappings)
 

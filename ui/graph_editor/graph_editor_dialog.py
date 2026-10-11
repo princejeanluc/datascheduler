@@ -444,6 +444,7 @@ class PipelineGraphEditorDialog(QDialog):
 
     def _on_add_step(self):
         from ui.step_editor import _open_config_dialog
+        from database import db_manager as db
 
         dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
         if not dlg.exec():
@@ -457,6 +458,10 @@ class PipelineGraphEditorDialog(QDialog):
             # à ce stade) : tous les nœuds déjà sur le canevas sont proposés comme sources
             # possibles, à connecter ensuite par un glisser-déposer.
             prior_steps=[n.step for n in self._scene.nodes.values()],
+            # Lecture fraîche à chaque ouverture (jamais mise en cache) — chantier variables de
+            # pipeline : une variable ajoutée dans les Paramètres doit apparaître immédiatement
+            # dans "+ Variable", sans fermer/rouvrir l'éditeur graphique.
+            pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
         )
         if config_dlg and config_dlg.exec():
             step = config_dlg.result_step()
@@ -464,6 +469,7 @@ class PipelineGraphEditorDialog(QDialog):
 
     def _on_node_double_clicked(self, node: StepNodeItem):
         from ui.step_editor import _open_config_dialog
+        from database import db_manager as db
 
         step = node.step
         config_dlg = _open_config_dialog(
@@ -476,6 +482,7 @@ class PipelineGraphEditorDialog(QDialog):
             run_always=step.get("run_always", False),
             timeout_s=step.get("timeout_s", 0),
             prior_steps=self._incoming_prior_steps(node),
+            pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
         )
         if config_dlg and config_dlg.exec():
             node.step = config_dlg.result_step()

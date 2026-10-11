@@ -29,6 +29,35 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.42.0] - 2026-10-11
+
+### Ajouté
+- **Variables de pipeline** — déclarer des variables nommées au niveau du pipeline (type
+  "paramètre" Azure Data Factory), chacune avec une expression de valeur par défaut, dans une
+  nouvelle section ④ des Paramètres du pipeline. Amorcées dans `ctx.variables` avant la première
+  étape — plus besoin d'une étape `SET_VARIABLE` juste pour fixer une base. L'ordre de
+  déclaration compte : la valeur par défaut d'une variable peut référencer `var:nom` d'une
+  variable déclarée plus haut dans la liste. Un échec d'évaluation au moment réel de l'exécution
+  fait échouer le run immédiatement, avant toute étape — aucune ligne d'historique pour un run
+  jamais vraiment démarré. Validation syntaxique dès la fermeture du dialogue et au dry-run.
+  Le bouton "+ Variable" (déjà dans Condition) liste désormais aussi ces variables, pas
+  seulement celles d'Extraction de variables.
+
+### Corrigé
+- Dans les trois dialogues à liste dynamique (Extraction de variables, Définir une variable,
+  Variables de pipeline), l'en-tête du tableau et une ligne sélectionnée (par exemple en cours
+  d'édition) partageaient la même couleur — les deux se confondaient visuellement en un seul
+  bloc, rendant la zone de saisie réelle minuscule et difficile à distinguer. Signalé par un
+  utilisateur, capture à l'appui. La ligne sélectionnée a désormais sa propre couleur, distincte
+  de l'en-tête.
+- Même trois dialogues : une fois la couleur corrigée, le texte de l'éditeur de cellule en cours
+  de saisie restait visuellement coupé — le padding vertical de `QTableWidget::item` (règle du
+  style global) est retranché de la ligne pour placer l'éditeur, en plus du padding propre du
+  champ de saisie lui-même ; les deux se cumulent. Une première hauteur de ligne (38px) ne
+  suffisait pas encore et laissait le texte coupé — confirmé en mesurant la géométrie réelle de
+  l'éditeur, corrigé avec une hauteur de ligne (52px) qui tient compte des deux paddings
+  cumulés, verrouillé par un test qui échoue bien sur la valeur insuffisante.
+
 ## [0.41.0] - 2026-10-11
 
 ### Ajouté
