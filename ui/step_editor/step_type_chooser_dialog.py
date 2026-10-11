@@ -45,6 +45,8 @@ _DESCRIPTIONS = {
                       "ou OU (une seule suffit), artefact désigné explicitement.",
     "EXTRACT_VARIABLES": "Extrait des colonnes d'un fichier source (une seule ligne) vers des "
                       "variables (var:nom), réutilisables dans une Condition ou un champ templaté.",
+    "SET_VARIABLE":   "Calcule une ou plusieurs variables (var:nom) à partir d'une expression "
+                      "(arithmétique, fonctions date/texte), sans fichier source requis.",
 }
 
 

@@ -53,6 +53,8 @@ STEP_META = {
                        "category": "Contrôle de flux", "icon": "fa5s.compress-arrows-alt"},
     "EXTRACT_VARIABLES": {"label": "Extraction de variables", "color": "#ffca28",
                        "category": "Contrôle de flux", "icon": "fa5s.tags"},
+    "SET_VARIABLE":   {"label": "Définir une variable", "color": "#8bc34a",
+                       "category": "Contrôle de flux", "icon": "fa5s.equals"},
 }
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]

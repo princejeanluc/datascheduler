@@ -223,6 +223,34 @@ def test_expr_token_inside_a_list_field_is_checked(test_db):
     assert any("expression" in e and "invalide" in e for e in result.errors)
 
 
+def test_set_variable_malformed_expression_is_a_hard_error(test_db):
+    """SET_VARIABLE stocke l'expression brute (pas entourée de {expr:...}), le scan générique
+    _EXPR_TOKEN_RE ne la voit donc pas — nécessite son propre bloc dans dry_run_pipeline()."""
+    p = db.create_pipeline(name="dryrun-set-variable-malformed")
+    db.save_steps(p.id, [{
+        "step_type": "SET_VARIABLE",
+        "config": {"assignments": [{"target": "x", "expression": "1 +"}]},
+    }])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert not result.success
+    assert any("expression" in e and "invalide" in e for e in result.errors)
+
+
+def test_set_variable_expression_referencing_an_unknown_variable_is_not_an_error(test_db):
+    """Même garde anti-faux-positif que pour {expr:...} : une expression syntaxiquement valide
+    référençant une variable pas encore connue à cet instant n'est pas une erreur structurelle."""
+    p = db.create_pipeline(name="dryrun-set-variable-valid-unknown-var")
+    db.save_steps(p.id, [{
+        "step_type": "SET_VARIABLE",
+        "config": {"assignments": [{"target": "x", "expression": "var:pas_encore_connu + 1"}]},
+    }])
+
+    result = dry_run_pipeline(p.id, test_connections=False)
+    assert result.success
+    assert result.errors == []
+
+
 def test_uses_graph_validation_when_edges_exist(test_db):
     """Même bascule linéaire/graphe que run_pipeline() (db.get_edges() non vide -> graphe) —
     ici un cycle doit être détecté par validate_pipeline_graph(), pas validate_step_sequence()."""

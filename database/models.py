@@ -85,6 +85,7 @@ class StepType(str, enum.Enum):
     GATEWAY_PARALLEL = "GATEWAY_PARALLEL"  # Fork parallèle (chantier Gateway) — marqueur de branchement
     GATEWAY_JOIN     = "GATEWAY_JOIN"      # Jonction ET/OU (chantier Gateway) — synchronise plusieurs branches
     EXTRACT_VARIABLES = "EXTRACT_VARIABLES"  # Extrait des valeurs d'un fichier source vers ctx.variables
+    SET_VARIABLE = "SET_VARIABLE"  # Calcule une ou plusieurs variables via core/expr_lang.py, sans fichier amont
 
 
 # ──────────────────────────────────────────────

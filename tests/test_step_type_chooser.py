@@ -113,8 +113,9 @@ def test_search_matches_category_name(qapp):
     dlg.inp_search.setText("contrôle de flux")
     visible = [card for card, _ in dlg._cards if not card.isHidden()]
     # CONDITION + GATEWAY_PARALLEL + GATEWAY_JOIN (chantier Gateway) + EXTRACT_VARIABLES
-    # (chantier EXTRACT_VARIABLES) partagent cette catégorie.
-    assert len(visible) == 4
+    # (chantier EXTRACT_VARIABLES) + SET_VARIABLE (chantier SET_VARIABLE) partagent cette
+    # catégorie.
+    assert len(visible) == 5
 
 
 def test_choosing_a_filtered_card_returns_correct_step_type(qapp):

@@ -1345,6 +1345,20 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
                         f"Étape {i + 1} ({label}) : expression « {expr} » invalide — {e}"
                     )
 
+        # SET_VARIABLE : contrairement au jeton générique {expr:...} ci-dessus, les expressions
+        # de cette étape sont le contenu BRUT du champ (pas entourées d'accolades) — le scan
+        # générique ci-dessus ne les détecte donc pas, d'où ce bloc dédié. Même garde-fou
+        # anti-faux-positif : compile_expression() seul, jamais .eval().
+        if step_type == "SET_VARIABLE":
+            for assignment in config.get("assignments") or []:
+                expr = assignment.get("expression", "")
+                try:
+                    compile_expression(expr)
+                except ValueError as e:
+                    errors.append(
+                        f"Étape {i + 1} ({label}) : expression « {expr} » invalide — {e}"
+                    )
+
         for config_key, ref_type in _STEP_REFERENCES.get(step_type, []):
             raw_id = config.get(config_key)
             if not raw_id:

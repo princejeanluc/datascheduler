@@ -192,6 +192,12 @@ d'une exécution (log, erreur), ouvrez **Historique** et cliquez sur la ligne co
   est alors normalisée en ISO-8601, pour que les comparaisons dans une Condition restent
   chronologiquement correctes (`var:date_max >= "2026-01-01"`). Échoue si la source contient zéro
   ou plusieurs lignes — un signal visible plutôt qu'un choix arbitraire de ligne.
+- **Définir une variable (`SET_VARIABLE`)** — calcule une ou plusieurs variables (`var:nom`) à
+  partir d'une expression (même langage que Condition : arithmétique, `date_add`, `now`, `today`,
+  `fmt`, `concat`...), sans fichier source requis — utile pour une valeur purement calculée (ex :
+  une date relative à aujourd'hui) sans construire de fichier intermédiaire juste pour l'extraire
+  ensuite via Extraction de variables. Une ligne par variable (*Variable cible* → *Expression*),
+  validée syntaxiquement dès la fermeture du dialogue.
 """,
     ),
     HelpTopic(
@@ -233,8 +239,9 @@ besoin de retenir les noms par cœur.
 ## Variables — pour une décision basée sur une valeur, pas un fichier
 
 `{var:nom}` référence une valeur publiée par l'étape **Extraction de variables**
-(`EXTRACT_VARIABLES`) — même convention que `{artifact:nom}` (non résolu si absent, reste
-littéral), mais pour une valeur scalaire (nombre, texte, date) plutôt qu'un chemin de fichier.
+(`EXTRACT_VARIABLES`) ou **Définir une variable** (`SET_VARIABLE`) — même convention que
+`{artifact:nom}` (non résolu si absent, reste littéral), mais pour une valeur scalaire (nombre,
+texte, date) plutôt qu'un chemin de fichier.
 Utilisable dans n'importe quel champ templaté, et directement dans une expression **Condition**
 sans les accolades (`var:total > 1000`, `var:date_max >= "2026-01-01"`) — la comparaison utilise
 alors la valeur telle quelle (numérique ou chronologique), pas sa représentation texte.

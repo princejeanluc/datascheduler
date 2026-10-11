@@ -29,6 +29,24 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.40.0] - 2026-10-04
+
+### Ajouté
+- Nouveau type d'étape **Définir une variable** (`SET_VARIABLE`) : calcule une ou plusieurs
+  variables (`var:nom`) via le même évaluateur d'expressions que Condition
+  (`core/expr_lang.py`), sans dépendre d'un fichier source — contrairement à Extraction de
+  variables, qui exige un CSV amont à une seule ligne. Liste dynamique d'assignations
+  (variable cible → expression), validées syntaxiquement dès la fermeture du dialogue
+  (`compile_expression()`) plutôt qu'à l'exécution. Disponible dans l'éditeur linéaire et
+  graphique (pas un nœud de routage).
+
+### Corrigé
+- Une étape placée après Extraction de variables, reliée par une arête directe dans l'éditeur
+  graphique, ne recevait pas le fichier produit en amont — même défaut que celui corrigé pour
+  Condition en v0.38.1 (`ExtractVariablesStep` ne déclarait pas `PRODUCES = {"output_file"}`,
+  donc le moteur ne republiait pas l'artefact sous sa clé). Extraction de variables est
+  désormais un passe-plat du fichier amont, comme Condition/la passerelle parallèle.
+
 ## [0.39.0] - 2026-10-03
 
 ### Ajouté
