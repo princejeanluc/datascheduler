@@ -40,6 +40,14 @@ bas pour son introduction).
   et premier **menu contextuel** (clic-droit) de l'éditeur graphique — pensé comme point
   d'extension réutilisable pour de futures actions ciblées sur un nœud.
 
+### Corrigé
+- Tout `QMenu` de l'application (menu "⋯" de la liste des pipelines, bouton "+ Artefact", et le
+  nouveau menu contextuel ci-dessus) s'affichait avec l'apparence par défaut de Qt — aucun
+  arrondi, aucune bordure, aucun retour visuel au survol ou sur une entrée désactivée — hérité
+  silencieusement de la seule règle `QWidget` générale du style global. Repéré sur le nouveau
+  menu contextuel, corrigé une seule fois pour tous les menus de l'app via une règle `QMenu`
+  dédiée dans le style global.
+
 ## [0.40.0] - 2026-10-04
 
 ### Ajouté

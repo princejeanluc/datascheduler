@@ -152,6 +152,35 @@ QToolTip {{
     padding: 4px 8px;
 }}
 
+/* ── Menus contextuels ──
+   Sans règle explicite, QMenu hérite uniquement du fond/texte de la règle QWidget générale
+   ci-dessus (aucun arrondi, aucune bordure, aucun retour visuel au survol/désactivé) — tout
+   QMenu de l'app (menu "⋯" de PipelinesView, bouton "+ Artefact", menu contextuel de l'éditeur
+   graphique) en a toujours souffert en silence ; corrigé une seule fois ici plutôt que par
+   endroit. */
+QMenu {{
+    background-color: {COLORS['bg_panel']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
+    padding: 4px;
+}}
+QMenu::item {{
+    padding: 7px 14px;
+    border-radius: 5px;
+    color: {COLORS['text_main']};
+}}
+QMenu::item:selected {{
+    background-color: {COLORS['bg_hover']};
+}}
+QMenu::item:disabled {{
+    color: {COLORS['text_muted']};
+}}
+QMenu::separator {{
+    height: 1px;
+    background: {COLORS['border']};
+    margin: 4px 6px;
+}}
+
 /* ── Scrollbar ── */
 QScrollBar:vertical {{
     background: {COLORS['bg_panel']};
