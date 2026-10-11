@@ -5,13 +5,15 @@ catégorie, défilement — pensé pour rester utilisable avec beaucoup plus de 
 (voir docs/ARCHITECTURE.md, section sélecteur de type d'étape).
 """
 
+import json
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame,
-    QScrollArea, QWidget,
+    QScrollArea, QWidget, QInputDialog, QMessageBox,
 )
 from PySide6.QtCore import Qt, QSize
 from ui.styles import COLORS, DIALOG_STYLE
-from core.steps import is_routing_node
+from core.steps import is_routing_node, known_step_types
 from .common import STEP_META, _icon
 
 # Ordre d'affichage des sections — indépendant de l'ordre d'insertion de STEP_META.
@@ -56,9 +58,14 @@ class StepTypeChooserDialog(QDialog):
     def __init__(self, parent=None, include_routing_nodes: bool = False):
         super().__init__(parent)
         self.chosen_type: str = ""
+        # Config préremplie si le choix vient de la section "Mes modèles" (chantier bibliothèque
+        # d'étapes réutilisables) — {} sinon, comportement inchangé pour un choix de type normal.
+        self.chosen_config: dict = {}
         self._include_routing_nodes = include_routing_nodes
         self._cards: list[tuple[QFrame, str]] = []          # (carte, texte de recherche)
         self._category_sections: dict[str, tuple[QLabel, list[QFrame]]] = {}
+        self._template_card_set: set = set()   # cartes modèle actuelles, pour les retirer de
+                                                # self._cards avant un _refresh_templates_section()
         self.setWindowTitle("Ajouter une étape")
         self.setStyleSheet(DIALOG_STYLE)
         self.resize(460, 560)
@@ -112,6 +119,16 @@ class StepTypeChooserDialog(QDialog):
         list_layout.setContentsMargins(0, 4, 4, 4)
         list_layout.setSpacing(8)
 
+        # "Mes modèles" (chantier bibliothèque d'étapes réutilisables) — en tête, avant les
+        # catégories de types. Conteneur propre reconstruit entièrement à chaque renommage/
+        # suppression (_refresh_templates_section), sans toucher au reste de list_layout.
+        self._templates_container = QWidget()
+        self._templates_layout = QVBoxLayout(self._templates_container)
+        self._templates_layout.setContentsMargins(0, 0, 0, 0)
+        self._templates_layout.setSpacing(8)
+        list_layout.addWidget(self._templates_container)
+        self._refresh_templates_section()
+
         descriptions = self._visible_types()
         for category in _CATEGORY_ORDER:
             types_in_category = [t for t in descriptions if STEP_META[t]["category"] == category]
@@ -140,6 +157,145 @@ class StepTypeChooserDialog(QDialog):
         btn_cancel = QPushButton("Annuler"); btn_cancel.setObjectName("secondary")
         btn_cancel.setFixedHeight(34); btn_cancel.clicked.connect(self.reject)
         root.addWidget(btn_cancel, alignment=Qt.AlignRight)
+
+    # ── "Mes modèles" (chantier bibliothèque d'étapes réutilisables) ────
+
+    def _refresh_templates_section(self):
+        """(Re)construit entièrement la section "Mes modèles" — appelée une fois à la
+        construction du dialogue, puis après chaque renommage/suppression (jamais besoin de
+        toucher aux catégories de types, construites séparément et une seule fois)."""
+        from database import db_manager as db
+
+        while self._templates_layout.count():
+            item = self._templates_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+
+        # Retire les anciennes cartes modèle de self._cards (la recherche live itère cette
+        # liste) avant de les reconstruire — les cartes de type normal n'y sont jamais touchées.
+        self._cards = [(c, s) for c, s in self._cards if c not in self._template_card_set]
+        self._template_card_set = set()
+
+        try:
+            raw_templates = db.get_step_templates()
+        except RuntimeError:
+            # Base non initialisée (ex. ce dialogue construit directement dans un test sans
+            # fixture test_db) — "Mes modèles" est une section optionnelle, jamais un prérequis
+            # pour ajouter une étape normalement ; même tolérance défensive que
+            # PipelinesView._schedule_if_possible() pour un scheduler non initialisé.
+            raw_templates = []
+        templates = [t for t in raw_templates if t.step_type in known_step_types()]
+        if not templates:
+            # Modèle dont le type a disparu : exclu silencieusement de la liste (vue de
+            # navigation passive, jamais une erreur bloquante — contrairement à plan_import()).
+            self._category_sections.pop("Mes modèles", None)
+            return
+
+        header = QLabel("MES MODÈLES")
+        header.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10.5px; font-weight: 700; "
+            f"letter-spacing: 0.6px; margin-top: 4px;"
+        )
+        self._templates_layout.addWidget(header)
+
+        frames = []
+        for template in templates:
+            card = self._make_template_card(template)
+            self._templates_layout.addWidget(card)
+            meta = STEP_META[template.step_type]
+            search_text = f"{template.name} {meta['label']} mes modèles".lower()
+            self._cards.append((card, search_text))
+            self._template_card_set.add(card)
+            frames.append(card)
+        self._category_sections["Mes modèles"] = (header, frames)
+
+    def _make_template_card(self, template) -> QFrame:
+        from ui.main_window.widgets import _action_btn
+        meta = STEP_META[template.step_type]
+
+        card = QFrame()
+        card.setCursor(Qt.PointingHandCursor)
+        card.setStyleSheet(
+            f"QFrame {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 6px; }}"
+            f"QFrame:hover {{ border-color: {meta['color']}; background: {meta['color']}11; }}"
+        )
+        hl = QHBoxLayout(card)
+        hl.setContentsMargins(14, 10, 14, 10)
+        hl.setSpacing(10)
+
+        dot = QLabel()
+        icon = _icon(meta.get("icon", "fa5s.circle"), meta["color"])
+        if icon:
+            dot.setPixmap(icon.pixmap(QSize(18, 18)))
+        dot.setStyleSheet("background: transparent; border: none;")
+        dot.setFixedWidth(20)
+
+        info_col = QVBoxLayout(); info_col.setSpacing(2)
+        lbl_name = QLabel(template.name)
+        lbl_name.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 13px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        lbl_type = QLabel(meta["label"])
+        lbl_type.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; "
+            f"background: transparent; border: none;"
+        )
+        info_col.addWidget(lbl_name); info_col.addWidget(lbl_type)
+
+        hl.addWidget(dot)
+        hl.addLayout(info_col, stretch=1)
+
+        # Boutons enfants — un QPushButton consomme toujours son propre relâchement de souris,
+        # jamais propagé au mouseReleaseEvent de la carte parente (même assemblage que
+        # _QueryCard._btn_del, ui/main_window/queries_view.py — vérifié, aucun garde-fou
+        # supplémentaire nécessaire).
+        btn_rename = _action_btn("fa5s.pen", object_name="secondary", tooltip="Renommer",
+                                  size=(22, 22))
+        btn_rename.clicked.connect(
+            lambda _, tid=template.id, cur=template.name: self._on_rename_template(tid, cur)
+        )
+        hl.addWidget(btn_rename)
+
+        btn_delete = _action_btn("fa5s.trash-alt", object_name="danger", tooltip="Supprimer",
+                                  size=(22, 22))
+        btn_delete.clicked.connect(
+            lambda _, tid=template.id, nm=template.name: self._on_delete_template(tid, nm)
+        )
+        hl.addWidget(btn_delete)
+
+        card.mouseReleaseEvent = lambda _, t=template: self._choose_template(t)
+        return card
+
+    def _on_rename_template(self, template_id: int, current_name: str):
+        from database import db_manager as db
+        new_name, ok = QInputDialog.getText(
+            self, "Renommer le modèle", "Nom :", text=current_name,
+        )
+        new_name = new_name.strip()
+        if not ok or not new_name:
+            return
+        new_name = db.unique_step_template_name(new_name, exclude_id=template_id)
+        db.rename_step_template(template_id, new_name)
+        self._refresh_templates_section()
+
+    def _on_delete_template(self, template_id: int, name: str):
+        from database import db_manager as db
+        reply = QMessageBox.question(
+            self, "Supprimer", f"Supprimer le modèle « {name} » ?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        db.delete_step_template(template_id)
+        self._refresh_templates_section()
+
+    def _choose_template(self, template):
+        self.chosen_type = template.step_type
+        self.chosen_config = json.loads(template.config_json or "{}")
+        self.accept()
 
     def _make_card(self, step_type: str, desc: str) -> QFrame:
         meta = STEP_META[step_type]

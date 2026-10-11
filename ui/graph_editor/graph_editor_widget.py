@@ -470,8 +470,12 @@ class PipelineGraphEditorWidget(QWidget):
         dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
         if not dlg.exec():
             return
+        # dlg.chosen_config (chantier bibliothèque d'étapes réutilisables) : {} pour un choix de
+        # type normal, préremplie si le choix vient de la section "Mes modèles" — même chemin
+        # que _on_node_double_clicked() ci-dessous (config déjà non vide pour une étape
+        # existante), aucune modification des dialogues individuels n'est nécessaire.
         config_dlg = _open_config_dialog(
-            dlg.chosen_type, {}, self,
+            dlg.chosen_type, dlg.chosen_config, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles, self._db_profiles,
             prior_steps=[n.step for n in self._scene.nodes.values()],
@@ -544,6 +548,43 @@ class PipelineGraphEditorWidget(QWidget):
                 # Sans ça, le doublon afficherait des IDs de profil bruts dans son contenu
                 # déplié jusqu'à ce qu'on le double-clique (chantier relooking des nœuds).
                 c.set_profile_names(self._profile_names)
+
+    def _on_save_as_template(self):
+        """"Enregistrer comme modèle..." du menu contextuel (chantier bibliothèque d'étapes
+        réutilisables) — n'agit que si EXACTEMENT un nœud est sélectionné : la portée validée
+        avec l'utilisateur est une seule étape, jamais un groupe (voir docstring StepTemplate,
+        database/models.py)."""
+        from PySide6.QtWidgets import QInputDialog
+        from database import db_manager as db
+        from ui.step_editor.common import STEP_META
+        import copy as _copy
+
+        selected = [n for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)]
+        if len(selected) != 1:
+            return
+        node = selected[0]
+        step = node.step
+        default_name = step.get("label") or STEP_META[step["step_type"]]["label"]
+
+        name, ok = QInputDialog.getText(
+            self, "Enregistrer comme modèle", "Nom du modèle :", text=default_name,
+        )
+        name = name.strip()
+        if not ok or not name:
+            return
+
+        # config nettoyée de _step_key ICI, au seul point d'écriture — voir docstring
+        # StepTemplate (database/models.py) : aucun config_json stocké ne doit jamais en
+        # contenir, pour qu'un futur consommateur (insertion, duplication de modèle...) n'ait
+        # jamais à s'en souvenir lui-même.
+        config = _copy.deepcopy(step.get("config") or {})
+        config.pop("_step_key", None)
+
+        unique_name = db.unique_step_template_name(name)
+        db.create_step_template(
+            name=unique_name, step_type=step["step_type"], config=config,
+            label=step.get("label") or None,
+        )
 
     def _on_open_settings_dialog(self):
         """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif) —

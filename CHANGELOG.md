@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.45.0] - 2026-10-11
+
+### Ajouté
+- **Bibliothèque d'étapes réutilisables** — enregistrer la configuration complète d'une étape
+  déjà configurée (profil, chemin, requête…) comme "modèle" nommé, pour l'insérer dans n'importe
+  quel autre pipeline sans tout ressaisir. Clic-droit sur un nœud → "Enregistrer comme modèle..." ;
+  une nouvelle section "Mes modèles" apparaît en tête du sélecteur de type d'étape ("+ Ajouter une
+  étape") pour les réutiliser, avec renommage/suppression directement depuis cette liste. Un
+  modèle est un instantané figé — l'étape créée à partir de lui est ensuite indépendante,
+  modifier ou supprimer le modèle n'affecte jamais les étapes déjà insérées.
+
 ## [0.44.1] - 2026-10-11
 
 ### Corrigé

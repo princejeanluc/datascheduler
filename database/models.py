@@ -311,6 +311,44 @@ class SqlQuery(Base):
 
 
 # ──────────────────────────────────────────────
+#  MODÈLE D'ÉTAPE RÉUTILISABLE (chantier bibliothèque d'étapes réutilisables)
+# ──────────────────────────────────────────────
+
+class StepTemplate(Base):
+    """
+    Instantané figé de la configuration d'UNE étape déjà configurée par l'utilisateur
+    (step_type + config_json + libellé), réutilisable dans n'importe quel autre pipeline sans
+    tout ressaisir — jamais un lien vivant : une fois choisi depuis StepTypeChooserDialog, la
+    config est copiée dans la nouvelle étape et ce modèle n'est plus référencé par rien (pas de
+    FK depuis PipelineStep). Table entièrement neuve : aucune migration nécessaire, même
+    mécanisme que PipelineZone/PipelineVariable (Base.metadata.create_all()).
+
+    config_json ne contient jamais `_step_key` — nettoyé à la sauvegarde (voir
+    ui/graph_editor/graph_editor_widget.py::_on_save_as_template), jamais à la lecture : un seul
+    point d'écriture garantit qu'aucun consommateur futur (insertion, duplication de modèle...)
+    n'a besoin de s'en souvenir.
+
+    Portée actuelle volontairement limitée à une seule étape, jamais un groupe de plusieurs
+    étapes connectées — mais rien dans ce schéma n'empêche une future table
+    StepTemplateGroup (liste ordonnée de StepTemplate + arêtes relatives) de réutiliser le même
+    CRUD/la même UI de liste sans migration destructive.
+    """
+    __tablename__ = "step_templates"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    uuid        = Column(String(36), unique=True, nullable=False, default=_new_uuid)
+    name        = Column(String(100), unique=True, nullable=False)
+    step_type   = Column(String(50), nullable=False)
+    label       = Column(String(255), nullable=True)
+    config_json = Column(Text, nullable=False, default="{}")
+    created_at  = Column(DateTime, default=datetime.utcnow)
+    updated_at  = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<StepTemplate name={self.name} step_type={self.step_type}>"
+
+
+# ──────────────────────────────────────────────
 #  PIPELINE
 # ──────────────────────────────────────────────
 

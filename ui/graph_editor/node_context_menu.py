@@ -21,8 +21,10 @@ def build_node_context_menu(node, dialog) -> QMenu:
     act_dup.triggered.connect(dialog._on_duplicate_selected)
 
     menu.addSeparator()
-    act_future = menu.addAction("(futures actions ici)")
-    act_future.setEnabled(False)
+    # Chantier bibliothèque d'étapes réutilisables — occupe le point d'extension prévu
+    # ci-dessus (ex-"(futures actions ici)").
+    act_save_tpl = menu.addAction(_icon("fa5s.save", COLORS["accent"]), "Enregistrer comme modèle...")
+    act_save_tpl.triggered.connect(dialog._on_save_as_template)
 
     menu.addSeparator()
     act_del = menu.addAction(_icon("fa5s.trash-alt", COLORS["danger"]), "Supprimer")

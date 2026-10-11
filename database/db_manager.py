@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, PipelineVariable, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, StepTemplate, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, PipelineVariable, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -986,6 +986,71 @@ def duplicate_sql_query(query_id: int) -> SqlQuery | None:
         name=name, sql_text=original.sql_text, description=original.description,
         oracle_profile_id=original.oracle_profile_id,
     )
+
+
+# ──────────────────────────────────────────────
+#  HELPERS MODÈLE D'ÉTAPE (chantier bibliothèque d'étapes réutilisables)
+# ──────────────────────────────────────────────
+
+def create_step_template(name: str, step_type: str, config: dict,
+                          label: str | None = None, uuid: str | None = None) -> StepTemplate:
+    """`config` doit déjà être nettoyée de `_step_key` par l'appelant
+    (ui/graph_editor/graph_editor_widget.py::_on_save_as_template) — jamais fait ici, pour qu'il
+    n'y ait qu'un seul endroit qui décide de le faire (voir docstring StepTemplate,
+    database/models.py)."""
+    import json
+    with get_session() as s:
+        kwargs = dict(name=name, step_type=step_type, label=label,
+                      config_json=json.dumps(config))
+        if uuid:
+            kwargs["uuid"] = uuid
+        t = StepTemplate(**kwargs)
+        s.add(t)
+    return t
+
+
+def get_step_templates() -> list[StepTemplate]:
+    with get_session() as s:
+        return s.query(StepTemplate).order_by(StepTemplate.name).all()
+
+
+def get_step_template(template_id: int) -> StepTemplate | None:
+    with get_session() as s:
+        return s.get(StepTemplate, template_id)
+
+
+def rename_step_template(template_id: int, name: str) -> StepTemplate | None:
+    with get_session() as s:
+        t = s.get(StepTemplate, template_id)
+        if not t:
+            return None
+        t.name = name
+    return t
+
+
+def delete_step_template(template_id: int) -> bool:
+    with get_session() as s:
+        obj = s.get(StepTemplate, template_id)
+        if obj:
+            s.delete(obj)
+            return True
+    return False
+
+
+def unique_step_template_name(base: str, exclude_id: int | None = None) -> str:
+    """Pré-vérification + désambiguïsation silencieuse par suffixe numérique — même mécanisme
+    que queries_view.py::_on_new_query / duplicate_sql_query ci-dessus, jamais de capture
+    d'IntegrityError. Appelée après la saisie du nom, à la création ET au renommage —
+    `exclude_id` écarte le modèle lui-même du contrôle de collision au renommage (sinon un
+    renommage qui laisse le nom inchangé se verrait inutilement suffixé " (2)", son propre nom
+    actuel étant déjà "pris" par lui-même)."""
+    taken = {t.name for t in get_step_templates() if t.id != exclude_id}
+    name = base
+    i = 2
+    while name in taken:
+        name = f"{base} ({i})"
+        i += 1
+    return name
 
 
 # ──────────────────────────────────────────────

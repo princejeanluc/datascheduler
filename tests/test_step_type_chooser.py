@@ -123,3 +123,115 @@ def test_choosing_a_filtered_card_returns_correct_step_type(qapp):
     dlg.inp_search.setText("condition")
     dlg._choose("CONDITION")
     assert dlg.chosen_type == "CONDITION"
+
+
+# ──────────────────────────────────────────────
+#  Chantier bibliothèque d'étapes réutilisables — section "Mes modèles"
+# ──────────────────────────────────────────────
+
+import json
+from PySide6.QtWidgets import QInputDialog, QMessageBox
+from database import db_manager as db
+
+
+def test_no_templates_section_when_no_templates_exist(qapp, test_db):
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+    assert "Mes modèles" not in dlg._category_sections
+    assert dlg._templates_layout.count() == 0
+
+
+def test_templates_section_lists_existing_templates(qapp, test_db):
+    db.create_step_template(name="Dépôt partenaire", step_type="FTP_UPLOAD",
+                             config={"ftp_profile_id": 1})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+    assert "Mes modèles" in dlg._category_sections
+    header, frames = dlg._category_sections["Mes modèles"]
+    assert len(frames) == 1
+    assert not header.isHidden()
+
+
+def test_templates_with_unknown_step_type_are_silently_excluded(qapp, test_db):
+    db.create_step_template(name="Modèle obsolète", step_type="TYPE_INEXISTANT_XYZ", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+    assert "Mes modèles" not in dlg._category_sections   # exclu, aucune erreur levée
+
+
+def test_choosing_a_template_card_sets_chosen_type_and_config(qapp, test_db):
+    template = db.create_step_template(
+        name="Dépôt partenaire", step_type="FTP_UPLOAD",
+        config={"ftp_profile_id": 1, "remote_path_tpl": "/export/"},
+    )
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    dlg._choose_template(template)
+
+    assert dlg.chosen_type == "FTP_UPLOAD"
+    assert dlg.chosen_config == {"ftp_profile_id": 1, "remote_path_tpl": "/export/"}
+
+
+def test_template_search_matches_its_own_name(qapp, test_db):
+    db.create_step_template(name="Dépôt partenaire spécial", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    dlg.inp_search.setText("spécial")
+
+    header, frames = dlg._category_sections["Mes modèles"]
+    assert not frames[0].isHidden()
+    assert not header.isHidden()
+
+
+def test_template_search_does_not_match_unrelated_text(qapp, test_db):
+    db.create_step_template(name="Dépôt partenaire", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    dlg.inp_search.setText("aucune correspondance possible")
+
+    header, frames = dlg._category_sections["Mes modèles"]
+    assert frames[0].isHidden()
+    assert header.isHidden()
+
+
+def test_rename_template_via_inline_button(qapp, test_db, monkeypatch):
+    template = db.create_step_template(name="Ancien nom", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    monkeypatch.setattr(QInputDialog, "getText",
+                         staticmethod(lambda *a, **k: ("Nouveau nom", True)))
+    dlg._on_rename_template(template.id, "Ancien nom")
+
+    assert db.get_step_template(template.id).name == "Nouveau nom"
+    header, frames = dlg._category_sections["Mes modèles"]
+    assert len(frames) == 1   # section reconstruite, toujours un seul modèle
+
+
+def test_rename_template_cancelled_prompt_keeps_old_name(qapp, test_db, monkeypatch):
+    template = db.create_step_template(name="Ancien nom", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    monkeypatch.setattr(QInputDialog, "getText", staticmethod(lambda *a, **k: ("", False)))
+    dlg._on_rename_template(template.id, "Ancien nom")
+
+    assert db.get_step_template(template.id).name == "Ancien nom"
+
+
+def test_delete_template_via_inline_button_after_confirmation(qapp, test_db, monkeypatch):
+    template = db.create_step_template(name="M", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    monkeypatch.setattr(QMessageBox, "question",
+                         staticmethod(lambda *a, **k: QMessageBox.Yes))
+    dlg._on_delete_template(template.id, "M")
+
+    assert db.get_step_template(template.id) is None
+    assert "Mes modèles" not in dlg._category_sections
+
+
+def test_delete_template_without_confirmation_keeps_it(qapp, test_db, monkeypatch):
+    template = db.create_step_template(name="M", step_type="FTP_UPLOAD", config={})
+    dlg = StepTypeChooserDialog(None, include_routing_nodes=True)
+
+    monkeypatch.setattr(QMessageBox, "question",
+                         staticmethod(lambda *a, **k: QMessageBox.No))
+    dlg._on_delete_template(template.id, "M")
+
+    assert db.get_step_template(template.id) is not None
