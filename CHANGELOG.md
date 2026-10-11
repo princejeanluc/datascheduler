@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.41.0] - 2026-10-11
+
+### Ajouté
+- **Dupliquer un nœud** dans l'éditeur graphique — jusqu'ici aucun moyen de copier une étape
+  pour éviter de retaper des paramètres identiques. Le doublon reprend la configuration
+  complète (copie profonde), atterrit décalé et sans aucune arête (comme un nœud neuf ajouté
+  via « + »), avec un nom de sortie vidé s'il en avait un (évite une collision de sauvegarde
+  garantie). Trois façons d'y accéder : bouton dans le rail de l'éditeur, raccourci `Ctrl+D`,
+  et premier **menu contextuel** (clic-droit) de l'éditeur graphique — pensé comme point
+  d'extension réutilisable pour de futures actions ciblées sur un nœud.
+
 ## [0.40.0] - 2026-10-04
 
 ### Ajouté
