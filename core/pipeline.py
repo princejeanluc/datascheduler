@@ -1319,6 +1319,15 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
     if not steps:
         return DryRunResult(success=False, errors=["Ce pipeline ne contient aucune étape."], warnings=[])
 
+    pipeline_variable_errors = []
+    for pv in db.get_pipeline_variables(pipeline_id):
+        try:
+            compile_expression(pv.default_expression)
+        except ValueError as e:
+            pipeline_variable_errors.append(
+                f"Variable de pipeline « {pv.name} » : expression invalide — {e}"
+            )
+
     edges_orm = db.get_edges(pipeline_id)
     if edges_orm:
         edges = [
@@ -1329,6 +1338,7 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
         errors, warnings = validate_pipeline_graph(steps, edges)
     else:
         errors, warnings = validate_step_sequence(steps)
+    errors = pipeline_variable_errors + errors
 
     checked = 0
     for i, step in enumerate(steps):
