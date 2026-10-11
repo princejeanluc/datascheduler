@@ -154,6 +154,15 @@ def test_timeout_s_round_trip(qapp, test_db):
     assert dlg.result_step()["timeout_s"] == 120
 
 
+def test_table_row_height_is_taller_than_the_qt_default(qapp, test_db):
+    """Régression signalée par l'utilisateur (capture à l'appui) : 30px (défaut Qt) est trop
+    serré pour l'éditeur de cellule en cours de saisie, qui apparaissait aplati."""
+    from ui.step_editor.set_variable_config_dialog import _SetVariableConfigDialog
+
+    dlg = _SetVariableConfigDialog({}, None, "")
+    assert dlg.tbl_assignments.verticalHeader().defaultSectionSize() > 30
+
+
 def test_table_selected_row_does_not_match_header_color(qapp, test_db):
     """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
     ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),

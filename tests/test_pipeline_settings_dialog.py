@@ -269,6 +269,18 @@ def test_save_logs_an_audit_event(qapp, test_db):
 #  ④ Variables de pipeline
 # ──────────────────────────────────────────────
 
+def test_variables_table_row_height_is_taller_than_the_qt_default(qapp, test_db):
+    """Régression signalée par l'utilisateur (capture à l'appui) : la hauteur de ligne par
+    défaut de Qt (30px) ne tient pas compte du padding QSS déclaré sur QTableWidget::item — trop
+    serrée pour l'éditeur de cellule en cours de saisie, qui apparaissait aplati."""
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-vars-row-height")
+    dlg = _dialog_for(p)
+
+    assert dlg.tbl_variables.verticalHeader().defaultSectionSize() > 30
+
+
 def test_variables_table_selected_row_does_not_match_header_color(qapp, test_db):
     """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
     ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),

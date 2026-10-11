@@ -284,6 +284,12 @@ class PipelineSettingsDialog(QDialog):
         self.tbl_variables.setHorizontalHeaderLabels(["Nom", "Valeur par défaut (expression)"])
         self.tbl_variables.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_variables.verticalHeader().setVisible(False)
+        # La hauteur de ligne par défaut de Qt (30px) ne tient pas compte du padding QSS déclaré
+        # sur QTableWidget::item — confirmé : resizeRowsToContents() ne change rien, le calcul
+        # de taille par défaut d'un QTableWidgetItem ignore ce padding. Trop serré pour
+        # accueillir confortablement l'éditeur de cellule en cours de saisie (rendu réel vérifié
+        # avant/après ce correctif, signalé par l'utilisateur).
+        self.tbl_variables.verticalHeader().setDefaultSectionSize(38)
         self.tbl_variables.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_variables.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_variables.setMinimumHeight(120)

@@ -114,6 +114,11 @@ class _ExtractVariablesConfigDialog(_BaseStepConfigDialog):
         )
         self.tbl_mappings.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_mappings.verticalHeader().setVisible(False)
+        # La hauteur de ligne par défaut de Qt (30px) ne tient pas compte du padding QSS déclaré
+        # sur QTableWidget::item — confirmé : resizeRowsToContents() ne change rien. Trop serré
+        # pour l'éditeur de cellule en cours de saisie (rendu réel vérifié, signalé par
+        # l'utilisateur).
+        self.tbl_mappings.verticalHeader().setDefaultSectionSize(38)
         self.tbl_mappings.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_mappings.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_mappings.setMinimumHeight(160)

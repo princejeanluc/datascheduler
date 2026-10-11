@@ -66,6 +66,11 @@ class _SetVariableConfigDialog(_BaseStepConfigDialog):
         self.tbl_assignments.setHorizontalHeaderLabels(["Variable cible", "Expression"])
         self.tbl_assignments.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_assignments.verticalHeader().setVisible(False)
+        # La hauteur de ligne par défaut de Qt (30px) ne tient pas compte du padding QSS déclaré
+        # sur QTableWidget::item — confirmé : resizeRowsToContents() ne change rien. Trop serré
+        # pour l'éditeur de cellule en cours de saisie (rendu réel vérifié, signalé par
+        # l'utilisateur).
+        self.tbl_assignments.verticalHeader().setDefaultSectionSize(38)
         self.tbl_assignments.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_assignments.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_assignments.setMinimumHeight(160)
