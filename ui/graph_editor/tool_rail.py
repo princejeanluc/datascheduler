@@ -38,6 +38,21 @@ class EditorToolRail(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 12px;
             }}
+            /* Boutons du rail (maquette duplication de nœud, validée) : bordure invisible au
+               repos, révélée seulement au survol — contrairement à #secondary partout ailleurs
+               dans l'app (bordure permanente), ce panneau se veut un bloc compact d'icônes
+               flottantes, pas une grille de cases bordées. Sélecteur descendant qualifié par
+               #toolRailPanel : n'affecte que les boutons de ce rail, jamais #secondary ailleurs
+               (DIALOG_STYLE). setStyleSheet() direct sur un bouton (ex: l'état actif de la
+               mini-carte, refresh_minimap_button_style) l'emporte toujours sur cette règle. */
+            QWidget#toolRailPanel QPushButton#secondary {{
+                border: 1px solid transparent;
+            }}
+            QWidget#toolRailPanel QPushButton#secondary:hover {{
+                background-color: {COLORS['bg_hover']};
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
         """)
 
         layout = QVBoxLayout(self)
