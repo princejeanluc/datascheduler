@@ -60,6 +60,68 @@ def test_export_then_import_preserves_zones(test_db):
     assert (zones[0].pos_x, zones[0].pos_y, zones[0].width, zones[0].height) == (10, 20, 300, 200)
 
 
+def test_export_then_import_preserves_variables_and_order(test_db):
+    pipeline = db.create_pipeline(name="variables-round-trip")
+    db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}])
+    db.save_pipeline_variables(pipeline.id, [
+        {"name": "base_date", "default_expression": "today()"},
+        {"name": "limite", "default_expression": "date_add(var:base_date, -7)"},
+    ])
+
+    export_result = export_pipeline(pipeline.id)
+    assert export_result.success
+    assert export_result.bundle["pipeline"]["variables"] == [
+        {"name": "base_date", "default_expression": "today()"},
+        {"name": "limite", "default_expression": "date_add(var:base_date, -7)"},
+    ]
+
+    plan = plan_import(export_result.bundle)
+    result = apply_import(plan)
+    assert result.success, result.error
+
+    variables = db.get_pipeline_variables(result.pipeline_id)
+    assert [v.name for v in variables] == ["base_date", "limite"]
+    assert variables[1].default_expression == "date_add(var:base_date, -7)"
+
+
+def test_v2_style_bundle_without_variables_key_still_imports(tmp_path):
+    """Rétrocompatibilité : un bundle antérieur à ce chantier n'a pas la clé "variables"."""
+    db.init_db(tmp_path / "no_variables.db")
+    try:
+        pipeline = db.create_pipeline(name="no-variables-bundle")
+        db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}])
+        export_result = export_pipeline(pipeline.id)
+        bundle = export_result.bundle
+        del bundle["pipeline"]["variables"]
+
+        plan = plan_import(bundle)
+        result = apply_import(plan)
+
+        assert result.success, result.error
+        assert db.get_pipeline_variables(result.pipeline_id) == []
+    finally:
+        db._engine = None
+        db._SessionFactory = None
+
+
+def test_reimport_overwrite_replaces_variables(test_db):
+    pipeline = db.create_pipeline(name="variables-overwrite-test")
+    db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}])
+    db.save_pipeline_variables(pipeline.id, [{"name": "old", "default_expression": "1"}])
+    export_result = export_pipeline(pipeline.id)
+
+    db.save_pipeline_variables(pipeline.id, [{"name": "new", "default_expression": "2"}])
+
+    plan = plan_import(export_result.bundle)
+    plan.pipeline_action = "overwrite"
+    plan.pipeline_existing_id = pipeline.id
+    result = apply_import(plan)
+    assert result.success, result.error
+
+    variables = db.get_pipeline_variables(pipeline.id)
+    assert [v.name for v in variables] == ["old"]   # le bundle exporté a repris le dessus
+
+
 def _make_pipeline_with_oracle_extract():
     profile = db.create_oracle_profile(
         name="ORACLE_PROD", host="10.0.0.1", port=1521,

@@ -143,3 +143,20 @@ def test_seeding_failure_aborts_the_run_before_any_step_and_before_create_run(
     assert "x" in result.error
     assert result.run_id is None       # aucune ligne PipelineRun créée
     assert not marker.exists()         # l'étape n'a jamais tourné
+
+
+def test_duplicate_pipeline_carries_variables_through_automatically(test_db):
+    """duplicate_pipeline() (database/export_import.py) passe par le même aller-retour export
+    -> import que les arêtes/zones — aucun changement de code nécessaire pour que les variables
+    suivent, confirmé ici plutôt que simplement supposé."""
+    from database.export_import import duplicate_pipeline
+
+    pipeline = db.create_pipeline(name="pv-duplicate-test")
+    db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}}])
+    db.save_pipeline_variables(pipeline.id, [{"name": "env", "default_expression": '"PROD"'}])
+
+    result = duplicate_pipeline(pipeline.id)
+
+    assert result.success, result.error
+    variables = db.get_pipeline_variables(result.pipeline_id)
+    assert [v.name for v in variables] == ["env"]

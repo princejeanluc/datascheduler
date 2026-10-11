@@ -445,6 +445,15 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
             for z in zones
         ]
 
+        # Variables de pipeline (chantier variables de pipeline) — passage verbatim comme les
+        # zones ci-dessus : aucune référence de profil, pas de traduction UUID nécessaire.
+        # L'ORDRE est préservé par get_pipeline_variables() (order_by(id)) — déterminant pour
+        # l'amorçage séquentiel de ctx.variables à l'exécution (core/pipeline.py).
+        exported_variables = [
+            {"name": v.name, "default_expression": v.default_expression}
+            for v in db.get_pipeline_variables(pipeline_id)
+        ]
+
         profiles_bundle = {
             category: [_SERIALIZERS[category](obj, fernet) for obj in objs.values()]
             for category, objs in needed.items() if category != "sql_query"
@@ -471,6 +480,7 @@ def export_pipeline(pipeline_id: int, password: str | None = None) -> ExportResu
                 "steps":           exported_steps,
                 "edges":           exported_edges,
                 "zones":           exported_zones,
+                "variables":       exported_variables,
             },
             "profiles":    profiles_bundle,
             "sql_queries": sql_queries_bundle,
@@ -778,6 +788,11 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
         # tout bundle v1/v2 sans clé "zones".
         translated_zones = list(pipeline_data.get("zones", []))
 
+        # Variables de pipeline (chantier variables de pipeline) — même traitement que les
+        # zones : verbatim, .get(..., []) pour la rétrocompatibilité avec tout bundle antérieur
+        # à cette clé.
+        translated_variables = list(pipeline_data.get("variables", []))
+
         if plan.pipeline_action == "overwrite" and plan.pipeline_existing_id:
             # Choix explicite de l'écran de revue (chantier 5c) — remplace le pipeline local
             # existant en place (même id/UUID, c'est justement pour ça qu'il y avait collision).
@@ -795,6 +810,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             )
             db.save_pipeline_graph(plan.pipeline_existing_id, translated_steps, translated_edges,
                                     zones=translated_zones)
+            db.save_pipeline_variables(plan.pipeline_existing_id, translated_variables)
             db.set_pipeline_active(plan.pipeline_existing_id, pipeline_data.get("is_active", True))
             new_pipeline_id = plan.pipeline_existing_id
         else:
@@ -821,6 +837,7 @@ def apply_import(plan: ImportPlan) -> ApplyResult:
             )
             db.save_pipeline_graph(new_pipeline.id, translated_steps, translated_edges,
                                     zones=translated_zones)
+            db.save_pipeline_variables(new_pipeline.id, translated_variables)
             db.set_pipeline_active(new_pipeline.id, pipeline_data.get("is_active", True))
             new_pipeline_id = new_pipeline.id
 
