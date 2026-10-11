@@ -178,6 +178,30 @@ def test_table_row_height_is_taller_than_the_qt_default(qapp, test_db):
     assert dlg.tbl_mappings.verticalHeader().defaultSectionSize() > 30
 
 
+def test_table_cell_editor_is_tall_enough_to_not_clip_the_font(qapp, test_db):
+    """Verrou précis sur la vraie cause (une première valeur, 38px, passait déjà le test
+    ci-dessus tout en laissant le texte coupé en édition sur la vraie app) : le padding vertical
+    de QTableWidget::item (règle du style global, pas DIALOG_STYLE — ce test applique donc
+    GLOBAL_STYLE explicitement) est retranché de la ligne pour placer l'éditeur, EN PLUS du
+    padding propre du QLineEdit."""
+    from ui.step_editor.extract_variables_config_dialog import _ExtractVariablesConfigDialog
+    from ui.main_window.widgets import GLOBAL_STYLE
+
+    qapp.setStyleSheet(GLOBAL_STYLE)
+    try:
+        dlg = _ExtractVariablesConfigDialog({}, None, "")
+        dlg.tbl_mappings.item(0, 0).setText("MAX_DATE")
+        dlg.show()
+        dlg.tbl_mappings.editItem(dlg.tbl_mappings.item(0, 0))
+
+        editor = dlg.tbl_mappings.cellWidget(0, 0)
+        assert editor is not None
+        needed = dlg.tbl_mappings.fontMetrics().height() + 14
+        assert editor.height() >= needed
+    finally:
+        qapp.setStyleSheet("")
+
+
 def test_table_selected_row_does_not_match_header_color(qapp, test_db):
     """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
     ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),

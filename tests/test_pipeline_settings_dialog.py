@@ -281,6 +281,33 @@ def test_variables_table_row_height_is_taller_than_the_qt_default(qapp, test_db)
     assert dlg.tbl_variables.verticalHeader().defaultSectionSize() > 30
 
 
+def test_variables_table_cell_editor_is_tall_enough_to_not_clip_the_font(qapp, test_db):
+    """Verrou précis sur la vraie cause (une première valeur de hauteur de ligne, 38px, passait
+    déjà le test ci-dessus tout en laissant le texte coupé en édition sur la vraie app) : le
+    padding vertical de QTableWidget::item (règle du style global, PAS DIALOG_STYLE — c'est
+    pourquoi ce test doit appliquer GLOBAL_STYLE explicitement, sans quoi il ne mesure rien de
+    réel) est retranché de la ligne pour placer l'éditeur de cellule, EN PLUS du padding propre
+    du QLineEdit — l'éditeur réellement affiché doit donc être assez grand pour la métrique de
+    police + son propre padding, pas seulement « plus grand que 30px »."""
+    from database import db_manager as db
+    from ui.main_window.widgets import GLOBAL_STYLE
+
+    qapp.setStyleSheet(GLOBAL_STYLE)
+    try:
+        p = db.create_pipeline(name="settings-vars-editor-height")
+        dlg = _dialog_for(p)
+        dlg._add_variable_row("x", "1")
+        dlg.show()
+        dlg.tbl_variables.editItem(dlg.tbl_variables.item(0, 0))
+
+        editor = dlg.tbl_variables.cellWidget(0, 0)
+        assert editor is not None
+        needed = dlg.tbl_variables.fontMetrics().height() + 14   # + padding QLineEdit (7px x2)
+        assert editor.height() >= needed
+    finally:
+        qapp.setStyleSheet("")   # n'affecte pas les autres tests de ce module
+
+
 def test_variables_table_selected_row_does_not_match_header_color(qapp, test_db):
     """Régression signalée par l'utilisateur (capture à l'appui) : l'en-tête du tableau et une
     ligne sélectionnée (ex : en cours d'édition) partageaient la même couleur (bg_active),

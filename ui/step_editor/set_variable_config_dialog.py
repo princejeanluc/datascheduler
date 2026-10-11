@@ -66,11 +66,14 @@ class _SetVariableConfigDialog(_BaseStepConfigDialog):
         self.tbl_assignments.setHorizontalHeaderLabels(["Variable cible", "Expression"])
         self.tbl_assignments.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_assignments.verticalHeader().setVisible(False)
-        # La hauteur de ligne par défaut de Qt (30px) ne tient pas compte du padding QSS déclaré
-        # sur QTableWidget::item — confirmé : resizeRowsToContents() ne change rien. Trop serré
-        # pour l'éditeur de cellule en cours de saisie (rendu réel vérifié, signalé par
-        # l'utilisateur).
-        self.tbl_assignments.verticalHeader().setDefaultSectionSize(38)
+        # 52px, pas une estimation au jugé : le padding vertical de QTableWidget::item (8px+8px,
+        # règle globale) est retranché DEUX FOIS — une fois pour placer l'éditeur de cellule dans
+        # la ligne, une fois de plus par le padding propre du QLineEdit (7px+7px) — avant de
+        # clipper le texte (confirmé via editor.geometry() avant/après ce correctif ; 38px essayé
+        # d'abord, rejeté — le texte de l'éditeur restait visuellement coupé en cours de saisie
+        # même si la ligne elle-même paraissait assez grande). Signalé par l'utilisateur, capture
+        # à l'appui.
+        self.tbl_assignments.verticalHeader().setDefaultSectionSize(52)
         self.tbl_assignments.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_assignments.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_assignments.setMinimumHeight(160)

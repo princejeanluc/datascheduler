@@ -289,7 +289,15 @@ class PipelineSettingsDialog(QDialog):
         # de taille par défaut d'un QTableWidgetItem ignore ce padding. Trop serré pour
         # accueillir confortablement l'éditeur de cellule en cours de saisie (rendu réel vérifié
         # avant/après ce correctif, signalé par l'utilisateur).
-        self.tbl_variables.verticalHeader().setDefaultSectionSize(38)
+        # 52px, pas une estimation au jugé : le padding vertical de QTableWidget::item (8px+8px,
+        # règle globale) est retranché DEUX FOIS — une fois pour placer l'éditeur de cellule dans
+        # la ligne, une fois de plus par le padding propre du QLineEdit (7px+7px, confirmé via
+        # editor.geometry() avant/après ce correctif) — avant de clipper le texte. 52 = hauteur de
+        # police (~17px) + padding QLineEdit (14px) + padding QTableWidget::item (16px) + marge.
+        # Une hauteur insuffisante ici (38px essayé d'abord, rejeté) laisse le texte de l'éditeur
+        # visuellement coupé en cours de saisie, même si la ligne elle-même paraît assez grande —
+        # signalé par l'utilisateur avec capture à l'appui, reproduit en rendu réel avant correction.
+        self.tbl_variables.verticalHeader().setDefaultSectionSize(52)
         self.tbl_variables.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tbl_variables.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tbl_variables.setMinimumHeight(120)

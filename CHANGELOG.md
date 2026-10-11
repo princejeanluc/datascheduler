@@ -50,10 +50,13 @@ bas pour son introduction).
   bloc, rendant la zone de saisie réelle minuscule et difficile à distinguer. Signalé par un
   utilisateur, capture à l'appui. La ligne sélectionnée a désormais sa propre couleur, distincte
   de l'en-tête.
-- Même trois dialogues : une fois la couleur corrigée, l'éditeur de cellule en cours de saisie
-  restait visuellement aplati — la hauteur de ligne par défaut de Qt (30px) ne tient pas compte
-  du padding QSS déclaré sur `QTableWidget::item`, trop serrée pour l'éditeur. Hauteur de ligne
-  explicite (38px), revérifiée en rendu réel sur l'affichage normal et en cours d'édition.
+- Même trois dialogues : une fois la couleur corrigée, le texte de l'éditeur de cellule en cours
+  de saisie restait visuellement coupé — le padding vertical de `QTableWidget::item` (règle du
+  style global) est retranché de la ligne pour placer l'éditeur, en plus du padding propre du
+  champ de saisie lui-même ; les deux se cumulent. Une première hauteur de ligne (38px) ne
+  suffisait pas encore et laissait le texte coupé — confirmé en mesurant la géométrie réelle de
+  l'éditeur, corrigé avec une hauteur de ligne (52px) qui tient compte des deux paddings
+  cumulés, verrouillé par un test qui échoue bien sur la valeur insuffisante.
 
 ## [0.41.0] - 2026-10-11
 
