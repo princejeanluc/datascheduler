@@ -92,6 +92,41 @@ def test_rail_delete_button_click_removes_selected_node(qapp, test_db):
     assert dlg._scene.nodes == {}
 
 
+def test_rail_duplicate_button_click_duplicates_selected_node(qapp, test_db):
+    pipeline = db.create_pipeline(name="rail-duplicate-click-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    node = dlg._scene.add_node({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+                                dlg._next_new_node_pos())
+    node.setSelected(True)
+
+    dlg._rail.btn_duplicate.click()
+
+    assert len(dlg._scene.nodes) == 2
+
+
+def test_duplicate_shortcut_reaches_the_same_handler(qapp, test_db):
+    """Ctrl+D doit déclencher la même duplication que le bouton du rail — vérifié par
+    comportement (un nœud de plus dans la scène), pas par interception d'appel : un QShortcut
+    capture la méthode liée au moment de la connexion, un monkeypatch ultérieur de l'attribut
+    d'instance ne la réécrirait pas. Émission directe du signal activated() plutôt que
+    QTest.keySequence() : la délivrance réelle de la séquence de touches exige une fenêtre
+    visible/active (Qt.WindowShortcut), indisponible en offscreen sans dlg.show()."""
+    from PySide6.QtGui import QShortcut, QKeySequence
+
+    pipeline = db.create_pipeline(name="rail-duplicate-shortcut-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+    node = dlg._scene.add_node({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}},
+                                dlg._next_new_node_pos())
+    node.setSelected(True)
+
+    shortcut = next(
+        s for s in dlg.findChildren(QShortcut) if s.key() == QKeySequence("Ctrl+D")
+    )
+    shortcut.activated.emit()
+
+    assert len(dlg._scene.nodes) == 2
+
+
 def test_rail_auto_layout_button_click_repositions_nodes(qapp, test_db):
     pipeline = db.create_pipeline(name="rail-auto-layout-click-test")
     db.save_pipeline_graph(pipeline.id, steps=[

@@ -301,6 +301,16 @@ class PipelineGraphScene(QGraphicsScene):
             return
         super().mouseDoubleClickEvent(event)
 
+    def contextMenuEvent(self, event):
+        """Premier clic-droit de cet éditeur (chantier duplication de nœud) — même patron de
+        hit-test que mouseDoubleClickEvent ci-dessus. Seuls les nœuds ont un menu pour l'instant ;
+        un clic-droit ailleurs (arête, zone, canevas vide) ne fait rien de spécifique."""
+        item = self.itemAt(event.scenePos(), QTransform())
+        if isinstance(item, StepNodeItem):
+            self.node_context_menu_requested.emit(item, event.screenPos())
+            return
+        super().contextMenuEvent(event)
+
     # ── Suppression ───────────────────────────
 
     def keyPressEvent(self, event):

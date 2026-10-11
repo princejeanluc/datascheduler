@@ -8,6 +8,7 @@ qui ne touche jamais aux étapes/arêtes, contrairement à l'ancien PipelineEdit
 """
 
 from PySide6.QtCore import QPointF, QSize, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox, QInputDialog,
 )
@@ -23,6 +24,7 @@ from .graph_view import PipelineGraphView
 from .node_item import StepNodeItem
 from .edge_item import EdgeItem
 from .zone_item import ZoneItem
+from .node_context_menu import build_node_context_menu
 from .minimap_widget import GraphMinimapWidget
 from .tool_rail import EditorToolRail
 from .zoom_widget import ZoomWidget
@@ -181,8 +183,15 @@ class PipelineGraphEditorDialog(QDialog):
         self._scene = PipelineGraphScene()
         self._scene.node_double_clicked.connect(self._on_node_double_clicked)
         self._scene.zone_double_clicked.connect(self._on_zone_double_clicked)
+        self._scene.node_context_menu_requested.connect(self._on_node_context_menu)
         self._view = PipelineGraphView(self._scene)
         root.addWidget(self._view, stretch=1)
+
+        # Raccourci clavier — même idiome que Ctrl+N (pipelines_view.py)/F5 (window.py), jamais
+        # utilisé dans cet éditeur jusqu'ici. Même point d'appel que le bouton du rail et le menu
+        # contextuel — _on_duplicate_selected() reste le seul endroit où duplicate_node() est
+        # réellement invoqué.
+        QShortcut(QKeySequence("Ctrl+D"), self, activated=self._on_duplicate_selected)
 
         # Mini-carte de navigation (chantier UX éditeur, Lot 2, A3) — parentée au viewport, pas
         # à la vue elle-même, pour éviter tout décalage de coordonnées dû au cadre par défaut de
@@ -480,6 +489,17 @@ class PipelineGraphEditorDialog(QDialog):
                 self._scene.remove_edge(item)
             elif isinstance(item, ZoneItem):
                 self._scene.remove_zone(item)
+
+    def _on_node_context_menu(self, node: StepNodeItem, screen_pos):
+        """Clic-droit sur un nœud : le sélectionne d'abord s'il ne fait pas déjà partie de la
+        sélection courante (convention standard — un clic-droit agit sur "ce nœud", sauf s'il
+        fait déjà partie d'une sélection multiple volontaire), puis ouvre le menu construit par
+        build_node_context_menu() — jamais de logique de nœud dupliquée ici, le menu appelle les
+        mêmes gestionnaires que le rail/le raccourci."""
+        if node not in self._scene.selectedItems():
+            self._scene.clearSelection()
+            node.setSelected(True)
+        build_node_context_menu(node, self).exec(screen_pos)
 
     def _on_duplicate_selected(self):
         """Seul point d'appel réel des trois déclencheurs (bouton du rail, Ctrl+D, action

@@ -60,6 +60,13 @@ class EditorToolRail(QWidget):
         self.btn_add_zone.clicked.connect(dialog._on_add_zone)
         layout.addWidget(self.btn_add_zone)
 
+        self.btn_duplicate = _action_btn(
+            "fa5s.clone", object_name="secondary", tooltip="Dupliquer la sélection (Ctrl+D)",
+            size=_BUTTON_SIZE,
+        )
+        self.btn_duplicate.clicked.connect(dialog._on_duplicate_selected)
+        layout.addWidget(self.btn_duplicate)
+
         self.btn_delete = _action_btn(
             "fa5s.trash-alt", object_name="secondary", tooltip="Supprimer la sélection",
             size=_BUTTON_SIZE,
