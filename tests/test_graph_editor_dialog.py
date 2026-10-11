@@ -697,7 +697,9 @@ def test_auto_layout_orders_diamond_branches_by_barycenter(qapp, test_db):
 
 
 def test_auto_layout_warns_and_leaves_positions_unchanged_on_cycle(qapp, test_db, monkeypatch):
-    import ui.graph_editor.graph_editor_dialog as dialog_module
+    # Chantier Atelier Pipelines : _on_auto_layout() a déménagé vers graph_editor_widget.py —
+    # c'est son QMessageBox (importé dans ce module) qu'il faut patcher.
+    import ui.graph_editor.graph_editor_widget as dialog_module
 
     pipeline = db.create_pipeline(name="auto-layout-cycle")
     db.save_pipeline_graph(pipeline.id, steps=[

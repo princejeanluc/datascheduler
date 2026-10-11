@@ -80,7 +80,10 @@ def test_btn_undo_layout_is_the_same_widget_on_dialog_and_rail(qapp, test_db):
 
 def test_rail_add_step_button_click_opens_step_chooser(qapp, test_db, monkeypatch):
     from PySide6.QtWidgets import QDialog
-    import ui.graph_editor.graph_editor_dialog as dialog_module
+    # Chantier Atelier Pipelines : la logique de _on_add_step() (et donc le nom
+    # StepTypeChooserDialog qu'elle référence) a déménagé vers graph_editor_widget.py — c'est ce
+    # module qu'il faut patcher, pas graph_editor_dialog.py (qui ne fait plus que l'envelopper).
+    import ui.graph_editor.graph_editor_widget as dialog_module
 
     pipeline = db.create_pipeline(name="rail-add-step-click-test")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
@@ -209,7 +212,8 @@ def test_rail_undo_layout_button_click_restores_positions(qapp, test_db):
 
 def test_rail_help_button_click_opens_help_dialog(qapp, test_db, monkeypatch):
     from PySide6.QtWidgets import QDialog
-    import ui.graph_editor.graph_editor_dialog as dialog_module
+    # Chantier Atelier Pipelines : _on_show_help() a déménagé vers graph_editor_widget.py.
+    import ui.graph_editor.graph_editor_widget as dialog_module
 
     pipeline = db.create_pipeline(name="rail-help-click-test")
     dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)

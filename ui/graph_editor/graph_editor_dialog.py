@@ -1,129 +1,56 @@
 """
 DataScheduler — ui/graph_editor/graph_editor_dialog.py
-Dialogue principal de l'éditeur graphique (chantier 6b) : édite les étapes + leurs connexions
-d'un pipeline déjà existant — désormais le SEUL éditeur d'étapes de l'app (chantier fusion des
-éditeurs). Nom/description/planification/déclenchement/actif vivent dans le panneau séparé
-PipelineSettingsDialog ("Paramètres du pipeline", raccourci dans la barre d'outils ci-dessous) —
-qui ne touche jamais aux étapes/arêtes, contrairement à l'ancien PipelineEditorDialog retiré.
+Dialogue modal historique de l'éditeur graphique — depuis le chantier Atelier Pipelines, son
+contenu (toolbar/canevas/scène/vue/minimap/rail/zoom, tous les _on_*) a été extrait vers
+PipelineGraphEditorWidget (graph_editor_widget.py). Ce QDialog n'est plus qu'une fine enveloppe de
+compatibilité : AUCUN point d'appel en production ne l'instancie plus (PipelinesView/HistoryView
+ouvrent désormais AtelierPipelinesView, la vue non-modale intégrée à la fenêtre principale) — il
+n'est conservé que parce que ~13 fichiers de tests existants l'instancient directement et
+accèdent à des attributs/méthodes internes (`dlg._scene`, `dlg._rail`, `dlg._on_save()`, etc.).
+Un `__getattr__` délègue tout ce que ce dialogue ne définit pas lui-même à son widget interne
+(`self._editor`), pour que ces tests continuent de passer sans aucune modification.
 """
 
-from PySide6.QtCore import QPointF, QSize, QTimer
-from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QMessageBox, QInputDialog,
-)
+from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
 
 from ui.styles import COLORS, DIALOG_STYLE
-from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
-from ui.step_editor.common import _icon
-from ui.main_window.widgets import _make_search_input
-from core.pipeline import validate_pipeline_graph, topological_ranks
-
-from .graph_scene import PipelineGraphScene
-from .graph_view import PipelineGraphView
-from .node_item import StepNodeItem
-from .edge_item import EdgeItem
-from .zone_item import ZoneItem
-from .node_context_menu import build_node_context_menu
-from .minimap_widget import GraphMinimapWidget
-from .tool_rail import EditorToolRail
-from .zoom_widget import ZoomWidget
-from .help_popup import GraphHelpDialog
-from ui.help.content import get_topic
-
-_NODE_SPACING_X = 240
-_ROW_HEIGHT = 120
-_ROWS_PER_COLUMN = 3
-# Décalage de départ (chantier chrome de l'éditeur) — dégage le rail d'icônes flottant ancré en
-# haut à gauche du canevas (tool_rail.py), qui recouvrirait sinon tout nœud placé par défaut à
-# 60,60 (pipeline neuf ou legacy jamais repositionné). Heuristique, pas une garantie parfaite (la
-# correspondance scène↔écran dépend du zoom/défilement courants), mais dégage le cas courant à
-# zoom par défaut sans changer _NODE_SPACING_X/_ROW_HEIGHT/_ROWS_PER_COLUMN (espacement entre
-# nœuds, pas décalage de départ).
-_START_X, _START_Y = 110, 90
+from .graph_editor_widget import (
+    PipelineGraphEditorWidget,
+    # Ré-exportées pour compatibilité (chantier Atelier Pipelines — ces constantes vivent
+    # désormais dans graph_editor_widget.py) : tests/test_graph_tool_rail.py les importe
+    # directement depuis ce module.
+    _START_X, _START_Y, _NODE_SPACING_X, _ROW_HEIGHT, _ROWS_PER_COLUMN,
+)
 
 
 class PipelineGraphEditorDialog(QDialog):
-    """Éditeur graphique des étapes d'un pipeline déjà existant."""
+    """Enveloppe modale de PipelineGraphEditorWidget — voir docstring du module."""
 
     def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None):
         super().__init__(parent)
-        self._pipeline = pipeline
-        # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
-        # éditeur, Lot 1) — aucun QUndoStack n'existe nulle part dans cette app, annulation à un
-        # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
-        # précédent à chaque nouveau rangement, effacé par _on_undo_layout().
-        self._layout_snapshot: dict[str, QPointF] | None = None
-        # Résultats de la recherche textuelle courante (chantier UX éditeur, Lot 2, B3) —
-        # reconstruits à chaque frappe dans _on_search_changed(), cyclés par _on_search_jump().
-        self._search_matches: list[StepNodeItem] = []
-        self._search_match_idx: int = -1
-        self._load_profiles()
-
         self.setWindowTitle(f"Éditeur graphique — {pipeline.name}" if pipeline else "Éditeur graphique")
         self.setMinimumSize(900, 640)
         self.setStyleSheet(DIALOG_STYLE)
-        self._build_ui()
-        self._load_graph()
+        self._build_ui(pipeline, highlight_step_key)
 
-        if highlight_step_key:
-            # Lien "Voir dans le graphe" depuis une ligne d'historique en échec (chantier UX
-            # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture, jamais le sondage live
-            # ci-dessous : get_running_step_keys_multi()/get_running_step_keys() ne trouvent
-            # structurellement jamais un run FAILED (filtrés sur RUNNING), le lancer serait donc
-            # pur travail perdu. Limite acceptée et documentée : un run concurrent réellement en
-            # cours sur ce même pipeline, dans une autre fenêtre, n'est pas pris en compte ici.
-            self._highlight_failed_step(highlight_step_key)
-            return
+        if not highlight_step_key:
+            # Traçage lumineux (chantier identité visuelle) : actif en permanence dès
+            # l'ouverture, pas de bascule de mode. Jamais démarré dans le cas highlight_step_key
+            # (lien "Voir dans le graphe" sur un run FAILED) — get_running_step_keys_multi()/
+            # get_running_step_keys() ne trouvent structurellement jamais un run FAILED (filtrés
+            # sur RUNNING), le sondage serait du travail perdu.
+            self._editor.start_polling()
 
-        # Traçage lumineux (chantier identité visuelle) : actif en permanence dès l'ouverture,
-        # pas de bascule de mode — éditer un pipeline qui se trouve être en cours d'exécution
-        # ailleurs affiche simplement le surlignage par-dessus, sans bloquer l'édition.
-        from database import db_manager as db
-        self._executing_timer = QTimer(self)
-        self._executing_timer.setInterval(db.get_app_settings().trace_glow_refresh_s * 1000)
-        self._executing_timer.timeout.connect(self._poll_executing_step)
-        self._executing_timer.start()
+    def __getattr__(self, name):
+        # N'est appelé que si l'attribut est absent du dialogue lui-même — délègue au widget
+        # interne (compatibilité rétroactive des tests existants, voir docstring du module).
+        # Garde explicite sur "_editor" : évite une récursion infinie si ce hook est atteint
+        # avant que self._editor n'existe encore (ex. pendant super().__init__()).
+        if name == "_editor":
+            raise AttributeError(name)
+        return getattr(self._editor, name)
 
-    def _highlight_failed_step(self, step_key: str) -> None:
-        node = self._scene.nodes.get(step_key)
-        if not node:
-            return
-        node.set_failed(True)
-        for e in self._scene.edges:
-            if e.to_node is node:
-                e.set_failed(True)
-        self._view.centerOn(node)
-
-    def _poll_executing_step(self):
-        if not self._pipeline:
-            return
-        from database import db_manager as db
-        # Priorité au suivi multi-étapes (chantier parallélisme intra-pipeline) — non vide
-        # uniquement pour un run ayant réellement emprunté le moteur concurrent
-        # (PipelineRun.active_steps_json) ; sinon repli sur le suivi historique à une seule
-        # étape (get_running_step_keys()), utilisé par tout run linéaire/graphe séquentiel,
-        # inchangé.
-        multi = db.get_running_step_keys_multi().get(self._pipeline.id)
-        if multi:
-            self._scene.set_executing_step_keys(multi)
-            return
-        step_key = db.get_running_step_keys().get(self._pipeline.id)
-        self._scene.set_executing_step_keys({step_key} if step_key else set())
-
-    # ── Données ──────────────────────────────
-
-    def _load_profiles(self):
-        from database import db_manager as db
-        self._oracle_profiles = db.get_oracle_profiles()
-        self._ftp_profiles    = db.get_ftp_profiles()
-        self._sql_queries     = db.get_sql_queries()
-        self._smtp_profiles   = db.get_smtp_profiles()
-        self._db_profiles     = db.list_all_db_profiles()
-
-    # ── Construction UI ──────────────────────
-
-    def _build_ui(self):
+    def _build_ui(self, pipeline, highlight_step_key):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -137,87 +64,17 @@ class PipelineGraphEditorDialog(QDialog):
         )
         root.addWidget(hdr)
 
-        # Barre de contexte (chantier chrome de l'éditeur) — ne garde que ce qui n'est pas de
-        # l'édition du graphe : les 6 actions du canevas (ajouter/supprimer/ranger/zones/
-        # mini-carte) vivent désormais dans le rail d'icônes flottant (tool_rail.py), pas ici.
-        # C'est ce qui débordait/se tronquait dans l'ancienne barre unique (capture utilisateur).
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(16, 8, 16, 8)
-        toolbar.setSpacing(8)
-
-        hint = QLabel(
-            "Glisser depuis un point de sortie vers un point d'entrée pour connecter deux "
-            "étapes."
+        self._editor = PipelineGraphEditorWidget(
+            parent=self, pipeline=pipeline, highlight_step_key=highlight_step_key,
+            show_settings_shortcut_button=True,
         )
-        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
-        toolbar.addWidget(hint)
-        toolbar.addStretch(1)
-
-        self.inp_search = _make_search_input("Rechercher un nœud…")
-        self.inp_search.setToolTip(
-            "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le résultat "
-            "suivant."
+        # Le widget n'a pas de fenêtre à lui — c'est à nous de refléter un renommage fait via
+        # "Paramètres du pipeline" dans le titre de CE dialogue (voir
+        # tests/test_graph_editor_dialog.py::test_settings_button_opens_settings_dialog_and_refreshes_title).
+        self._editor.pipeline_renamed.connect(
+            lambda name: self.setWindowTitle(f"Éditeur graphique — {name}")
         )
-        self.inp_search.textChanged.connect(self._on_search_changed)
-        self.inp_search.returnPressed.connect(self._on_search_jump)
-        toolbar.addWidget(self.inp_search)
-
-        btn_settings = QPushButton("  Paramètres du pipeline")
-        btn_settings.setObjectName("secondary")
-        btn_settings.setFixedHeight(32)
-        btn_settings.setIcon(_icon("fa5s.cog", COLORS["text_main"]))
-        btn_settings.setIconSize(QSize(14, 14))
-        btn_settings.setToolTip(
-            "Nom, description, planification, déclenchement conditionnel et actif/inactif — "
-            "n'affecte jamais les étapes ni les connexions de ce graphe."
-        )
-        btn_settings.clicked.connect(self._on_open_settings_dialog)
-        toolbar.addWidget(btn_settings)
-
-        root.addLayout(toolbar)
-
-        sep = QFrame(); sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
-        root.addWidget(sep)
-
-        self._scene = PipelineGraphScene()
-        self._scene.node_double_clicked.connect(self._on_node_double_clicked)
-        self._scene.zone_double_clicked.connect(self._on_zone_double_clicked)
-        self._scene.node_context_menu_requested.connect(self._on_node_context_menu)
-        self._view = PipelineGraphView(self._scene)
-        root.addWidget(self._view, stretch=1)
-
-        # Raccourci clavier — même idiome que Ctrl+N (pipelines_view.py)/F5 (window.py), jamais
-        # utilisé dans cet éditeur jusqu'ici. Même point d'appel que le bouton du rail et le menu
-        # contextuel — _on_duplicate_selected() reste le seul endroit où duplicate_node() est
-        # réellement invoqué.
-        QShortcut(QKeySequence("Ctrl+D"), self, activated=self._on_duplicate_selected)
-
-        # Mini-carte de navigation (chantier UX éditeur, Lot 2, A3) — parentée au viewport, pas
-        # à la vue elle-même, pour éviter tout décalage de coordonnées dû au cadre par défaut de
-        # QGraphicsView (jamais retiré ici). Visible par défaut.
-        self._minimap = GraphMinimapWidget(self._scene, self._view, parent=self._view.viewport())
-        self._view._minimap = self._minimap
-        self._minimap.reposition()
-        self._scene.changed.connect(lambda *_: self._minimap.request_repaint())
-        self._view.horizontalScrollBar().valueChanged.connect(
-            lambda *_: self._minimap.request_repaint())
-        self._view.verticalScrollBar().valueChanged.connect(
-            lambda *_: self._minimap.request_repaint())
-
-        # Rail d'icônes flottant (chantier chrome de l'éditeur) — mêmes parenté/mécanique que la
-        # mini-carte ci-dessus, ancré près du bord opposé (haut-gauche) du canevas.
-        self._rail = EditorToolRail(self, parent=self._view.viewport())
-        self._view._rail = self._rail
-        self._rail.reposition()
-        self._btn_undo_layout = self._rail.btn_undo_layout
-        self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
-
-        # Widget de zoom flottant (chantier identité visuelle) — coin bas-gauche, opposé à la
-        # mini-carte (bas-droite).
-        self._zoom_widget = ZoomWidget(self._view, parent=self._view.viewport())
-        self._view._zoom_widget = self._zoom_widget
-        self._zoom_widget.reposition()
+        root.addWidget(self._editor, stretch=1)
 
         sep2 = QFrame(); sep2.setFrameShape(QFrame.HLine)
         sep2.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
@@ -235,367 +92,6 @@ class PipelineGraphEditorDialog(QDialog):
         btn_row.addWidget(btn_cancel); btn_row.addWidget(btn_save)
         root.addLayout(btn_row)
 
-    # ── Chargement ────────────────────────────
-
-    def _load_graph(self):
-        if not self._pipeline:
-            return
-        from database import db_manager as db
-        import json
-
-        steps = db.get_steps(self._pipeline.id)
-        edges = db.get_edges(self._pipeline.id)
-
-        all_at_origin = all(s.pos_x == 0 and s.pos_y == 0 for s in steps) if steps else True
-
-        for i, s in enumerate(steps):
-            step = {
-                "step_type":   str(s.step_type).replace("StepType.", ""),
-                "label":       s.label or "",
-                "config":      json.loads(s.config_json or "{}"),
-                "retry_count": s.retry_count or 0,
-                "retry_interval_s": s.retry_interval_s or 5,
-                "run_always":  bool(s.run_always),
-                # Bug réel trouvé en ajoutant retry_interval_s ci-dessus : timeout_s n'était
-                # jamais chargé ici, alors que _open_config_dialog() le lit bien plus bas
-                # (step.get("timeout_s", 0)) — un step existant avec un vrai timeout configuré
-                # le voyait silencieusement retomber à 0 (illimité) à chaque réouverture de
-                # l'éditeur graphique, jusqu'à ce que l'utilisateur ressaisisse la valeur.
-                "timeout_s":   s.timeout_s or 0,
-            }
-            if all_at_origin:
-                col, row = divmod(i, _ROWS_PER_COLUMN)
-                pos = QPointF(_START_X + col * _NODE_SPACING_X, _START_Y + row * _ROW_HEIGHT)
-            else:
-                pos = QPointF(s.pos_x, s.pos_y)
-            self._scene.add_node(step, pos)
-
-        for e in edges:
-            self._scene.add_edge(e.from_step_key, e.from_port, e.to_step_key)
-
-        for z in db.get_zones(self._pipeline.id):
-            self._scene.add_zone(z.name, QPointF(z.pos_x, z.pos_y), z.width, z.height)
-
-    # ── Ajout / édition / suppression ─────────
-
-    def _next_new_node_pos(self) -> QPointF:
-        if not self._scene.nodes:
-            return QPointF(_START_X, _START_Y)
-        max_x = max(n.pos().x() for n in self._scene.nodes.values())
-        return QPointF(max_x + _NODE_SPACING_X, _START_Y)
-
-    # ── Rangement automatique (chantier UX éditeur, Lot 1) ────
-
-    def _compute_auto_layout_positions(self, node_subset=None) -> dict | None:
-        """Calcule une nouvelle position pour chaque nœud du canevas (ou du sous-ensemble
-        `node_subset`, en prévision d'un futur "Ranger la sélection" — pas encore branché dans
-        ce lot, mais le coût de le supporter ici est quasi nul) : colonne = rang topologique,
-        ligne = ordre par barycentre des prédécesseurs déjà positionnés au sein du même rang
-        (minimise les croisements d'arêtes grossiers — un simple rang→colonne sans ce tri
-        laisserait un pipeline à plusieurs branches enchevêtré même "rangé"). Retourne None si
-        le graphe contient un cycle (rangement impossible)."""
-        _, edges, _ = self._collect_graph()
-        ranks = topological_ranks(self._scene.nodes.keys(), edges)
-        if ranks is None:
-            return None
-
-        incoming: dict[str, list[str]] = {k: [] for k in self._scene.nodes}
-        for e in edges:
-            frm, to = e["from_step_key"], e["to_step_key"]
-            if to in incoming:
-                incoming[to].append(frm)
-
-        keys = set(self._scene.nodes) if node_subset is None else set(node_subset) & set(self._scene.nodes)
-        by_rank: dict[int, list[str]] = {}
-        for key in keys:
-            by_rank.setdefault(ranks.get(key, 0), []).append(key)
-
-        # Amorcé aux positions Y actuelles — sert de repère de barycentre pour tout prédécesseur
-        # hors sous-ensemble (jamais repositionné) ou pas encore traité à ce stade de la boucle.
-        placed_y: dict[str, float] = {k: n.pos().y() for k, n in self._scene.nodes.items()}
-
-        positions: dict[str, QPointF] = {}
-        for rank in sorted(by_rank):
-            rank_keys = by_rank[rank]
-            if rank == 0:
-                rank_keys.sort(key=lambda k: self._scene.nodes[k].pos().y())
-            else:
-                def _barycenter(k, _incoming=incoming, _placed_y=placed_y):
-                    preds_y = [_placed_y[p] for p in _incoming.get(k, []) if p in _placed_y]
-                    return sum(preds_y) / len(preds_y) if preds_y else _placed_y.get(k, 0.0)
-                rank_keys.sort(key=_barycenter)
-            for i, key in enumerate(rank_keys):
-                x = _START_X + rank * _NODE_SPACING_X
-                y = _START_Y + i * _ROW_HEIGHT
-                positions[key] = QPointF(x, y)
-                placed_y[key] = y
-        return positions
-
-    def _on_auto_layout(self):
-        positions = self._compute_auto_layout_positions()
-        if positions is None:
-            QMessageBox.warning(
-                self, "Rangement impossible",
-                "Le graphe contient un cycle — impossible de déterminer un ordre de rangement.",
-            )
-            return
-        self._layout_snapshot = {k: n.pos() for k, n in self._scene.nodes.items()}
-        for key, pos in positions.items():
-            self._scene.nodes[key].setPos(pos)
-        self._btn_undo_layout.setEnabled(True)
-
-    def _on_undo_layout(self):
-        if not self._layout_snapshot:
-            return
-        for key, pos in self._layout_snapshot.items():
-            node = self._scene.nodes.get(key)
-            if node:
-                node.setPos(pos)
-        self._layout_snapshot = None
-        self._btn_undo_layout.setEnabled(False)
-
-    def _on_arrange_selection(self):
-        """Version ciblée de _on_auto_layout (chantier UX éditeur, Lot 3, A6) : ne repositionne
-        que les étapes actuellement sélectionnées, le reste du graphe sert d'ancrage inchangé —
-        _compute_auto_layout_positions(node_subset=...) supporte déjà ce cas depuis le Lot 1.
-        Réutilise le même snapshot/bouton d'annulation que le rangement complet : une seule
-        action de rangement (complète ou ciblée) peut être annulée à la fois."""
-        keys = {n.step_key for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)}
-        if not keys:
-            return
-        positions = self._compute_auto_layout_positions(node_subset=keys)
-        if positions is None:
-            QMessageBox.warning(
-                self, "Rangement impossible",
-                "Le graphe contient un cycle — impossible de déterminer un ordre de rangement.",
-            )
-            return
-        self._layout_snapshot = {k: n.pos() for k, n in self._scene.nodes.items()}
-        for key, pos in positions.items():
-            self._scene.nodes[key].setPos(pos)
-        self._btn_undo_layout.setEnabled(True)
-
-    # ── Zones de regroupement visuel (chantier UX éditeur, Lot 2, A4) ────
-
-    def _on_add_zone(self):
-        pos = self._view.mapToScene(self._view.viewport().rect().center())
-        self._scene.add_zone("Nouvelle zone", pos)
-
-    def _on_zone_double_clicked(self, zone: ZoneItem):
-        new_name, ok = QInputDialog.getText(
-            self, "Renommer la zone", "Nom :", text=zone.name,
-        )
-        new_name = new_name.strip()
-        if ok and new_name:
-            zone.name = new_name
-            zone.update()
-
-    # ── Mini-carte (chantier UX éditeur, Lot 2, A3) ────
-
-    def _on_toggle_minimap(self):
-        # isHidden() plutôt que isVisible() : ce dernier dépend aussi de la visibilité des
-        # parents (donc toujours False tant que le dialogue n'a jamais été réellement affiché),
-        # alors qu'isHidden() ne reflète que l'état explicitement demandé sur ce widget.
-        self._minimap.setVisible(self._minimap.isHidden())
-        self._rail.refresh_minimap_button_style(not self._minimap.isHidden())
-
-    def _on_show_help(self):
-        """Aide contextuelle (chantier UX éditeur, Lot 3, C2) — réutilise le même rendu Markdown
-        que l'onglet "Aide" global, seule la rubrique "graph-editor" est affichée ici."""
-        topic = get_topic("graph-editor")
-        if topic is None:
-            return
-        GraphHelpDialog(topic, parent=self).exec()
-
-    # ── Recherche textuelle (chantier UX éditeur, Lot 2, B3) ────
-
-    def _on_search_changed(self, text: str):
-        needle = text.strip().lower()
-        matches = []
-        for node in self._scene.nodes.values():
-            matched = bool(needle) and needle in node.search_text()
-            node.set_search_hit(matched)
-            if matched:
-                matches.append(node)
-            protected = node.is_executing or node.is_failed
-            node.setOpacity(1.0 if (not needle or matched or protected) else 0.35)
-
-        for edge in self._scene.edges:
-            protected = edge.from_node.is_executing or edge.from_node.is_failed \
-                or edge.to_node.is_executing or edge.to_node.is_failed
-            relevant = edge.from_node.is_search_hit or edge.to_node.is_search_hit
-            edge.setOpacity(1.0 if (not needle or relevant or protected) else 0.35)
-
-        self._search_matches = matches
-        self._search_match_idx = -1
-
-    def _on_search_jump(self):
-        if not self._search_matches:
-            return
-        self._search_match_idx = (self._search_match_idx + 1) % len(self._search_matches)
-        self._view.centerOn(self._search_matches[self._search_match_idx])
-
-    def _incoming_prior_steps(self, node: StepNodeItem) -> list:
-        """Étapes amont réellement connectées à `node` par une arête — ce que le sélecteur
-        "Source"/bouton "+ Artefact" (chantier 3, ui/step_editor/base_config_dialog.py) doivent
-        voir pour lister les producteurs par nom, au lieu de toujours retomber sur "étape
-        précédente (par défaut)" faute de savoir à qui ce nœud est relié."""
-        return [e.from_node.step for e in self._scene.edges if e.to_node is node]
-
-    def _on_add_step(self):
-        from ui.step_editor import _open_config_dialog
-        from database import db_manager as db
-
-        dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
-        if not dlg.exec():
-            return
-        config_dlg = _open_config_dialog(
-            dlg.chosen_type, {}, self,
-            self._oracle_profiles, self._ftp_profiles, self._sql_queries,
-            self._smtp_profiles, self._db_profiles,
-            # Le nœud n'existe pas encore, donc aucune arête entrante réelle — même souplesse
-            # que l'éditeur linéaire à l'ajout (prior_steps=self._steps_data, la liste complète
-            # à ce stade) : tous les nœuds déjà sur le canevas sont proposés comme sources
-            # possibles, à connecter ensuite par un glisser-déposer.
-            prior_steps=[n.step for n in self._scene.nodes.values()],
-            # Lecture fraîche à chaque ouverture (jamais mise en cache) — chantier variables de
-            # pipeline : une variable ajoutée dans les Paramètres doit apparaître immédiatement
-            # dans "+ Variable", sans fermer/rouvrir l'éditeur graphique.
-            pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
-        )
-        if config_dlg and config_dlg.exec():
-            step = config_dlg.result_step()
-            self._scene.add_node(step, self._next_new_node_pos())
-
-    def _on_node_double_clicked(self, node: StepNodeItem):
-        from ui.step_editor import _open_config_dialog
-        from database import db_manager as db
-
-        step = node.step
-        config_dlg = _open_config_dialog(
-            step["step_type"], step.get("config", {}), self,
-            self._oracle_profiles, self._ftp_profiles, self._sql_queries,
-            self._smtp_profiles, self._db_profiles,
-            label=step.get("label", ""),
-            retry_count=step.get("retry_count", 0),
-            retry_interval_s=step.get("retry_interval_s", 5),
-            run_always=step.get("run_always", False),
-            timeout_s=step.get("timeout_s", 0),
-            prior_steps=self._incoming_prior_steps(node),
-            pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
-        )
-        if config_dlg and config_dlg.exec():
-            node.step = config_dlg.result_step()
-            node.update()
-
-    def _on_delete_selected(self):
-        for item in list(self._scene.selectedItems()):
-            if isinstance(item, StepNodeItem):
-                self._scene.remove_node(item)
-            elif isinstance(item, EdgeItem):
-                self._scene.remove_edge(item)
-            elif isinstance(item, ZoneItem):
-                self._scene.remove_zone(item)
-
-    def _on_node_context_menu(self, node: StepNodeItem, screen_pos):
-        """Clic-droit sur un nœud : le sélectionne d'abord s'il ne fait pas déjà partie de la
-        sélection courante (convention standard — un clic-droit agit sur "ce nœud", sauf s'il
-        fait déjà partie d'une sélection multiple volontaire), puis ouvre le menu construit par
-        build_node_context_menu() — jamais de logique de nœud dupliquée ici, le menu appelle les
-        mêmes gestionnaires que le rail/le raccourci."""
-        if node not in self._scene.selectedItems():
-            self._scene.clearSelection()
-            node.setSelected(True)
-        build_node_context_menu(node, self).exec(screen_pos)
-
-    def _on_duplicate_selected(self):
-        """Seul point d'appel réel des trois déclencheurs (bouton du rail, Ctrl+D, action
-        "Dupliquer" du menu contextuel) — contrairement à la suppression (dupliquée entre ce
-        dialogue et PipelineGraphScene.keyPressEvent()), une seule implémentation ici."""
-        originals = [n for n in self._scene.selectedItems() if isinstance(n, StepNodeItem)]
-        if not originals:
-            return
-        copies = [self._scene.duplicate_node(n) for n in originals]
-        self._scene.clearSelection()
-        for c in copies:
-            if c:
-                c.setSelected(True)
-
-    def _on_open_settings_dialog(self):
-        """Raccourci vers les métadonnées du pipeline (nom/planification/déclenchement/actif,
-        chantier P puis fusion des éditeurs) — ce dialogue ne les gère pas lui-même (voir
-        docstring du module) ; évite l'aller-retour "fermer, retrouver la ligne, cliquer
-        Paramètres"."""
-        from database import db_manager as db
-        from ui.step_editor import PipelineSettingsDialog
-
-        if PipelineSettingsDialog(self, pipeline=self._pipeline).exec():
-            refreshed = db.get_pipeline(self._pipeline.id)
-            if refreshed:
-                self._pipeline = refreshed
-                self.setWindowTitle(f"Éditeur graphique — {refreshed.name}")
-
-    # ── Sauvegarde ───────────────────────────
-
-    def _collect_graph(self):
-        steps = []
-        for node in self._scene.nodes.values():
-            step = dict(node.step)
-            step["pos_x"] = int(node.pos().x())
-            step["pos_y"] = int(node.pos().y())
-            steps.append(step)
-
-        edges = [
-            {
-                "from_step_key": e.from_node.step_key,
-                "from_port":     e.from_port,
-                "to_step_key":   e.to_node.step_key,
-                "to_port":       "input",
-            }
-            for e in self._scene.edges
-        ]
-
-        zones = [
-            {
-                "name":   z.name,
-                "pos_x":  int(z.pos().x()),
-                "pos_y":  int(z.pos().y()),
-                "width":  int(z._width),
-                "height": int(z._height),
-            }
-            for z in self._scene.zones
-        ]
-        return steps, edges, zones
-
     def _on_save(self):
-        steps, edges, zones = self._collect_graph()
-
-        if not steps:
-            QMessageBox.warning(
-                self, "Étapes manquantes",
-                "Ajoutez au moins une étape avant d'enregistrer.",
-            )
-            return
-
-        errors, warnings = validate_pipeline_graph(steps, edges)
-        if errors:
-            QMessageBox.warning(
-                self, "Graphe invalide",
-                "Ce graphe d'étapes ne peut pas fonctionner :\n\n"
-                + "\n".join(f"• {e}" for e in errors),
-            )
-            return
-        if warnings:
-            reply = QMessageBox.question(
-                self, "Avertissement",
-                "Certaines étapes pourraient tourner sans les données attendues :\n\n"
-                + "\n".join(f"• {w}" for w in warnings)
-                + "\n\nContinuer quand même ?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
-                return
-
-        from database import db_manager as db
-        db.save_pipeline_graph(self._pipeline.id, steps, edges, zones=zones)
-        self.accept()
+        if self._editor.save():
+            self.accept()
