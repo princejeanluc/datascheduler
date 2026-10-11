@@ -239,9 +239,15 @@ besoin de retenir les noms par cœur.
 ## Variables — pour une décision basée sur une valeur, pas un fichier
 
 `{var:nom}` référence une valeur publiée par l'étape **Extraction de variables**
-(`EXTRACT_VARIABLES`) ou **Définir une variable** (`SET_VARIABLE`) — même convention que
-`{artifact:nom}` (non résolu si absent, reste littéral), mais pour une valeur scalaire (nombre,
-texte, date) plutôt qu'un chemin de fichier.
+(`EXTRACT_VARIABLES`), **Définir une variable** (`SET_VARIABLE`), ou déclarée directement au
+niveau du **pipeline** (section ④ des Paramètres du pipeline — nom + expression de valeur par
+défaut, amorcée dans `ctx.variables` avant la première étape, pas besoin d'une étape dédiée
+juste pour fixer une base) — même convention que `{artifact:nom}` (non résolu si absent, reste
+littéral), mais pour une valeur scalaire (nombre, texte, date) plutôt qu'un chemin de fichier.
+La valeur par défaut d'une variable de pipeline peut référencer une autre variable de pipeline
+déclarée plus haut dans la liste (`date_add(var:base_date, -7)`) ; une étape qui écrit ensuite
+la même variable (`SET_VARIABLE`/`EXTRACT_VARIABLES`) écrase simplement la valeur par défaut —
+comportement voulu, pas une collision.
 Utilisable dans n'importe quel champ templaté, et directement dans une expression **Condition**
 sans les accolades (`var:total > 1000`, `var:date_max >= "2026-01-01"`) — la comparaison utilise
 alors la valeur telle quelle (numérique ou chronologique), pas sa représentation texte.

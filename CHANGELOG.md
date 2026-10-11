@@ -29,6 +29,20 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.42.0] - 2026-10-11
+
+### Ajouté
+- **Variables de pipeline** — déclarer des variables nommées au niveau du pipeline (type
+  "paramètre" Azure Data Factory), chacune avec une expression de valeur par défaut, dans une
+  nouvelle section ④ des Paramètres du pipeline. Amorcées dans `ctx.variables` avant la première
+  étape — plus besoin d'une étape `SET_VARIABLE` juste pour fixer une base. L'ordre de
+  déclaration compte : la valeur par défaut d'une variable peut référencer `var:nom` d'une
+  variable déclarée plus haut dans la liste. Un échec d'évaluation au moment réel de l'exécution
+  fait échouer le run immédiatement, avant toute étape — aucune ligne d'historique pour un run
+  jamais vraiment démarré. Validation syntaxique dès la fermeture du dialogue et au dry-run.
+  Le bouton "+ Variable" (déjà dans Condition) liste désormais aussi ces variables, pas
+  seulement celles d'Extraction de variables.
+
 ## [0.41.0] - 2026-10-11
 
 ### Ajouté
