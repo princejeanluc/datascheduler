@@ -18,6 +18,25 @@ PORT_RADIUS = 6
 # dessinée en dessous du point plutôt qu'à côté — voir boundingRect()/paint().
 _ERROR_LABEL_MARGIN = 16
 
+# Chevron de dépli/repli (chantier relooking des nœuds) — carré cliquable, haut-droite de la
+# carte pour un nœud normal, à côté de la légende sous le losange pour un nœud de routage.
+_CHEVRON_SIZE = 14
+# Tolérance de clic au-delà du carré nu — même confort que les ports (PORT_RADIUS=6 déjà
+# généreux), un carré de 14px nu serait frustrant à viser précisément.
+_CHEVRON_HIT_PADDING = 4
+
+
+def _chevron_rect(width: float, height: float, routing: bool) -> tuple[float, float, float, float]:
+    """Rectangle LOCAL (x, y, w, h) du chevron ▾/▸ — géométrie pure, testable sans Qt (même
+    philosophie que _diamond_port_local_pos/_error_port_local_pos)."""
+    size = _CHEVRON_SIZE
+    if routing:
+        # Milieu vertical des 2 lignes de légende sous le losange (_ROUTING_CAPTION_TOP/
+        # _ROUTING_CAPTION_LINE_H, définies plus bas dans ce module).
+        cy = height + _ROUTING_CAPTION_TOP + _ROUTING_CAPTION_LINE_H
+        return (width - 6 - size, cy - size / 2, size, size)
+    return (width - 8 - size, 8, size, size)
+
 # Port_name -> (clé de couleur COLORS, étiquette courte) — chantier port d'erreur générique.
 # "error" utilise "warning" (ambre), jamais "danger" (déjà pris par "false" sur ConditionStep :
 # les réutiliser toutes les deux rendrait 2 points adjacents sur un même nœud indiscernables
@@ -154,6 +173,12 @@ class StepNodeItem(QGraphicsObject):
         self._is_failed     = False
         self._is_search_hit = False
         self._dragging      = False
+        # État déplié/replié (chantier relooking des nœuds) — purement ÉPHÉMÈRE, jamais persisté
+        # (aucun précédent d'état UI par nœud ailleurs dans ce projet, vérifié) : réinitialisé à
+        # replié à chaque chargement du graphe. _profile_names : voir set_profile_names() plus
+        # bas — résolution des noms de profil pour le contenu déplié, jamais de requête DB ici.
+        self._expanded = False
+        self._profile_names: dict = {}
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -187,6 +212,32 @@ class StepNodeItem(QGraphicsObject):
         if hit != self._is_search_hit:
             self._is_search_hit = hit
             self.update()
+
+    def set_expanded(self, expanded: bool) -> None:
+        """Déplie/replie le panneau de détail de ce nœud (chantier relooking des nœuds) — seul
+        mutateur d'état de cette classe qui change la GÉOMÉTRIE (boundingRect() s'agrandit),
+        d'où prepareGeometryChange() avant la mutation : même patron que le seul autre précédent
+        de la base, ZoneItem.mouseMoveEvent() (ui/graph_editor/zone_item.py)."""
+        if expanded != self._expanded:
+            self.prepareGeometryChange()
+            self._expanded = expanded
+            self.update()
+
+    def toggle_expanded(self) -> None:
+        self.set_expanded(not self._expanded)
+
+    def set_profile_names(self, profile_names: dict) -> None:
+        """Noms de profil résolus (ftp/smtp/ssh/kerberos/elevation/oracle/sql_query/db) pour le
+        contenu déplié — construits par l'appelant (PipelineGraphEditorWidget) à partir de
+        listes déjà chargées en mémoire, jamais par une requête DB déclenchée ici. Ne change
+        jamais le NOMBRE de faits affichés (un ID est juste remplacé par un nom dans le texte),
+        donc pas de prepareGeometryChange() — update() suffit."""
+        self._profile_names = profile_names or {}
+        self.update()
+
+    @property
+    def is_expanded(self) -> bool:
+        return self._expanded
 
     def search_text(self) -> str:
         """Texte de correspondance pour B3 — exactement les deux libellés déjà peints par
@@ -378,6 +429,20 @@ class StepNodeItem(QGraphicsObject):
                 painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
 
     def mousePressEvent(self, event):
+        # Hit-test du chevron ▾/▸ AVANT toute logique de drag — un clic dessus bascule l'état
+        # déplié/replié et s'arrête là (ni drag, ni changement de sélection). LIMITATION ACCEPTÉE
+        # et documentée, pas un bug à corriger : un double-clic précis sur le chevron replie/
+        # déplie ET ouvre le dialogue de configuration, car PipelineGraphScene.mouseDoubleClickEvent
+        # (graph_scene.py) détecte le double-clic par un hit-test indépendant sur toute la forme
+        # du nœud, sans savoir ce que ce mousePressEvent a fait du premier clic — déjà le cas
+        # aujourd'hui pour n'importe quel point du nœud, y compris un port, pas une régression
+        # propre à ce chantier.
+        cx, cy, cw, ch = _chevron_rect(self.WIDTH, self.HEIGHT, self.is_routing_node)
+        pad = _CHEVRON_HIT_PADDING
+        if QRectF(cx - pad, cy - pad, cw + 2 * pad, ch + 2 * pad).contains(event.pos()):
+            self.toggle_expanded()
+            event.accept()
+            return
         # self._dragging distingue un glissé interactif réel d'un setPos() programmatique
         # (rangement automatique/de la sélection, annulation, placement initial d'un nouveau
         # nœud) — seul le premier doit déclencher l'accrochage aux guides d'alignement dans
