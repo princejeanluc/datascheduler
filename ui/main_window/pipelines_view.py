@@ -541,6 +541,7 @@ class PipelinesView(QWidget):
         même après avoir fermé RunProgressDialog (qui laisse désormais le pipeline continuer en
         arrière-plan, voir ui/dialogs/run_progress_dialog.py)."""
         from core.pipeline import request_cancel
+        from core.execution_mode import request_cancel_run
         reply = QMessageBox.question(
             self, "Interrompre l'exécution",
             f"Interrompre l'exécution en cours de « {pipeline_name} » ?\n\n"
@@ -551,7 +552,12 @@ class PipelinesView(QWidget):
         )
         if reply != QMessageBox.Yes:
             return
-        request_cancel(pipeline_id)
+        # En mode arrière-plan, request_cancel() local (core.pipeline._active_runs, en mémoire)
+        # n'a aucun effet : c'est le worker détaché qui exécute réellement le pipeline, jamais
+        # l'appli desktop (correctif K5, docs/refonte/LOTS.md — même idiome que _on_run_pipeline
+        # ci-dessus pour l'arrêt avant relance).
+        if not request_cancel_run(pipeline_id):
+            request_cancel(pipeline_id)
         self.refresh()
         QMessageBox.information(
             self, "Demande envoyée",
