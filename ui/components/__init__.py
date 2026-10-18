@@ -7,5 +7,6 @@ réellement besoin — voir docs/refonte/impact/0a.md et a-parametres.md.
 
 from ui.components.page_header import make_page_header
 from ui.components.info_pill import make_info_pill
+from ui.components.banner import make_banner
 
-__all__ = ["make_page_header", "make_info_pill"]
+__all__ = ["make_page_header", "make_info_pill", "make_banner"]
