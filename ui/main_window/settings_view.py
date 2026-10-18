@@ -19,10 +19,10 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontMetrics
 from version import __version__
-from ui.styles import COLORS, FONT_MONO_STACK
+from ui.styles import COLORS, FONT_MONO_STACK, FONT_SIZES
 from ui.time_display import fmt_relative
 from ui.step_editor.common import DAYS_OF_WEEK
-from ui.components import make_page_header
+from ui.components import make_page_header, make_info_pill
 from .widgets import _icon, _make_search_input
 
 _CATEGORIES = [
@@ -47,6 +47,14 @@ _TIMEZONES = ["UTC"] + sorted(available_timezones() - {"UTC"})
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 _CATEGORY_SUB_WIDTH = 150   # px — largeur dispo connue d'avance (rail 240px, largeur fixe)
+
+# Pastille de prise d'effet (A4, docs/refonte/ecrans/Parametres.md) : variante + infobulle par
+# texte exact, pour que _add_row() n'ait qu'à recevoir le texte déjà écrit dans la fiche.
+_BADGE_INFO = {
+    "au redémarrage": ("neutral", "Prend effet au prochain démarrage de Kulu"),
+    "à la prochaine ouverture": ("neutral", "Prend effet à la prochaine ouverture de l'écran"),
+    "immédiat": ("success", "Prend effet immédiatement"),
+}
 
 
 def _input_style(error: bool = False) -> str:
@@ -247,23 +255,19 @@ class SettingsView(QWidget):
 
         label_row = QHBoxLayout(); label_row.setSpacing(8)
         lbl = QLabel(label)
-        lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13px; font-weight: 600;")
+        lbl.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['row_label']}px; font-weight: 600;")
         label_row.addWidget(lbl)
         if badge:
-            badge_lbl = QLabel(badge.upper())
-            badge_lbl.setStyleSheet(
-                f"color: {COLORS['warning']}; font-size: 9.5px; font-weight: 700; "
-                f"letter-spacing: 0.4px; padding: 2px 6px; border-radius: 3px; "
-                f"background: rgba(232, 179, 57, 0.16); border: 1px solid rgba(232, 179, 57, 0.35);"
-            )
-            label_row.addWidget(badge_lbl)
+            variant, tooltip = _BADGE_INFO[badge]
+            label_row.addWidget(make_info_pill(badge, variant=variant, tooltip=tooltip))
         label_row.addStretch()
         text_col.addLayout(label_row)
 
         if desc:
             desc_lbl = QLabel(desc)
             desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11.5px;")
+            desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12.5px;")
             text_col.addWidget(desc_lbl)
 
         row_layout.addLayout(text_col, stretch=1)
@@ -274,7 +278,7 @@ class SettingsView(QWidget):
         row_layout.addWidget(control_box)
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
+        sep.setStyleSheet(f"background: {COLORS['bg_hover']}; max-height: 1px;")
 
         wrapper = QWidget()
         wrapper_layout = QVBoxLayout(wrapper)
@@ -305,20 +309,20 @@ class SettingsView(QWidget):
         self.cb_timezone.setCompleter(completer)
         self._add_row("scheduler", "Fuseau horaire",
                        "Référence pour l'heure de toutes les planifications (Quotidien, Hebdo, "
-                       "Cron). Redémarrage requis pour prendre effet.", self.cb_timezone)
+                       "Cron).", self.cb_timezone, badge="au redémarrage")
 
         self.spin_misfire = QSpinBox(); self.spin_misfire.setStyleSheet(_spinbox_style())
         self.spin_misfire.setRange(1, 1440); self.spin_misfire.setSuffix(" min")
         self._add_row("scheduler", "Tolérance de rattrapage",
                        "Délai après lequel une exécution planifiée manquée (PC éteint) n'est "
-                       "plus rattrapée du tout.", self.spin_misfire)
+                       "plus rattrapée du tout.", self.spin_misfire, badge="immédiat")
 
         self.chk_coalesce = QCheckBox(); self.chk_coalesce.setStyleSheet(
             f"color: {COLORS['text_main']};")
         self._add_row("scheduler", "Regrouper les rattrapages manqués",
                        "Si plusieurs déclenchements ont été manqués pendant la tolérance "
                        "ci-dessus, n'en rejoue qu'un seul plutôt que tous d'affilée.",
-                       self.chk_coalesce)
+                       self.chk_coalesce, badge="immédiat")
 
         self.spin_max_concurrent = QSpinBox(); self.spin_max_concurrent.setStyleSheet(_spinbox_style())
         self.spin_max_concurrent.setRange(1, 100)
@@ -326,7 +330,7 @@ class SettingsView(QWidget):
                        "Au-delà, un nouveau lancement (manuel, planifié ou en chaîne) est "
                        "refusé — pas mis en file d'attente. Un run planifié refusé n'est pas "
                        "rejoué automatiquement, il attend son prochain déclenchement normal.",
-                       self.spin_max_concurrent)
+                       self.spin_max_concurrent, badge="immédiat")
 
         # Exécution en arrière-plan (chantier worker) — un worker détaché devient le seul
         # exécuteur, l'appli desktop devient purement cliente. Jamais à chaud (voir _on_save) :
@@ -336,8 +340,8 @@ class SettingsView(QWidget):
         self.cb_execution_mode.addItem("Avec exécution en arrière-plan", "BACKGROUND")
         self._add_row("scheduler", "Mode d'exécution",
                        "En arrière-plan : un worker détaché continue de planifier/exécuter même "
-                       "l'appli fermée, tant que la session est ouverte. Redémarrage de "
-                       "l'application requis pour prendre effet.", self.cb_execution_mode)
+                       "l'appli fermée, tant que la session est ouverte.", self.cb_execution_mode,
+                       badge="au redémarrage")
 
         self.lbl_worker_status = QLabel("—")
         self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
@@ -354,7 +358,7 @@ class SettingsView(QWidget):
                        "Évite de relancer kinit à chaque étape SPARK_SQL/SQOOP_EXPORT/"
                        "SQOOP_IMPORT si un ticket valide existe déjà sur le nœud edge. Désactiver "
                        "revient au comportement historique (kinit systématique).",
-                       self.chk_kerberos_reuse)
+                       self.chk_kerberos_reuse, badge="immédiat")
 
         self.spin_kerberos_grace = QSpinBox(); self.spin_kerberos_grace.setStyleSheet(_spinbox_style())
         self.spin_kerberos_grace.setRange(0, 86400); self.spin_kerberos_grace.setSuffix(" s")
@@ -364,83 +368,85 @@ class SettingsView(QWidget):
                        "Un ticket n'est réutilisé que s'il reste plus que cette durée avant "
                        "expiration — « Aucune » (0s) : réutilisation dès qu'il reste ne serait-ce "
                        "qu'une seconde de validité. Sans effet si la case ci-dessus est décochée.",
-                       self.spin_kerberos_grace)
+                       self.spin_kerberos_grace, badge="immédiat")
 
         # Journalisation
         self.cb_log_level = QComboBox(); self.cb_log_level.setStyleSheet(_combo_style())
         self.cb_log_level.addItems(_LOG_LEVELS)
         self._add_row("logging", "Niveau de journalisation",
                        "INFO ne conserve pas le détail utile pour diagnostiquer un comportement "
-                       "rare.", self.cb_log_level)
+                       "rare.", self.cb_log_level, badge="immédiat")
 
         self.spin_log_mb = QSpinBox(); self.spin_log_mb.setStyleSheet(_spinbox_style())
         self.spin_log_mb.setRange(1, 500); self.spin_log_mb.setSuffix(" Mo")
         self._add_row("logging", "Taille max par fichier",
-                       "Au-delà, rotation vers un nouveau fichier. Redémarrage requis.",
-                       self.spin_log_mb)
+                       "Au-delà, rotation vers un nouveau fichier.",
+                       self.spin_log_mb, badge="au redémarrage")
 
         self.spin_log_backups = QSpinBox(); self.spin_log_backups.setStyleSheet(_spinbox_style())
         self.spin_log_backups.setRange(1, 50)
         self._add_row("logging", "Fichiers conservés",
-                       "Nombre de fichiers de rotation gardés avant suppression du plus ancien. "
-                       "Redémarrage requis.", self.spin_log_backups)
+                       "Nombre de fichiers de rotation gardés avant suppression du plus ancien.",
+                       self.spin_log_backups, badge="au redémarrage")
 
         # Interface
         self.spin_dashboard_refresh = QSpinBox(); self.spin_dashboard_refresh.setStyleSheet(_spinbox_style())
         self.spin_dashboard_refresh.setRange(5, 600); self.spin_dashboard_refresh.setSuffix(" s")
         self._add_row("interface", "Rafraîchissement — Dashboard",
-                       "Vue d'ensemble, badges d'état des pipelines. Redémarrage requis.",
-                       self.spin_dashboard_refresh)
+                       "Vue d'ensemble, badges d'état des pipelines.",
+                       self.spin_dashboard_refresh, badge="au redémarrage")
 
         self.spin_pipelines_refresh = QSpinBox(); self.spin_pipelines_refresh.setStyleSheet(_spinbox_style())
         self.spin_pipelines_refresh.setRange(5, 600); self.spin_pipelines_refresh.setSuffix(" s")
         self._add_row("interface", "Rafraîchissement — Pipelines",
-                       "Liste des pipelines et leur statut courant. Redémarrage requis.",
-                       self.spin_pipelines_refresh)
+                       "Liste des pipelines et leur statut courant.",
+                       self.spin_pipelines_refresh, badge="au redémarrage")
 
         self.spin_live_log_refresh = QSpinBox(); self.spin_live_log_refresh.setStyleSheet(_spinbox_style())
         self.spin_live_log_refresh.setRange(1, 60); self.spin_live_log_refresh.setSuffix(" s")
         self._add_row("interface", "Log d'exécution en direct",
                        "Fenêtre de suivi d'un run en cours. Effet à la prochaine ouverture.",
-                       self.spin_live_log_refresh)
+                       self.spin_live_log_refresh, badge="à la prochaine ouverture")
 
         self.spin_trace_glow_refresh = QSpinBox(); self.spin_trace_glow_refresh.setStyleSheet(_spinbox_style())
         self.spin_trace_glow_refresh.setRange(1, 60); self.spin_trace_glow_refresh.setSuffix(" s")
         self._add_row("interface", "Traçage lumineux (éditeur graphique)",
                        "Interrogation de l'étape en cours pour surligner le nœud actif. Effet à "
-                       "la prochaine ouverture.", self.spin_trace_glow_refresh)
+                       "la prochaine ouverture.", self.spin_trace_glow_refresh,
+                       badge="à la prochaine ouverture")
 
         # Notifications
         self.chk_digest_enabled = QCheckBox(); self.chk_digest_enabled.setStyleSheet(
             f"color: {COLORS['text_main']};")
         self._add_row("notifications", "Résumé périodique activé",
                        "Envoie un email récapitulatif des exécutions depuis le dernier envoi.",
-                       self.chk_digest_enabled)
+                       self.chk_digest_enabled, badge="immédiat")
 
         self.cb_smtp = QComboBox(); self.cb_smtp.setStyleSheet(_combo_style())
         self._add_row("notifications", "Profil SMTP",
-                       "Utilisé pour l'envoi du résumé.", self.cb_smtp)
+                       "Utilisé pour l'envoi du résumé.", self.cb_smtp, badge="immédiat")
 
         self.inp_recipients = QLineEdit(); self.inp_recipients.setFixedHeight(34)
         self.inp_recipients.setStyleSheet(_input_style())
         self.inp_recipients.setPlaceholderText("ex : sophie@entreprise.com, karim@entreprise.com")
         self._add_row("notifications", "Destinataires",
-                       "Adresses séparées par une virgule.", self.inp_recipients)
+                       "Adresses séparées par une virgule.", self.inp_recipients, badge="immédiat")
 
         self.cb_frequency = QComboBox(); self.cb_frequency.setStyleSheet(_combo_style())
         self.cb_frequency.addItem("Quotidien", "DAILY")
         self.cb_frequency.addItem("Hebdomadaire", "WEEKLY")
         self.cb_frequency.currentIndexChanged.connect(self._on_frequency_changed)
-        self._add_row("notifications", "Fréquence", "", self.cb_frequency)
+        self._add_row("notifications", "Fréquence", "", self.cb_frequency, badge="immédiat")
 
         self.cb_day = QComboBox(); self.cb_day.setStyleSheet(_combo_style())
         for i, d in enumerate(DAYS_OF_WEEK):
             self.cb_day.addItem(d, i)
-        self._add_row("notifications", "Jour (si hebdomadaire)", "", self.cb_day)
+        self._add_row("notifications", "Jour (si hebdomadaire)", "", self.cb_day, badge="immédiat")
 
         self.inp_time = QLineEdit(); self.inp_time.setFixedHeight(34)
         self.inp_time.setStyleSheet(_input_style())
-        self._add_row("notifications", "Heure d'envoi", "Format HH:MM.", self.inp_time)
+        self._add_row("notifications", "Heure d'envoi", "Format HH:MM.", self.inp_time,
+                       badge="immédiat")
 
         # Ressources (chantier suivi des ressources) — premier réglage né directement avec ce
         # socle, jamais en dur auparavant.
@@ -448,13 +454,13 @@ class SettingsView(QWidget):
         self.spin_sample_interval.setRange(10, 3600); self.spin_sample_interval.setSuffix(" s")
         self._add_row("resources", "Intervalle d'échantillonnage",
                        "Fréquence de mesure du CPU/mémoire de l'application. Effet immédiat.",
-                       self.spin_sample_interval)
+                       self.spin_sample_interval, badge="immédiat")
 
         self.spin_sample_retention = QSpinBox(); self.spin_sample_retention.setStyleSheet(_spinbox_style())
         self.spin_sample_retention.setRange(1, 90); self.spin_sample_retention.setSuffix(" j")
         self._add_row("resources", "Rétention des échantillons",
                        "Au-delà, les échantillons les plus anciens sont supprimés automatiquement.",
-                       self.spin_sample_retention)
+                       self.spin_sample_retention, badge="immédiat")
 
     # ── Données ───────────────────────────────
 
