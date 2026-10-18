@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.5] - 2026-10-18
+
+### Corrigé
+- **Correctif K4** — le champ "Dossier distant" du profil FTP n'était ni enregistré ni relu
+  (`FtpProfile` ne stocke pas cette donnée) : la valeur saisie était silencieusement perdue à
+  chaque fois. Le champ est retiré du formulaire plutôt qu'enregistré, pour ne pas changer le
+  format d'export (le mécanisme équivalent au niveau de l'étape FTP, lui fonctionnel, n'est pas
+  concerné).
+
 ## [0.46.4] - 2026-10-18
 
 ### Corrigé
