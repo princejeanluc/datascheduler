@@ -130,14 +130,15 @@ def test_search_shows_category_chip_only_while_searching(qapp, test_db):
 
 
 def test_search_shows_a_result_count_per_matching_category(qapp, test_db):
-    """A5 (docs/refonte/ecrans/Parametres.md) : "rafraîch" matche 2 lignes, toutes deux
-    catégorie Interface."""
+    """A5 (docs/refonte/ecrans/Parametres.md) : "rafraîch" matche 4 lignes (les descriptions de
+    "Log d'exécution en direct" et "Traçage lumineux" contiennent aussi "rafraîchie à cet
+    intervalle" — confirmé sur Parametres-recherche.html), toutes catégorie Interface."""
     from ui.main_window.settings_view import SettingsView
 
     view = SettingsView()
     view.inp_search.setText("rafraîch")
 
-    assert view._category_rows["interface"]["count_lbl"].text() == "2"
+    assert view._category_rows["interface"]["count_lbl"].text() == "4"
     assert not view._category_rows["interface"]["count_lbl"].isHidden()
 
 
@@ -185,8 +186,9 @@ def test_search_help_line_shows_result_and_category_counts(qapp, test_db):
     view.inp_search.setText("rafraîch")
 
     assert not view._search_help_lbl.isHidden()
-    assert "2 réglages" in view._search_help_lbl.text()
+    assert "4 réglages" in view._search_help_lbl.text()
     assert "1 catégorie" in view._search_help_lbl.text()
+    assert "Échap" in view._search_help_lbl.text()
 
 
 def test_search_help_line_hidden_outside_search(qapp, test_db):
@@ -385,6 +387,59 @@ def test_on_save_shows_success_style_when_background_registration_succeeds(qapp,
 
     assert "Enregistré" in view._save_status_lbl.text()
     assert COLORS["success"] in view._save_status_lbl.styleSheet()
+
+
+def test_failure_banner_hidden_by_default(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view._failure_banner.isHidden()
+
+
+def test_failure_banner_shown_when_background_registration_fails(qapp, test_db, monkeypatch):
+    """A7 (docs/refonte/ecrans/Parametres.md) : bandeau persistant, en plus du texte du pied
+    (inchangé, voir test_on_save_reverts_to_in_app_when_background_registration_fails)."""
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert not view._failure_banner.isHidden()
+
+
+def test_failure_banner_fermer_button_hides_it(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+    assert not view._failure_banner.isHidden()
+
+    btn_fermer = next(b for b in view._failure_banner.findChildren(QPushButton)
+                       if b.text() == "Fermer")
+    btn_fermer.click()
+    assert view._failure_banner.isHidden()
+
+
+def test_failure_banner_hidden_again_after_a_successful_save(qapp, test_db, monkeypatch):
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+    assert not view._failure_banner.isHidden()
+
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: True)
+    view._on_save()
+    assert view._failure_banner.isHidden()
 
 
 def test_on_save_switching_to_in_app_unregisters_task_and_enqueues_shutdown(qapp, test_db, monkeypatch):

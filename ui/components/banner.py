@@ -35,7 +35,12 @@ def make_banner(variant: str, icon_name: str, title: str, text: str, actions=Non
     outer.setContentsMargins(14, 12, 14, 12)
     outer.setSpacing(12)
 
+    # border:none/background:transparent explicites sur chaque QLabel : QLabel hérite de QFrame
+    # en Qt — sans ça, un conteneur qui stylerait un jour "QFrame" par sélecteur de TYPE (plutôt
+    # que d'ID) ferait hériter sa bordure/son fond à ces labels (bug déjà rencontré et corrigé
+    # dans settings_view.py — ce composant est partagé, autant rester défensif ici aussi).
     icon_lbl = QLabel()
+    icon_lbl.setStyleSheet("border: none; background: transparent;")
     icon = _icon(icon_name, icon_color)
     if icon:
         icon_lbl.setPixmap(icon.pixmap(18, 18))
@@ -44,12 +49,16 @@ def make_banner(variant: str, icon_name: str, title: str, text: str, actions=Non
     text_col = QVBoxLayout()
     text_col.setSpacing(4)
     title_lbl = QLabel(title)
-    title_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13.5px; font-weight: 600;")
+    title_lbl.setStyleSheet(
+        f"color: {COLORS['text_main']}; font-size: 13.5px; font-weight: 600; "
+        f"border: none; background: transparent;")
     text_col.addWidget(title_lbl)
     if text:
         text_lbl = QLabel(text)
         text_lbl.setWordWrap(True)
-        text_lbl.setStyleSheet(f"color: {COLORS['text_soft']}; font-size: 12.5px;")
+        text_lbl.setStyleSheet(
+            f"color: {COLORS['text_soft']}; font-size: 12.5px; "
+            f"border: none; background: transparent;")
         text_col.addWidget(text_lbl)
     outer.addLayout(text_col, stretch=1)
 

@@ -16,7 +16,7 @@ from zoneinfo import available_timezones
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
-    QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter, QGraphicsOpacityEffect,
+    QComboBox, QSpinBox, QLineEdit, QMessageBox, QCompleter, QGraphicsOpacityEffect,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontMetrics
@@ -24,7 +24,7 @@ from version import __version__
 from ui.styles import COLORS, FONT_MONO_STACK, FONT_SIZES
 from ui.time_display import fmt_relative
 from ui.step_editor.common import DAYS_OF_WEEK
-from ui.components import make_page_header, make_info_pill
+from ui.components import make_page_header, make_info_pill, make_banner, make_switch
 from .widgets import _icon, _make_search_input
 
 _CATEGORIES = [
@@ -127,29 +127,21 @@ class SettingsView(QWidget):
     # ── Construction ──────────────────────────
 
     def _build_ui(self):
+        # Pas de séparateur horizontal sous l'en-tête ni de ligne verticale entre rail et
+        # panneau : la maquette (Parametres.html) n'en a aucun, juste un espacement (gap) entre
+        # le rail et le panneau, lui-même bordé (voir _build_detail).
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        outer.setContentsMargins(32, 24, 32, 20)
+        outer.setSpacing(18)
 
-        header = QVBoxLayout()
-        header.setContentsMargins(32, 24, 32, 18)
-        header.addWidget(make_page_header(f"CE POSTE · KULU {__version__}", "Paramètres"))
-        outer.addLayout(header)
-
-        sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
-        outer.addWidget(sep)
+        outer.addWidget(make_page_header(f"CE POSTE · KULU {__version__}", "Paramètres"))
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(0)
+        body.setSpacing(24)
 
         body.addWidget(self._build_rail())
-
-        vline = QFrame(); vline.setFrameShape(QFrame.VLine)
-        vline.setStyleSheet(f"background: {COLORS['border']}; max-width: 1px;")
-        body.addWidget(vline)
-
-        body.addLayout(self._build_detail(), stretch=1)
+        body.addWidget(self._build_detail(), stretch=1)
         outer.addLayout(body, stretch=1)
 
     def _build_rail(self) -> QWidget:
@@ -171,6 +163,12 @@ class SettingsView(QWidget):
             self._category_rows[cat["key"]] = row
 
         rail_layout.addStretch()
+
+        rail_footer = QLabel(
+            "Réglages enregistrés pour ce poste, dans la base locale de Kulu.")
+        rail_footer.setWordWrap(True)
+        rail_footer.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11.5px;")
+        rail_layout.addWidget(rail_footer)
         return rail
 
     def _make_category_row(self, cat: dict) -> dict:
@@ -179,6 +177,7 @@ class SettingsView(QWidget):
         clickable que `_make_card` (step_type_chooser_dialog.py) : QFrame + mouseReleaseEvent
         assigné, pas un QPushButton — aucun test ne dépend du type exact (vérifié)."""
         frame = QFrame()
+        frame.setObjectName("category_row")   # sélecteur d'ID — voir _build_detail pour pourquoi
         frame.setCursor(Qt.PointingHandCursor)
         frame.setFixedHeight(48)
         layout = QHBoxLayout(frame)
@@ -215,30 +214,51 @@ class SettingsView(QWidget):
         return {"frame": frame, "icon_name": cat["icon"], "icon_lbl": icon_lbl,
                 "name_lbl": name_lbl, "sub_lbl": sub_lbl, "count_lbl": count_lbl}
 
-    def _build_detail(self) -> QVBoxLayout:
-        col = QVBoxLayout()
+    def _build_detail(self) -> QWidget:
+        # Carte à bord arrondi (Parametres.html::section) : bg_panel, bordure, rayon 10px — pas
+        # juste un fond plat séparé du rail par une ligne verticale (ancien rendu).
+        panel = QFrame()
+        panel.setObjectName("settings_panel")
+        # Sélecteur d'ID, pas "QFrame" (type) : QLabel hérite de QFrame en Qt — un sélecteur de
+        # type aurait fait hériter bordure/fond/rayon à CHAQUE QLabel descendant (libellés,
+        # descriptions...), bug constaté à l'écran avant cette correction.
+        panel.setStyleSheet(
+            f"QFrame#settings_panel {{ background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 10px; }}"
+        )
+        col = QVBoxLayout(panel)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
 
+        title_wrap = QWidget()
+        title_wrap.setStyleSheet(f"border-bottom: 1px solid {COLORS['border']};")
         self._detail_title = QLabel()
         self._detail_title.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
+            f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['panel_title']}px; font-weight: 600; "
+            f"border: none;")
         self._detail_sub = QLabel()
-        self._detail_sub.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._detail_sub.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12.5px; border: none;")
         self._detail_sub.setWordWrap(True)
 
-        title_block = QVBoxLayout()
-        title_block.setContentsMargins(28, 20, 28, 4)
-        title_block.setSpacing(2)
+        title_block = QVBoxLayout(title_wrap)
+        title_block.setContentsMargins(20, 16, 20, 12)
+        title_block.setSpacing(3)
         title_block.addWidget(self._detail_title)
         title_block.addWidget(self._detail_sub)
-        col.addLayout(title_block)
+        col.addWidget(title_wrap)
 
         self._search_help_lbl = QLabel("")
+        self._search_help_lbl.setTextFormat(Qt.RichText)
         self._search_help_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-        self._search_help_lbl.setContentsMargins(28, 0, 28, 6)
+        self._search_help_lbl.setContentsMargins(20, 0, 20, 6)
         self._search_help_lbl.setVisible(False)
         col.addWidget(self._search_help_lbl)
+
+        self._failure_banner = self._build_failure_banner()
+        banner_wrap = QHBoxLayout()
+        banner_wrap.setContentsMargins(20, 10, 20, 0)
+        banner_wrap.addWidget(self._failure_banner)
+        col.addLayout(banner_wrap)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -247,8 +267,8 @@ class SettingsView(QWidget):
         content = QWidget()
         scroll.setWidget(content)
         self._rows_layout = QVBoxLayout(content)
-        self._rows_layout.setContentsMargins(28, 4, 28, 8)
-        self._rows_layout.setSpacing(4)
+        self._rows_layout.setContentsMargins(20, 4, 20, 8)
+        self._rows_layout.setSpacing(0)
         col.addWidget(scroll, stretch=1)
 
         self._build_rows()
@@ -260,26 +280,57 @@ class SettingsView(QWidget):
         # plein de ce lot, jamais visible avec le texte nu d'avant).
         self._rows_layout.addStretch()
 
-        footer = QHBoxLayout()
-        footer.setContentsMargins(28, 10, 28, 20)
+        footer_wrap = QWidget()
+        footer_wrap.setStyleSheet(
+            f"background: {COLORS['bg_panel']}; border-top: 1px solid {COLORS['border']}; "
+            f"border-radius: 0 0 10px 10px;"
+        )
+        footer = QHBoxLayout(footer_wrap)
+        footer.setContentsMargins(20, 10, 20, 10)
+        footer.setSpacing(12)
         self._save_status_lbl = QLabel("")
         self._save_status_lbl.setStyleSheet(
-            f"color: {COLORS['success']}; font-size: 12px; font-weight: 600;")
+            f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; border: none;")
         footer.addWidget(self._save_status_lbl)
         footer.addStretch()
+        ctrl_s_hint = QLabel("Ctrl S")
+        ctrl_s_hint.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 11px; font-family: {FONT_MONO_STACK}; "
+            f"border: none;")
+        footer.addWidget(ctrl_s_hint)
         btn_save = QPushButton("Enregistrer")
-        btn_save.setFixedHeight(36); btn_save.setMinimumWidth(140)
+        btn_save.setFixedHeight(34); btn_save.setMinimumWidth(140)
         btn_save.clicked.connect(self._on_save)
         footer.addWidget(btn_save)
-        col.addLayout(footer)
+        col.addWidget(footer_wrap)
 
         self._select_category("scheduler")
-        return col
+        return panel
+
+    def _build_failure_banner(self) -> QWidget:
+        """Bandeau d'échec d'activation du mode arrière-plan (A7) — persistant jusqu'à fermeture
+        ou nouvel enregistrement, contrairement au texte du pied qui s'efface tout seul après
+        10s (inchangé, voir _on_save). "Copier le détail" (maquette Parametres-refus.html) porte
+        un badge "proposé" (C8, gated) : seul "Fermer" est construit ici."""
+        btn_fermer = QPushButton("Fermer")
+        btn_fermer.setObjectName("secondary")
+        btn_fermer.clicked.connect(lambda: self._failure_banner.setVisible(False))
+        banner = make_banner(
+            "danger", "fa5s.exclamation-circle",
+            "Windows a refusé la tâche d'arrière-plan (accès refusé)",
+            "Le mode « Dans l'application seulement » reste actif, vos pipelines planifiés "
+            "continuent de tourner tant que Kulu est ouvert. Les autres réglages ont bien été "
+            "enregistrés. Contactez votre support informatique : Kulu a besoin du droit de "
+            "créer une tâche planifiée à l'ouverture de session.",
+            actions=btn_fermer,
+        )
+        banner.setVisible(False)
+        return banner
 
     def _add_row(self, category: str, label: str, desc: str, widget, badge: str | None = None):
         row = QWidget()
         row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 10, 0, 10)
+        row_layout.setContentsMargins(0, 14, 0, 14)
         row_layout.setSpacing(20)
 
         text_col = QVBoxLayout(); text_col.setSpacing(3)
@@ -316,7 +367,10 @@ class SettingsView(QWidget):
             text_col.addWidget(desc_lbl)
 
         row_layout.addLayout(text_col, stretch=1)
-        control_box = QWidget(); control_box.setFixedWidth(200)
+        # 280px, pas 200 : la maquette va jusqu'à 280px pour "Mode d'exécution" (sa valeur la
+        # plus longue, "Avec exécution en arrière-plan") — un seul gabarit plus large pour
+        # toutes les lignes plutôt qu'une largeur par ligne, plus simple, jamais trop étroit.
+        control_box = QWidget(); control_box.setFixedWidth(280)
         control_layout = QHBoxLayout(control_box)
         control_layout.setContentsMargins(0, 0, 0, 0)
         control_layout.addWidget(widget)
@@ -361,21 +415,20 @@ class SettingsView(QWidget):
         self.spin_misfire.setRange(1, 1440); self.spin_misfire.setSuffix(" min")
         self._add_row("scheduler", "Tolérance de rattrapage",
                        "Délai après lequel une exécution planifiée manquée (PC éteint) n'est "
-                       "plus rattrapée du tout.", self.spin_misfire, badge="immédiat")
+                       "plus rattrapée.", self.spin_misfire, badge="immédiat")
 
-        self.chk_coalesce = QCheckBox(); self.chk_coalesce.setStyleSheet(
-            f"color: {COLORS['text_main']};")
+        self.chk_coalesce = make_switch()
         self._add_row("scheduler", "Regrouper les rattrapages manqués",
-                       "Si plusieurs déclenchements ont été manqués pendant la tolérance "
-                       "ci-dessus, n'en rejoue qu'un seul plutôt que tous d'affilée.",
+                       "Si plusieurs déclenchements ont été manqués pendant la tolérance, n'en "
+                       "rejouer qu'un seul plutôt que tous d'affilée.",
                        self.chk_coalesce, badge="immédiat")
 
         self.spin_max_concurrent = QSpinBox(); self.spin_max_concurrent.setStyleSheet(_spinbox_style())
         self.spin_max_concurrent.setRange(1, 100)
         self._add_row("scheduler", "Plafond d'exécutions simultanées",
                        "Au-delà, un nouveau lancement (manuel, planifié ou en chaîne) est "
-                       "refusé — pas mis en file d'attente. Un run planifié refusé n'est pas "
-                       "rejoué automatiquement, il attend son prochain déclenchement normal.",
+                       "refusé, pas mis en file d'attente. Un run planifié refusé attend son "
+                       "prochain déclenchement.",
                        self.spin_max_concurrent, badge="immédiat")
 
         # Exécution en arrière-plan (chantier worker) — un worker détaché devient le seul
@@ -385,26 +438,25 @@ class SettingsView(QWidget):
         self.cb_execution_mode.addItem("Dans l'application seulement", "IN_APP")
         self.cb_execution_mode.addItem("Avec exécution en arrière-plan", "BACKGROUND")
         self._add_row("scheduler", "Mode d'exécution",
-                       "En arrière-plan : un worker détaché continue de planifier/exécuter même "
-                       "l'appli fermée, tant que la session est ouverte.", self.cb_execution_mode,
-                       badge="au redémarrage")
+                       "En arrière-plan, un worker détaché continue de planifier et d'exécuter "
+                       "même l'appli fermée, tant que la session Windows est ouverte.",
+                       self.cb_execution_mode, badge="au redémarrage")
 
         self.lbl_worker_status = QLabel("Sans objet en mode « Dans l'application seulement »")
         self.lbl_worker_status.setTextFormat(Qt.RichText)
+        self.lbl_worker_status.setWordWrap(True)   # texte plus long que "—" : ne pas le tronquer
         self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
         self._add_row("scheduler", "État du worker en arrière-plan",
-                       "Déduit du dernier échantillon de ressources — le worker en écrit un en "
-                       "continu tant qu'il tourne.", self.lbl_worker_status)
+                       "Déduit du dernier échantillon de ressources, que le worker écrit en "
+                       "continu.", self.lbl_worker_status)
 
         # Réutilisation des tickets Kerberos (chantier dédié) — jusqu'ici, kinit était relancé
         # sans condition à chaque étape SPARK_SQL/SQOOP_EXPORT/SQOOP_IMPORT, même si un ticket
         # valide de 24h existait déjà.
-        self.chk_kerberos_reuse = QCheckBox(); self.chk_kerberos_reuse.setStyleSheet(
-            f"color: {COLORS['text_main']};")
+        self.chk_kerberos_reuse = make_switch()
         self._add_row("scheduler", "Réutiliser un ticket Kerberos valide",
-                       "Évite de relancer kinit à chaque étape SPARK_SQL/SQOOP_EXPORT/"
-                       "SQOOP_IMPORT si un ticket valide existe déjà sur le nœud edge. Désactiver "
-                       "revient au comportement historique (kinit systématique).",
+                       "Évite un kinit à chaque étape Spark SQL ou Sqoop si un ticket valide "
+                       "existe déjà sur le nœud edge.",
                        self.chk_kerberos_reuse, badge="immédiat")
 
         self.spin_kerberos_grace = QSpinBox(); self.spin_kerberos_grace.setStyleSheet(_spinbox_style())
@@ -412,9 +464,8 @@ class SettingsView(QWidget):
         self.spin_kerberos_grace.setSpecialValueText("Aucune")
         self.chk_kerberos_reuse.toggled.connect(self.spin_kerberos_grace.setEnabled)
         self._add_row("scheduler", "Marge de grâce du ticket Kerberos",
-                       "Un ticket n'est réutilisé que s'il reste plus que cette durée avant "
-                       "expiration — « Aucune » (0s) : réutilisation dès qu'il reste ne serait-ce "
-                       "qu'une seconde de validité. Sans effet si la case ci-dessus est décochée.",
+                       "Un ticket n'est réutilisé que s'il lui reste plus que cette durée avant "
+                       "expiration.",
                        self.spin_kerberos_grace, badge="immédiat")
 
         # Journalisation
@@ -439,39 +490,39 @@ class SettingsView(QWidget):
         # Interface
         self.spin_dashboard_refresh = QSpinBox(); self.spin_dashboard_refresh.setStyleSheet(_spinbox_style())
         self.spin_dashboard_refresh.setRange(5, 600); self.spin_dashboard_refresh.setSuffix(" s")
-        self._add_row("interface", "Rafraîchissement — Dashboard",
+        self._add_row("interface", "Rafraîchissement du Dashboard",
                        "Vue d'ensemble, badges d'état des pipelines.",
                        self.spin_dashboard_refresh, badge="au redémarrage")
 
         self.spin_pipelines_refresh = QSpinBox(); self.spin_pipelines_refresh.setStyleSheet(_spinbox_style())
         self.spin_pipelines_refresh.setRange(5, 600); self.spin_pipelines_refresh.setSuffix(" s")
-        self._add_row("interface", "Rafraîchissement — Pipelines",
+        self._add_row("interface", "Rafraîchissement des Pipelines",
                        "Liste des pipelines et leur statut courant.",
                        self.spin_pipelines_refresh, badge="au redémarrage")
 
         self.spin_live_log_refresh = QSpinBox(); self.spin_live_log_refresh.setStyleSheet(_spinbox_style())
         self.spin_live_log_refresh.setRange(1, 60); self.spin_live_log_refresh.setSuffix(" s")
         self._add_row("interface", "Log d'exécution en direct",
-                       "Fenêtre de suivi d'un run en cours. Effet à la prochaine ouverture.",
+                       "Fenêtre de suivi d'un run en cours, rafraîchie à cet intervalle.",
                        self.spin_live_log_refresh, badge="à la prochaine ouverture")
 
         self.spin_trace_glow_refresh = QSpinBox(); self.spin_trace_glow_refresh.setStyleSheet(_spinbox_style())
         self.spin_trace_glow_refresh.setRange(1, 60); self.spin_trace_glow_refresh.setSuffix(" s")
         self._add_row("interface", "Traçage lumineux (éditeur graphique)",
-                       "Interrogation de l'étape en cours pour surligner le nœud actif. Effet à "
-                       "la prochaine ouverture.", self.spin_trace_glow_refresh,
+                       "Interrogation de l'étape en cours pour surligner le nœud actif, "
+                       "rafraîchie à cet intervalle.", self.spin_trace_glow_refresh,
                        badge="à la prochaine ouverture")
 
         # Notifications
-        self.chk_digest_enabled = QCheckBox(); self.chk_digest_enabled.setStyleSheet(
-            f"color: {COLORS['text_main']};")
+        self.chk_digest_enabled = make_switch()
         self._add_row("notifications", "Résumé périodique activé",
                        "Envoie un email récapitulatif des exécutions depuis le dernier envoi.",
                        self.chk_digest_enabled, badge="immédiat")
 
         self.cb_smtp = QComboBox(); self.cb_smtp.setStyleSheet(_combo_style())
         self._add_row("notifications", "Profil SMTP",
-                       "Utilisé pour l'envoi du résumé.", self.cb_smtp, badge="immédiat")
+                       "Utilisé pour l'envoi du résumé. Les profils se gèrent dans Connexions.",
+                       self.cb_smtp, badge="immédiat")
 
         self.inp_recipients = QLineEdit(); self.inp_recipients.setFixedHeight(34)
         self.inp_recipients.setStyleSheet(_input_style())
@@ -488,11 +539,13 @@ class SettingsView(QWidget):
         self.cb_day = QComboBox(); self.cb_day.setStyleSheet(_combo_style())
         for i, d in enumerate(DAYS_OF_WEEK):
             self.cb_day.addItem(d, i)
-        self._add_row("notifications", "Jour (si hebdomadaire)", "", self.cb_day, badge="immédiat")
+        self._add_row("notifications", "Jour (si hebdomadaire)",
+                       "Jour d'envoi du résumé hebdomadaire.", self.cb_day, badge="immédiat")
 
         self.inp_time = QLineEdit(); self.inp_time.setFixedHeight(34)
         self.inp_time.setStyleSheet(_input_style())
-        self._add_row("notifications", "Heure d'envoi", "Format HH:MM.", self.inp_time,
+        self._add_row("notifications", "Heure d'envoi",
+                       "Format HH:MM, dans le fuseau de l'ordonnanceur.", self.inp_time,
                        badge="immédiat")
 
         # Ressources (chantier suivi des ressources) — premier réglage né directement avec ce
@@ -619,10 +672,11 @@ class SettingsView(QWidget):
             if icon:
                 row["icon_lbl"].setPixmap(icon.pixmap(16, 16))
             row["frame"].setStyleSheet(
-                f"QFrame {{ border: none; border-radius: 5px; "
+                f"QFrame#category_row {{ border: none; border-radius: 5px; "
                 f"background: {COLORS['bg_active'] if active else 'transparent'}; "
                 f"border-left: 2px solid {COLORS['accent'] if active else 'transparent'}; }}"
-                f"QFrame:hover {{ background: {COLORS['bg_active'] if active else COLORS['bg_hover']}; }}"
+                f"QFrame#category_row:hover {{ background: "
+                f"{COLORS['bg_active'] if active else COLORS['bg_hover']}; }}"
             )
         for row in self._row_widgets:
             row["chip"].setVisible(False)
@@ -652,9 +706,9 @@ class SettingsView(QWidget):
         for key, row in self._category_rows.items():
             count = counts[key]
             row["frame"].setStyleSheet(
-                f"QFrame {{ border: none; border-radius: 5px; background: transparent; "
+                f"QFrame#category_row {{ border: none; border-radius: 5px; background: transparent; "
                 f"border-left: 2px solid transparent; }}"
-                f"QFrame:hover {{ background: {COLORS['bg_hover']}; }}"
+                f"QFrame#category_row:hover {{ background: {COLORS['bg_hover']}; }}"
             )
             if count:
                 row["count_lbl"].setText(str(count))
@@ -668,10 +722,14 @@ class SettingsView(QWidget):
 
         total = sum(counts.values())
         n_categories = sum(1 for c in counts.values() if c)
+        escape_hint = (
+            f'<span style="font-family:{FONT_MONO_STACK}; font-size:10.5px; '
+            f'border:1px solid {COLORS["border"]}; border-radius:4px; padding:0 5px;">Échap</span>'
+        )
         self._search_help_lbl.setText(
             f"{total} réglage{'s' if total > 1 else ''} dans {n_categories} "
             f"catégorie{'s' if n_categories > 1 else ''} · la recherche porte sur les noms et "
-            f"les descriptions"
+            f"les descriptions · {escape_hint} pour revenir"
         )
         self._search_help_lbl.setVisible(True)
 
@@ -784,6 +842,11 @@ class SettingsView(QWidget):
                 unregister_logon_task()
                 db.enqueue_worker_command("SHUTDOWN")
             self._refresh_worker_status()
+
+        # Bandeau persistant (A7) — reste visible jusqu'à "Fermer" ou un nouvel enregistrement
+        # (recalculé ici à chaque appel), contrairement au texte du pied ci-dessous qui s'efface
+        # tout seul.
+        self._failure_banner.setVisible(background_activation_failed)
 
         # Confirmation non bloquante (pas de QMessageBox.information ici, volontairement) : un
         # "Enregistrer" qu'on peut cliquer plusieurs fois de suite sans devoir fermer une boîte
