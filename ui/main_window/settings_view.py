@@ -17,10 +17,12 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter,
 )
 from PySide6.QtCore import Qt, QTimer
+from version import __version__
 from ui.styles import COLORS
 from ui.time_display import fmt_relative
 from ui.step_editor.common import DAYS_OF_WEEK
-from .widgets import _icon, _make_title, _make_subtitle, _make_search_input
+from ui.components import make_page_header
+from .widgets import _icon, _make_search_input
 
 _CATEGORIES = [
     {"key": "scheduler",     "label": "Ordonnanceur",    "icon": "fa5s.clock",
@@ -95,10 +97,7 @@ class SettingsView(QWidget):
 
         header = QVBoxLayout()
         header.setContentsMargins(32, 24, 32, 18)
-        header.setSpacing(2)
-        header.addWidget(_make_title("Paramètres"))
-        header.addWidget(_make_subtitle(
-            "Réglages transverses à l'application — jusqu'ici répartis en dur dans le code."))
+        header.addWidget(make_page_header(f"CE POSTE · KULU {__version__}", "Paramètres"))
         outer.addLayout(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
