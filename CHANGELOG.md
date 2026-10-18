@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.4] - 2026-10-18
+
+### Corrigé
+- **Correctif K3** — `list_all_db_profiles` (sélecteurs de profil de base de données, bilan de
+  santé des connexions) n'exposait pas `last_tested_at`, pourtant déjà stocké pour chaque profil
+  Oracle/base de données : l'ancienneté du dernier test ne pouvait jamais s'afficher pour ces
+  profils, contrairement à FTP/SMTP/SSH/Kerberos/Élévation.
+
 ## [0.46.3] - 2026-10-18
 
 ### Corrigé
