@@ -172,10 +172,11 @@ class _DbExecuteConfigDialog(_BaseStepConfigDialog):
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
         from database import db_manager as db
-        if SqlQueryDialog(self).exec():
+        dlg = SqlQueryDialog(self)
+        if dlg.exec():
             self._sql_queries = db.get_sql_queries()
             self._filter_queries()
-            self._set_combo(cb, self._sql_queries[-1].id if self._sql_queries else None)
+            self._set_combo(cb, dlg.result_query_id)
 
     def _collect_config(self) -> dict:
         data = self.cb_profile.currentData()

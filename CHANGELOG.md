@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.3] - 2026-10-18
+
+### Corrigé
+- **Correctif K2** — après "+ Nouvelle requête SQL" depuis un dialogue d'étape (DB_EXTRACT,
+  DB_EXECUTE, Spark SQL), la requête sélectionnée dans la liste n'était pas forcément celle qui
+  venait d'être créée : la liste est triée par nom, pas par création, et le code sélectionnait
+  le dernier élément de cette liste. La requête créée est désormais toujours celle sélectionnée.
+
 ## [0.46.2] - 2026-10-18
 
 ### Corrigé
