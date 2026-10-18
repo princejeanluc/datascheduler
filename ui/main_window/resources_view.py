@@ -21,6 +21,7 @@ from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
 from ui.styles import COLORS, FONT_MONO
+from ui.time_display import fmt_datetime, fmt_time
 from .widgets import _make_title, _make_subtitle, StatCard
 
 # Hues catégorielles validées (kit dataviz — CVD/contraste/luminosité, --pairs all en dark) —
@@ -413,7 +414,7 @@ class ResourcesView(QWidget):
     def _update_correlate_panel(self, instant: datetime):
         self._clear_chips()
 
-        self._correlate_time_lbl.setText(instant.strftime("%d/%m/%Y %H:%M"))
+        self._correlate_time_lbl.setText(fmt_datetime(instant))
         self._correlate_time_lbl.setVisible(True)
 
         active = self._runs_active_at(instant)
@@ -450,7 +451,7 @@ class ResourcesView(QWidget):
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 12px; font-weight: 500;")
         layout.addWidget(name_lbl)
-        since_lbl = QLabel(f"depuis {since.strftime('%H:%M')}" if since else "")
+        since_lbl = QLabel(f"depuis {fmt_time(since, fmt='%H:%M')}" if since else "")
         since_lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-family: {FONT_MONO}; font-size: 10.5px;")
         layout.addWidget(since_lbl)
         return chip
