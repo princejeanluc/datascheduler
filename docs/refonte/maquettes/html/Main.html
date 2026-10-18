@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Atelier, paramètres du pipeline</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+a{color:#FF9933}a:hover{color:#FF7900}
+button{font-family:inherit}
+</style>
+</head>
+<body>
+
+<div style="width: 100%; min-width: 1280px; height: 900px; display: flex; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden">
+
+  <nav aria-label="Navigation principale" style="width: 56px; flex-shrink: 0; background: #1c1a17; border-right: 1px solid #35322d; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7900" stroke-width="2" stroke-linecap="round" role="img" aria-label="KULU"><circle cx="5" cy="6" r="2.5"></circle><circle cx="5" cy="18" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 6h3a4 4 0 0 1 4 4v0.5M7.5 18h3a4 4 0 0 0 4-4v-0.5M14.5 12h2"></path></svg>
+    <div style="height: 18px"></div>
+    <button aria-label="Aujourd'hui" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></button>
+    <button aria-label="Pipelines" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="12" r="2"></circle><path d="M7 6h3a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H7M14 12h3"></path></svg></button>
+    <button aria-label="Connexions" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path></svg></button>
+    <button aria-label="Requêtes SQL" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"></ellipse><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></button>
+    <button aria-label="Historique" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg></button>
+    <button aria-label="Ressources" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg></button>
+    <div style="flex-grow: 1"></div>
+    <button aria-label="Paramètres" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button>
+    <button aria-label="Aide" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button>
+  </nav>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+
+    <header style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 20px; border-bottom: 1px solid #35322d; background: #1c1a17">
+      <a href="#" style="color: #9c968d; text-decoration: none">Pipelines</a>
+      <span style="color: #756f66">/</span>
+      <button style="display: flex; align-items: center; gap: 8px; background: transparent; border: none; color: #f2efeb; font-size: 15px; font-weight: 600; padding: 6px 8px; border-radius: 6px">Reporting ventes J-1 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9c968d" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #242220; border: 1px solid #35322d; color: #9c968d; font-size: 12px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #E8B339"></span>Brouillon · 2 modifications · enregistré automatiquement</span>
+      <div style="flex-grow: 1"></div>
+      <button style="display: flex; align-items: center; gap: 10px; width: 210px; height: 34px; padding: 0 10px; border-radius: 6px; border: 1px solid #35322d; background: #141210; color: #9c968d; font-size: 13px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4 4"></path></svg><span style="flex-grow: 1; text-align: left">Aller à, exécuter…</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; border: 1px solid #35322d; border-radius: 4px; padding: 1px 5px">Ctrl K</span></button>
+      <button style="height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Valider à blanc</button>
+      <button style="height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Publier</button>
+      <a href="Atelier-echec.html" style="height: 34px; padding: 0 16px; border-radius: 6px; background: #FF7900; color: #000; font-weight: 700; display: flex; align-items: center; gap: 8px; text-decoration: none"><svg width="12" height="12" viewBox="0 0 24 24" fill="#000" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Exécuter</a>
+    </header>
+
+    <div style="flex: 1 1 auto; min-height: 0; display: flex">
+
+      <section aria-label="Canevas du pipeline" style="flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; background-color: #141210; background-image: radial-gradient(#2c2925 1px, transparent 1px); background-size: 16px 16px">
+
+        <span style="position: absolute; left: 64px; top: 20px; font-size: 12px; color: #756f66; font-style: italic">Tirer d'un port de sortie vers un port d'entrée pour relier deux nœuds</span>
+        <label style="position: absolute; right: 16px; top: 12px; display: flex; align-items: center; gap: 8px; width: 220px; height: 32px; box-sizing: border-box; padding: 0 10px; border-radius: 6px; border: 1px solid #35322d; background: #1c1a17; color: #9c968d"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4 4"></path></svg><span style="position: absolute; left: -9999px">Rechercher un nœud</span><input placeholder="Rechercher un nœud…" style="flex-grow: 1; min-width: 0; background: transparent; border: none; color: #f2efeb; font-family: inherit; font-size: 12px; outline: none"></label>
+
+        <div role="toolbar" aria-label="Outils du canevas" aria-orientation="vertical" style="position: absolute; left: 12px; top: 56px; width: 40px; box-sizing: border-box; padding: 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: #1c1a17; border: 1px solid #35322d; border-radius: 10px; z-index: 3">
+          <a href="Atelier-ajout.html" aria-label="Ajouter une étape (A)" style="width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #FF7900"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a>
+          <button aria-label="Ajouter une zone" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect></svg></button>
+          <button aria-label="Dupliquer la sélection (Ctrl D)" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"></rect><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"></path></svg></button>
+          <button aria-label="Supprimer la sélection" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"></path></svg></button>
+          <span style="width: 22px; height: 1px; background: #35322d; margin: 4px 0"></span>
+          <button aria-label="Ranger automatiquement" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="9" width="5" height="6" rx="1"></rect><rect x="16" y="3" width="5" height="6" rx="1"></rect><rect x="16" y="15" width="5" height="6" rx="1"></rect><path d="M8 12h4m0-6v12m0-12h4m-4 12h4"></path></svg></button>
+          <button aria-label="Ranger la sélection" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"></rect><rect x="14" y="14" width="7" height="7" rx="1" stroke-dasharray="2 2"></rect><path d="M10 6.5h4v7.5"></path></svg></button>
+          <button aria-label="Annuler le rangement" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 14L4 9l5-5"></path><path d="M4 9h10a6 6 0 0 1 0 12h-3"></path></svg></button>
+          <span style="width: 22px; height: 1px; background: #35322d; margin: 4px 0"></span>
+          <button aria-label="Mini-carte : masquer" aria-pressed="true" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg></button>
+          <button aria-label="Tout déplier ou replier" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M7 9l5-5 5 5M7 15l5 5 5-5"></path></svg></button>
+          <button aria-label="Aide sur l'Atelier" style="width: 32px; height: 32px; border: none; border-radius: 6px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button>
+        </div>
+
+        <div aria-hidden="true" style="position: absolute; left: 400px; top: 232px; width: 366px; height: 110px; border: 1px dashed #4a463f; border-radius: 12px; background: rgba(255,255,255,0.015)"></div>
+        <span style="position: absolute; left: 410px; top: 237px; font-size: 11px; color: #9c968d">Zone · Diffusion partenaire</span>
+
+        <svg aria-hidden="true" width="1044" height="600" viewBox="0 0 1044 600" style="position: absolute; left: 0; top: 0" fill="none" stroke-width="1.6">
+          <path d="M224 300 H246" stroke="#9c968d"></path>
+          <path d="M282 288 C312 288, 312 220, 342 220" stroke="#3fb950"></path>
+          <path d="M282 312 C312 312, 312 440, 342 440" stroke="#756f66" stroke-dasharray="4 4"></path>
+          <path d="M390 220 C402 220, 402 150, 412 150" stroke="#9c968d"></path>
+          <path d="M390 220 C402 220, 402 290, 412 290" stroke="#9c968d"></path>
+          <path d="M572 290 H594" stroke="#9c968d"></path>
+          <path d="M572 150 C730 150, 730 220, 776 220" stroke="#9c968d"></path>
+          <path d="M754 290 C768 290, 768 220, 776 220" stroke="#9c968d"></path>
+          <path d="M824 220 H846" stroke="#9c968d"></path>
+          <path d="M674 326 V404" stroke="#E8B339" stroke-dasharray="4 4"></path>
+        </svg>
+        <span style="position: absolute; left: 290px; top: 204px; font-size: 11px; font-weight: 600; color: #3fb950">vrai</span>
+        <span style="position: absolute; left: 256px; top: 352px; font-size: 11px; color: #756f66">faux</span>
+
+        <div style="position: absolute; left: 64px; top: 264px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #6BB4CF"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6BB4CF"></span>EXTRACTION · ORACLE<span style="flex-grow: 1"></span><span style="color: #756f66">▾</span></div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Extraire ventes J-1</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 41 s · 83 212 l.</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 75px; bottom: -5px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 230px; top: 254px; width: 80px; text-align: center; font-size: 11.5px; font-weight: 600; color: #c7b6ff">Volume &gt; 0 ?</div>
+        <div style="position: absolute; left: 246px; top: 276px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 14px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 14px">?</span>
+          <span style="position: absolute; left: -5px; top: 19px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 31px; top: 7px; width: 10px; height: 10px; border-radius: 50%; background: #3fb950"></span>
+          <span style="position: absolute; left: 31px; top: 31px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #756f66"></span>
+          <span style="position: absolute; left: 20px; top: 44px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 326px; top: 176px; width: 80px; text-align: center; font-size: 11.5px; font-weight: 600; color: #c7b6ff">Parallèle</div>
+        <div style="position: absolute; left: 342px; top: 196px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 12px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 16px">+</span>
+          <span style="position: absolute; left: -5px; top: 19px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -5px; top: 19px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 20px; top: 44px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 412px; top: 114px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #6BB4CF"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6BB4CF"></span>CHARGEMENT · POSTGRES<span style="flex-grow: 1"></span><span style="color: #756f66">▾</span></div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Charger l'entrepôt</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 1 min 02</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 75px; bottom: -5px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 412px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #b5c96a"><span style="width: 6px; height: 6px; border-radius: 2px; background: #b5c96a"></span>COMPRESSION · ZIP<span style="flex-grow: 1"></span><span style="color: #756f66">▾</span></div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Compresser</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 6 s · 4,1 Mo</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 75px; bottom: -5px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <a href="Atelier-etape.html" style="position: absolute; left: 594px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px; color: #f2efeb; text-decoration: none">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #b5c96a"><span style="width: 6px; height: 6px; border-radius: 2px; background: #b5c96a"></span>ENVOI · SFTP<span style="flex-grow: 1"></span><span style="color: #756f66">▾</span></div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Dépôt partenaire</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 1 min 12</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 73px; bottom: -6px; width: 12px; height: 12px; border-radius: 50%; background: #E8B339; color: #141210; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center">!</span>
+        </a>
+
+        <div style="position: absolute; left: 760px; top: 176px; width: 80px; text-align: center; font-size: 11.5px; font-weight: 600; color: #c7b6ff">Toutes (ET)</div>
+        <div style="position: absolute; left: 776px; top: 196px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 16px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 11px">ET</span>
+          <span style="position: absolute; left: -5px; top: 19px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; right: -5px; top: 19px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 20px; top: 44px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 846px; top: 184px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #c9a37a"><span style="width: 6px; height: 6px; border-radius: 2px; background: #c9a37a"></span>NOTIFICATION · EMAIL<span style="flex-grow: 1"></span><span style="color: #756f66">▾</span></div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Prévenir l'équipe</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 2 s</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d"></span>
+          <span style="position: absolute; left: 75px; bottom: -5px; width: 8px; height: 8px; border-radius: 50%; background: #141210; border: 1.5px solid #8a6d2c"></span>
+        </div>
+
+        <div style="position: absolute; left: 342px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; background: transparent; border: 1px dashed #4a463f; border-radius: 10px; padding: 8px 10px; color: #9c968d">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em">NOTIFICATION · EMAIL</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Alerte volume nul</div>
+          <div style="font-size: 11px; margin-top: 5px">non exécutée</div>
+          <span style="position: absolute; left: -6px; top: 30px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #756f66"></span>
+        </div>
+
+        <div style="position: absolute; left: 594px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; background: transparent; border: 1px dashed #6b5527; border-radius: 10px; padding: 8px 10px; color: #9c968d">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #d68fb8">APPEL HTTP · WEBHOOK</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px; color: #f2efeb">Signaler l'échec</div>
+          <div style="font-size: 11px; margin-top: 5px; color: #E8B339">si le dépôt échoue</div>
+          <span style="position: absolute; left: 75px; top: -5px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #E8B339; box-sizing: border-box"></span>
+        </div>
+
+        <div style="position: absolute; left: 12px; bottom: 14px; display: flex; align-items: center; gap: 2px; background: #1c1a17; border: 1px solid #35322d; border-radius: 6px; padding: 2px">
+          <button aria-label="Dézoomer" style="width: 28px; height: 26px; border: none; background: transparent; color: #9c968d">−</button>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9c968d; padding: 0 6px">100 %</span>
+          <button aria-label="Zoomer" style="width: 28px; height: 26px; border: none; background: transparent; color: #9c968d">+</button>
+          <button aria-label="Ajuster à l'écran" style="width: 28px; height: 26px; border: none; background: transparent; color: #9c968d"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></svg></button>
+        </div>
+
+        <div aria-hidden="true" style="position: absolute; right: 16px; bottom: 14px; width: 150px; height: 86px; background: #1c1a17; border: 1px solid #35322d; border-radius: 6px">
+          <div style="position: absolute; left: 8px; top: 42px; width: 20px; height: 10px; border-radius: 2px; background: #4a463f"></div>
+          <div style="position: absolute; left: 33px; top: 43px; width: 7px; height: 7px; transform: rotate(45deg); background: #a58cf0"></div>
+          <div style="position: absolute; left: 45px; top: 30px; width: 7px; height: 7px; transform: rotate(45deg); background: #a58cf0"></div>
+          <div style="position: absolute; left: 57px; top: 16px; width: 20px; height: 10px; border-radius: 2px; background: #4a463f"></div>
+          <div style="position: absolute; left: 57px; top: 38px; width: 20px; height: 10px; border-radius: 2px; background: #4a463f"></div>
+          <div style="position: absolute; left: 82px; top: 38px; width: 20px; height: 10px; border-radius: 2px; background: #4a463f"></div>
+          <div style="position: absolute; left: 107px; top: 30px; width: 7px; height: 7px; transform: rotate(45deg); background: #a58cf0"></div>
+          <div style="position: absolute; left: 118px; top: 28px; width: 20px; height: 10px; border-radius: 2px; background: #4a463f"></div>
+          <div style="position: absolute; left: 4px; top: 6px; width: 140px; height: 74px; border: 1px solid #FF7900; border-radius: 3px; box-sizing: border-box"></div>
+        </div>
+      </section>
+
+      <aside aria-label="Paramètres du pipeline" style="width: 340px; flex-shrink: 0; border-left: 1px solid #35322d; background: #1c1a17; display: flex; flex-direction: column; min-height: 0">
+        <div style="padding: 16px 18px 12px 18px; border-bottom: 1px solid #35322d; display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; align-items: center; justify-content: space-between"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #FF9933">PIPELINE</span><label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9c968d"><input type="checkbox" checked style="accent-color: #FF7900; margin: 0">Actif</label></div>
+          <label><span style="position: absolute; left: -9999px">Nom du pipeline</span><input value="Reporting ventes J-1" style="width: 100%; box-sizing: border-box; background: transparent; border: none; border-bottom: 1px solid #35322d; color: #f2efeb; font-family: inherit; font-size: 17px; font-weight: 600; padding: 2px 0 6px 0"></label>
+          <label><span style="position: absolute; left: -9999px">Description</span><textarea rows="2" style="width: 100%; box-sizing: border-box; resize: none; background: transparent; border: none; color: #9c968d; font-family: inherit; font-size: 12px; line-height: 1.5; padding: 0">Extraction des ventes, contrôle du volume, chargement de l'entrepôt et dépôt partenaire.</textarea></label>
+          <span style="font-size: 11px; color: #756f66">Clique une étape pour l'éditer · Échap revient ici</span>
+        </div>
+
+        <div style="flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 18px">
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">PLANIFICATION</div>
+            <div role="radiogroup" aria-label="Fréquence" style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; background: #141210; border: 1px solid #35322d; border-radius: 6px; padding: 2px">
+              <button role="radio" aria-checked="true" style="height: 28px; border: none; border-radius: 4px; background: #2c2925; color: #f2efeb; font-size: 12px; font-weight: 600">Jour</button>
+              <button role="radio" aria-checked="false" style="height: 28px; border: none; border-radius: 4px; background: transparent; color: #9c968d; font-size: 12px">Semaine</button>
+              <button role="radio" aria-checked="false" style="height: 28px; border: none; border-radius: 4px; background: transparent; color: #9c968d; font-size: 12px">Mois</button>
+              <button role="radio" aria-checked="false" style="height: 28px; border: none; border-radius: 4px; background: transparent; color: #9c968d; font-size: 12px">Cron</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <label style="display: flex; align-items: center; gap: 8px"><span style="color: #9c968d; font-size: 12px">À</span><input value="06:00" style="width: 72px; height: 30px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; border: 1px solid #35322d; background: #242220; color: #f2efeb; font-family: 'JetBrains Mono', monospace; font-size: 12px"></label>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9c968d">0 6 * * *</span>
+              <span style="flex-grow: 1"></span>
+              <span style="font-size: 11px; color: #756f66">Europe/Paris</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 6px; background: #242220; font-size: 12px">
+              <span style="color: #9c968d; font-size: 11px">Prochaines exécutions</span>
+              <span style="font-family: 'JetBrains Mono', monospace">lun. 19/10 06:00 <span style="color: #9c968d">· dans 15 h 30</span></span>
+              <span style="font-family: 'JetBrains Mono', monospace; color: #9c968d">mar. 20/10 06:00</span>
+              <span style="font-family: 'JetBrains Mono', monospace; color: #9c968d">mer. 21/10 06:00</span>
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 10px">
+            <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">DÉCLENCHEMENT EN CHAÎNE</div>
+            <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 6px; line-height: 2">
+              <span>Lancer aussi après</span>
+              <button style="height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid #35322d; background: #242220; color: #f2efeb; font-size: 12px">Synchro clients CRM ▾</button>
+              <span>si elle</span>
+              <button style="height: 26px; padding: 0 8px; border-radius: 6px; border: 1px solid #35322d; background: #242220; color: #3fb950; font-size: 12px">réussit ▾</button>
+            </div>
+            <span style="font-size: 11px; color: #756f66">Choix possibles : réussit, échoue, se termine.</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">EXÉCUTION</div>
+            <label style="display: flex; align-items: center; gap: 10px"><input type="checkbox" checked style="accent-color: #FF7900; margin: 0">Empêcher deux exécutions simultanées</label>
+            <label style="display: flex; align-items: center; gap: 10px"><input type="checkbox" checked style="accent-color: #FF7900; margin: 0">Branches indépendantes en parallèle, <span style="font-family: 'JetBrains Mono', monospace; padding: 0 6px; border-radius: 4px; background: #242220; border: 1px solid #35322d">4</span> max</label>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">VARIABLES</span><button style="background: transparent; border: none; color: #FF9933; font-size: 12px; padding: 0">+ Ajouter</button></div>
+            <div style="border: 1px solid #35322d; border-radius: 6px; overflow: hidden; font-family: 'JetBrains Mono', monospace; font-size: 11.5px">
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 6px 10px; background: #242220"><span>region</span><span style="color: #9c968d">FR</span></div>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 6px 10px; border-top: 1px solid #2c2925"><span>seuil_lignes</span><span style="color: #9c968d">1000</span></div>
+              <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 6px 10px; border-top: 1px solid #2c2925"><span>nb_lignes</span><span style="color: #756f66; font-family: 'IBM Plex Sans', sans-serif">écrite par Extraire ventes J-1</span></div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section aria-label="Dernière exécution" style="height: 188px; flex-shrink: 0; border-top: 1px solid #35322d; background: #1c1a17; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid #2c2925">
+        <span style="font-weight: 600; border-bottom: 2px solid #FF7900; padding-bottom: 2px">Chronogramme</span>
+        <span style="color: #9c968d">Journal</span>
+        <span style="color: #9c968d">Variables</span>
+        <span style="color: #9c968d">Validation <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 0 5px; border-radius: 4px; background: #242220">0</span></span>
+        <div style="flex-grow: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #9c968d"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3fb950"></span>Réussie · aujourd'hui 06:00 · 2 min 01</span>
+        <button style="height: 26px; padding: 0 10px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #9c968d; font-size: 12px">Exécutions précédentes ▾</button>
+      </div>
+      <div style="flex: 1 1 auto; padding: 8px 20px 10px 20px; display: flex; flex-direction: column; gap: 5px; font-size: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; color: #9c968d; font-family: 'JetBrains Mono', monospace; font-size: 10px"><span style="width: 170px; flex-shrink: 0"></span><div style="flex-grow: 1; display: flex; justify-content: space-between"><span>0 s</span><span>30 s</span><span>1 min</span><span>1 min 30</span><span>2 min</span></div><span style="width: 70px; flex-shrink: 0"></span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Extraire ventes J-1</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 0%; width: 33.9%; top: 0; bottom: 0; background: #6BB4CF; border-radius: 3px"></div></div><span style="width: 70px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">41 s</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Charger l'entrepôt</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 33.9%; width: 51.2%; top: 0; bottom: 0; background: #6BB4CF; border-radius: 3px"></div></div><span style="width: 70px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">1 min 02</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Compresser</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 33.9%; width: 5%; top: 0; bottom: 0; background: #b5c96a; border-radius: 3px"></div></div><span style="width: 70px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">6 s</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Dépôt partenaire</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 38.9%; width: 59.5%; top: 0; bottom: 0; background: #b5c96a; border-radius: 3px"></div></div><span style="width: 70px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">1 min 12</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Prévenir l'équipe</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 98.3%; width: 1.7%; top: 0; bottom: 0; background: #c9a37a; border-radius: 3px"></div></div><span style="width: 70px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">2 s</span></div>
+        <div style="font-size: 11px; color: #756f66; padding-left: 182px">Non exécutées : Alerte volume nul (branche faux), Signaler l'échec (aucune erreur)</div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

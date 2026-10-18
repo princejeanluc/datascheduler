@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Paramètres</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+a{color:#FF9933}a:hover{color:#FF7900}
+button{font-family:inherit}
+</style>
+</head>
+<body>
+
+<div style="width: 100%; min-width: 1280px; height: 900px; display: flex; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden; position: relative">
+<nav aria-label="Navigation principale" style="width: 56px; flex-shrink: 0; background: #1c1a17; border-right: 1px solid #35322d; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 0"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7900" stroke-width="2" stroke-linecap="round" role="img" aria-label="KULU"><circle cx="5" cy="6" r="2.5"></circle><circle cx="5" cy="18" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 6h3a4 4 0 0 1 4 4v0.5M7.5 18h3a4 4 0 0 0 4-4v-0.5M14.5 12h2"></path></svg><div style="height: 18px"></div><button aria-label="Aujourd'hui" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></button><a href="Main.html" aria-label="Pipelines" style="width: 40px; height: 40px; border-radius: 8px; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="12" r="2"></circle><path d="M7 6h3a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H7M14 12h3"></path></svg></a><button aria-label="Connexions" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path></svg></button><button aria-label="Requêtes SQL" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"></ellipse><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></button><button aria-label="Historique" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg></button><button aria-label="Ressources" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg></button><div style="flex-grow: 1"></div><button aria-label="Paramètres" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button><button aria-label="Aide" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button></nav>
+  <main style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 24px 32px 20px 32px; gap: 18px;">
+    <header style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #9c968d">CE POSTE · KULU 0.45</span>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600">Paramètres</h1>
+    </header>
+    <div style="flex: 1 1 auto; min-height: 0; display: flex; gap: 24px">
+      <aside aria-label="Catégories" style="width: 264px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; padding: 4px 0">
+        <label style="height: 34px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span style="flex-grow: 1"><span style="color: #756f66">Rechercher un paramètre…</span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #756f66; border: 1px solid #35322d; border-radius: 4px; padding: 0 5px">Ctrl F</span>
+        </label>
+        <nav style="display: flex; flex-direction: column; gap: 2px">
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: #3d1f00; color: #f2efeb; box-shadow: inset 2px 0 0 #FF7900;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#FF7900" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/><circle cx="8" cy="8" r="2.5"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Ordonnanceur</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Planification, rattrapages, exécution en arrière-plan</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h10v11H3z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Journalisation</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fichiers de logs et niveau de détail</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Interface</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fréquences de rafraîchissement</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a4 4 0 0 1 8 0v3l1.5 2h-11L4 10z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Notifications</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Résumé périodique par email</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l3-4 3 2 3-5 3 3"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Ressources</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Échantillonnage CPU et mémoire</span></span><span></span>
+        </a>
+        </nav>
+        <div style="flex-grow: 1"></div>
+        <div style="font-size: 11.5px; color: #756f66; line-height: 1.5; padding: 0 4px">Réglages enregistrés pour ce poste, dans la base locale de Kulu.</div>
+      </aside>
+      <section style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #1c1a17; border: 1px solid #35322d; border-radius: 10px">
+        <div style="padding: 16px 20px 12px 20px; border-bottom: 1px solid #35322d; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 17px; font-weight: 600">Ordonnanceur</span><span style="font-size: 12.5px; color: #9c968d">Comportement du planificateur : fuseau, rattrapages, exécution en arrière-plan.</span></div>
+        <div style="flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Fuseau horaire</span><span title="Prend effet au prochain démarrage de Kulu" style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; color: #9c968d; border: 1px solid #35322d; border-radius: 999px; padding: 1px 7px; white-space: nowrap"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>au redémarrage</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Référence pour l'heure de toutes les planifications (Quotidien, Hebdo, Cron).</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 260px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; box-sizing: border-box">Europe/Paris<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Tolérance de rattrapage</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Délai après lequel une exécution planifiée manquée (PC éteint) n'est plus rattrapée.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 130px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; padding: 0 4px 0 10px; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 13px"><span style="flex-grow: 1">60<span style="color: #9c968d"> min</span></span><span style="display: flex; flex-direction: column; color: #756f66; font-size: 8px; line-height: 10px; padding: 0 4px">▲<br>▼</span></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Regrouper les rattrapages manqués</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Si plusieurs déclenchements ont été manqués pendant la tolérance, n'en rejouer qu'un seul plutôt que tous d'affilée.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span role="switch" aria-checked="true" style="width: 38px; height: 22px; border-radius: 999px; background: #FF7900; position: relative; display: inline-block; flex-shrink: 0"><span style="position: absolute; top: 2px; left: 18px; width: 18px; height: 18px; border-radius: 50%; background: #f2efeb"></span></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Plafond d'exécutions simultanées</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Au-delà, un nouveau lancement (manuel, planifié ou en chaîne) est refusé, pas mis en file d'attente. Un run planifié refusé attend son prochain déclenchement.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 130px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; padding: 0 4px 0 10px; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 13px"><span style="flex-grow: 1">4<span style="color: #9c968d"></span></span><span style="display: flex; flex-direction: column; color: #756f66; font-size: 8px; line-height: 10px; padding: 0 4px">▲<br>▼</span></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Mode d'exécution</span><span title="Prend effet au prochain démarrage de Kulu" style="display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 600; color: #9c968d; border: 1px solid #35322d; border-radius: 999px; padding: 1px 7px; white-space: nowrap"><svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M13 8a5 5 0 1 1-1.5-3.6M13 2.5V5h-2.5"/></svg>au redémarrage</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">En arrière-plan, un worker détaché continue de planifier et d'exécuter même l'appli fermée, tant que la session Windows est ouverte.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 280px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; box-sizing: border-box">Dans l'application seulement<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">État du worker en arrière-plan</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Déduit du dernier échantillon de ressources, que le worker écrit en continu.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="font-size: 13px; color: #756f66">Sans objet en mode « Dans l'application seulement »</span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Réutiliser un ticket Kerberos valide</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Évite un kinit à chaque étape Spark SQL ou Sqoop si un ticket valide existe déjà sur le nœud edge.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span role="switch" aria-checked="true" style="width: 38px; height: 22px; border-radius: 999px; background: #FF7900; position: relative; display: inline-block; flex-shrink: 0"><span style="position: absolute; top: 2px; left: 18px; width: 18px; height: 18px; border-radius: 50%; background: #f2efeb"></span></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Marge de grâce du ticket Kerberos</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Un ticket n'est réutilisé que s'il lui reste plus que cette durée avant expiration.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 130px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; padding: 0 4px 0 10px; box-sizing: border-box; font-family: 'JetBrains Mono', monospace; font-size: 13px"><span style="flex-grow: 1">1800<span style="color: #9c968d"> s</span></span><span style="display: flex; flex-direction: column; color: #756f66; font-size: 8px; line-height: 10px; padding: 0 4px">▲<br>▼</span></span></div>
+        </div>
+        </div>
+      <footer style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid #35322d; background: #1c1a17; border-radius: 0 0 10px 10px">
+        <span style="font-size: 12.5px; color: #756f66">Aucune modification</span><div style="flex-grow: 1"></div><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #756f66">Ctrl S</span><button style="height: 34px; padding: 0 16px; border-radius: 6px; border: none; background: #FF7900; color: #000; font-weight: 700; display: flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap; opacity: 0.45;">Enregistrer</button>
+      </footer>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>
