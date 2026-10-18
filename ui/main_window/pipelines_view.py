@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
+from ui.time_display import fmt_datetime_local
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
     _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
@@ -134,7 +135,7 @@ class PipelinesView(QWidget):
         for r_idx, (p, depth) in enumerate(ordered):
             st       = _status_str(p.last_status)
             plan     = describe_schedule(p)
-            next_run = p.next_run_at.strftime("%d/%m/%Y %H:%M") if p.next_run_at else "—"
+            next_run = fmt_datetime_local(p.next_run_at)
 
             # Résumé des étapes
             step_types = [str(s.step_type).replace("StepType.", "") for s in (p.steps or [])]
