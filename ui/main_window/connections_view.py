@@ -496,6 +496,13 @@ class ConnectionsView(QWidget):
         from database import db_manager as db
         from ui.dialogs import DB_TYPE_META
         used_by = db.find_pipelines_using_db_profile(db_type, profile_id)
+        if db_type == "ORACLE":
+            # Les steps SQOOP_EXPORT/SQOOP_IMPORT référencent le profil Oracle sous la clé
+            # "oracle_profile_id" (sans "db_type"), jamais détectés par
+            # find_pipelines_using_db_profile ci-dessus — sans cette union, supprimer un profil
+            # Oracle utilisé uniquement par des steps Sqoop ne prévenait jamais l'utilisateur
+            # (correctif K1, docs/refonte/LOTS.md).
+            used_by = sorted(set(used_by) | set(db.find_pipelines_using_profile("oracle_profile_id", profile_id)))
         label = DB_TYPE_META.get(db_type, {}).get("label", db_type)
         if not self._confirm_delete(label, used_by):
             return
