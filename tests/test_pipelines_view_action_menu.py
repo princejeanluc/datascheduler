@@ -152,6 +152,32 @@ def test_on_interrupt_pipeline_does_nothing_without_confirmation(qapp, test_db, 
     assert calls == []
 
 
+def test_on_interrupt_pipeline_delegates_to_worker_in_background_mode(qapp, test_db, monkeypatch):
+    """Correctif K5 (docs/refonte/LOTS.md) : en mode arrière-plan, request_cancel() local
+    (core.pipeline._active_runs, en mémoire) n'a aucun effet — c'est le worker détaché qui
+    exécute réellement le pipeline. L'interruption doit passer par request_cancel_run()."""
+    from PySide6.QtWidgets import QMessageBox
+    import core.pipeline as pipeline_module
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.update_app_settings(execution_mode="BACKGROUND")
+    p = db.create_pipeline(name="interrupt-background-test")
+    view = PipelinesView()
+
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    monkeypatch.setattr(QMessageBox, "information", staticmethod(lambda *a, **k: None))
+    local_calls = []
+    monkeypatch.setattr(pipeline_module, "request_cancel", lambda pid: local_calls.append(pid))
+    enqueued = []
+    monkeypatch.setattr(db, "enqueue_worker_command",
+                         lambda command, payload: enqueued.append((command, payload)))
+
+    view._on_interrupt_pipeline(p.id, p.name)
+
+    assert enqueued == [("CANCEL", {"pipeline_id": p.id})]
+    assert local_calls == []
+
+
 def test_overflow_menu_delete_action_triggers_callback(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 

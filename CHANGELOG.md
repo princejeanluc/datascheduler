@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.6] - 2026-10-18
+
+### Corrigé
+- **Correctif K5** — interrompre un run en cours depuis Pipelines n'avait aucun effet quand
+  l'application tournait en mode arrière-plan : la commande d'arrêt local ne concerne que le
+  process qui exécute réellement le pipeline, jamais l'appli desktop dans ce mode. L'interruption
+  est désormais déléguée au worker détaché, comme c'était déjà le cas pour l'arrêt avant relance.
+
 ## [0.46.5] - 2026-10-18
 
 ### Corrigé

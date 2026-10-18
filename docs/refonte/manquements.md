@@ -127,7 +127,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Manquement | Dossier distant FTP | Champ du formulaire jamais enregistré | `ui/dialogs/ftp_dialog.py`, `FtpProfile` — fait (lot K4) |
 | Manquement | Élévation dans le bilan | Le bilan de santé ignore les profils d'élévation | `connection_health_dialog.py::_collect_profiles` |
 | Manquement | Test en modification | Un test sur des valeurs non enregistrées est inscrit sur le profil enregistré | dialogues de profils |
-| Manquement | Interruption en arrière-plan | Interrompre un run en mode arrière-plan n'appelle pas `request_cancel_run` | `pipelines_view.py::_on_interrupt_pipeline` |
+| Manquement | Interruption en arrière-plan | Interrompre un run en mode arrière-plan n'appelle pas `request_cancel_run` | `pipelines_view.py::_on_interrupt_pipeline` — fait (lot K5) |
 | Manquement | Runs du worker invisibles | En mode arrière-plan, la liste ne voit pas les runs en cours (`is_pipeline_running` ne regarde que le processus courant) | `core/pipeline.py` |
 | Manquement | Carte « Pipelines actifs » | Compte tous les pipelines | `dashboard_view.py` |
 | Manquement | Lancement en double | Tout exécuter et le rattrapage lancent un pipeline enfant directement et encore par son parent | `dashboard_view.py::_on_run_all`, `missed_pipelines_dialog.py` |
