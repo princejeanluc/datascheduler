@@ -300,7 +300,10 @@ class DashboardView(QWidget):
         from datetime import datetime, timedelta, timezone
 
         pipelines = db.get_pipelines()
-        self._card_active.set_value(str(len(pipelines)))
+        # Correctif K6 (docs/refonte/LOTS.md) : la carte "Pipelines actifs" comptait tous les
+        # pipelines, actifs et inactifs confondus, malgré son libellé.
+        active_pipelines = [p for p in pipelines if p.is_active]
+        self._card_active.set_value(str(len(active_pipelines)))
         self._onboarding_banner.setVisible(not pipelines)
         self._refresh_missed_banner()
 
@@ -320,7 +323,6 @@ class DashboardView(QWidget):
 
         # Anneau de santé — dernier statut connu par pipeline actif, pas un agrégat de runs
         # (voir HealthRingWidget : un pipeline jamais exécuté n'est ni sain ni en échec).
-        active_pipelines = [p for p in pipelines if p.is_active]
         healthy = [p for p in active_pipelines if _status_str(p.last_status) == "SUCCESS"]
         unhealthy = [p for p in active_pipelines if _status_str(p.last_status) == "FAILED"]
         self._health_ring.set_data(len(healthy), len(unhealthy))

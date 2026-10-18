@@ -29,6 +29,13 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.7] - 2026-10-18
+
+### Corrigé
+- **Correctif K6** — la carte "Pipelines actifs" du Dashboard comptait tous les pipelines
+  (actifs et inactifs confondus), malgré son libellé. Elle ne compte désormais que les
+  pipelines actifs.
+
 ## [0.46.6] - 2026-10-18
 
 ### Corrigé

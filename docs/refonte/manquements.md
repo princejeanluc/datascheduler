@@ -129,7 +129,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Manquement | Test en modification | Un test sur des valeurs non enregistrées est inscrit sur le profil enregistré | dialogues de profils |
 | Manquement | Interruption en arrière-plan | Interrompre un run en mode arrière-plan n'appelle pas `request_cancel_run` | `pipelines_view.py::_on_interrupt_pipeline` — fait (lot K5) |
 | Manquement | Runs du worker invisibles | En mode arrière-plan, la liste ne voit pas les runs en cours (`is_pipeline_running` ne regarde que le processus courant) | `core/pipeline.py` |
-| Manquement | Carte « Pipelines actifs » | Compte tous les pipelines | `dashboard_view.py` |
+| Manquement | Carte « Pipelines actifs » | Compte tous les pipelines | `dashboard_view.py` — fait (lot K6) |
 | Manquement | Lancement en double | Tout exécuter et le rattrapage lancent un pipeline enfant directement et encore par son parent | `dashboard_view.py::_on_run_all`, `missed_pipelines_dialog.py` |
 | Manquement | Heure des jetons | Les jetons de date utilisent l'heure de la machine, pas le fuseau réglé | `StepContext.resolve_tokens`, `expr_lang` |
 | Manquement | Jours en UTC | La carte de fréquence et le détail d'un jour découpent les jours en UTC | `history_view.py` |
