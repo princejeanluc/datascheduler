@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QScrollArea,
 )
 from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
+from ui.time_display import fmt_time_local
 
 
 def _format_late(late_minutes: int) -> str:
@@ -123,7 +124,7 @@ class MissedPipelinesDialog(QDialog):
         layout.addWidget(cb)
 
         when = QLabel(
-            f"Prévu à {missed['expected_at'].strftime('%H:%M')} — manqué depuis "
+            f"Prévu à {fmt_time_local(missed['expected_at'])} — manqué depuis "
             f"{_format_late(missed['late_minutes'])}"
         )
         when.setStyleSheet(

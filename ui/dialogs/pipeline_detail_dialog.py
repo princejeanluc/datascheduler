@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from ui.styles import COLORS, DIALOG_STYLE
+from ui.time_display import fmt_datetime
 from ui.main_window.widgets import _action_btn, _configure_columns, _status_str, FONT_MONO
 from ui.main_window.activity_chart import ActivityChartWidget
 from ui.main_window.run_log_dialog import open_run_log_dialog
@@ -132,7 +133,7 @@ class PipelineDetailDialog(QDialog):
             if run.duration_seconds is not None:
                 m, s = divmod(int(run.duration_seconds), 60)
                 dur = f"{m}m {s:02d}s"
-            date_s = run.started_at.strftime("%d/%m/%Y %H:%M") if run.started_at else "—"
+            date_s = fmt_datetime(run.started_at)
             rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
             cells = [date_s, dur, rows_s, st, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):

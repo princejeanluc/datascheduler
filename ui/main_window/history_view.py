@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
+from ui.time_display import fmt_time, fmt_datetime
 from .widgets import (
     _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label,
     _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
@@ -227,7 +228,7 @@ class HistoryView(QWidget):
         table.setColumnWidth(3, 130)
         table.setRowCount(len(runs))
         for i, r in enumerate(runs):
-            time_s = r.started_at.strftime("%H:%M:%S") if r.started_at else "—"
+            time_s = fmt_time(r.started_at)
             dur = "—"
             if r.duration_seconds is not None:
                 m, s = divmod(int(r.duration_seconds), 60)
@@ -302,7 +303,7 @@ class HistoryView(QWidget):
             if run.duration_seconds is not None:
                 m, s = divmod(int(run.duration_seconds), 60)
                 dur  = f"{m}m {s:02d}s"
-            date_s = run.started_at.strftime("%d/%m/%Y %H:%M:%S") if run.started_at else "—"
+            date_s = fmt_datetime(run.started_at, fmt="%d/%m/%Y %H:%M:%S")
             rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
             cells  = [pname, date_s, dur, rows_s, st, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
@@ -384,7 +385,7 @@ class HistoryView(QWidget):
 
         table.setRowCount(len(events))
         for r_idx, event in enumerate(events):
-            date_s = event.timestamp.strftime("%d/%m/%Y %H:%M:%S") if event.timestamp else "—"
+            date_s = fmt_datetime(event.timestamp, fmt="%d/%m/%Y %H:%M:%S")
             cells = [
                 date_s, event.event_type, event.pipeline_name or "—",
                 event.actor or "—", event.detail or "—",

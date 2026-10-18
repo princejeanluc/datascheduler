@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from ui.styles import COLORS
+from ui.time_display import fmt_relative
 from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
 
 
@@ -35,7 +36,7 @@ def _health_badge(success, last_tested_at=None) -> QLabel:
     if last_tested_at is not None:
         from datetime import datetime, timezone
         age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - last_tested_at).days
-        tooltip = "Testé aujourd'hui" if age_days <= 0 else f"Testé il y a {age_days} jour{'s' if age_days > 1 else ''}"
+        tooltip = "Testé aujourd'hui" if age_days <= 0 else f"Testé {fmt_relative(last_tested_at)}"
         if age_days > _STALE_AFTER_DAYS:
             tooltip += " — à revérifier"
             effect = QGraphicsOpacityEffect(lbl)

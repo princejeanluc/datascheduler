@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
+from ui.time_display import fmt_datetime, fmt_datetime_local, fmt_time_local
 from .widgets import (
     _icon, _configure_columns, _make_empty_label, StatCard, _status_str,
     FONT_MONO, FONT_MONO_STACK, _apply_pulse, HealthRingWidget,
@@ -377,7 +378,7 @@ class DashboardView(QWidget):
             if run.duration_seconds is not None:
                 m, s = divmod(int(run.duration_seconds), 60)
                 dur  = f"{m}m {s:02d}s"
-            date_s = run.started_at.strftime("%d/%m/%Y %H:%M") if run.started_at else "—"
+            date_s = fmt_datetime(run.started_at)
             rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
             cells  = [pname, None, rows_s, dur, date_s, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
@@ -440,7 +441,7 @@ class DashboardView(QWidget):
         for p in upcoming:
             chips.append(self._make_rail_chip(
                 running=False, dot_color=COLORS["text_muted"],
-                main_text=p.next_run_at.strftime("%d/%m %H:%M"), main_mono=True, sub_text=p.name,
+                main_text=fmt_datetime_local(p.next_run_at, fmt="%d/%m %H:%M"), main_mono=True, sub_text=p.name,
             ))
 
         if not chips:
@@ -554,7 +555,7 @@ class DashboardView(QWidget):
         hl.addWidget(name_lbl)
 
         when_lbl = QLabel(
-            f"prévu à {missed['expected_at'].strftime('%H:%M')} — manqué depuis "
+            f"prévu à {fmt_time_local(missed['expected_at'])} — manqué depuis "
             f"{_format_late(missed['late_minutes'])}"
         )
         when_lbl.setStyleSheet(

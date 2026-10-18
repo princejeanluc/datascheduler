@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from ui.styles import COLORS
+from ui.time_display import fmt_relative
 from ui.step_editor.common import DAYS_OF_WEEK
 from .widgets import _icon, _make_title, _make_subtitle, _make_search_input
 
@@ -490,10 +491,10 @@ class SettingsView(QWidget):
 
         age_s = (datetime.utcnow() - sample.timestamp).total_seconds()
         if age_s <= 2 * settings.resource_sample_interval_s:
-            self.lbl_worker_status.setText(f"Actif (dernier signal il y a {int(age_s)}s)")
+            self.lbl_worker_status.setText(f"Actif (dernier signal {fmt_relative(sample.timestamp)})")
             self.lbl_worker_status.setStyleSheet(f"color: {COLORS['success']}; font-size: 12px;")
         else:
-            self.lbl_worker_status.setText(f"Arrêté (dernier signal il y a {int(age_s)}s)")
+            self.lbl_worker_status.setText(f"Arrêté (dernier signal {fmt_relative(sample.timestamp)})")
             self.lbl_worker_status.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
 
     # ── Navigation catégories / recherche ─────
