@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QEvent
 from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush, QPainterPath
-from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK
+from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK, FONT_SIZES
 
 
 # ──────────────────────────────────────────────
@@ -301,6 +301,19 @@ QLabel#section_title {{
 QLabel#subtitle {{
     font-size: 13px;
     color: {COLORS['text_dim']};
+}}
+
+/* ── En-tête de page (refonte, lot 0a — FONDATIONS.md section 2/3) ── */
+QLabel#page_eyebrow {{
+    font-family: {FONT_MONO_STACK};
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: {COLORS['text_dim']};
+}}
+QLabel#page_title {{
+    font-size: {FONT_SIZES['page_title']}px;
+    font-weight: 600;
+    color: {COLORS['text_main']};
 }}
 
 /* ── Badges statut ── */
@@ -790,6 +803,17 @@ def _make_title(text: str) -> QLabel:
 
 def _make_subtitle(text: str) -> QLabel:
     l = QLabel(text); l.setObjectName("subtitle"); return l
+
+def _make_page_eyebrow(text: str) -> QLabel:
+    """Surtitre de page en majuscules (refonte, lot 0a — FONDATIONS.md section 2) : Mono, 11px,
+    espacement 0,08em, text_dim. Distinct de _make_title (20px, section), réservé à l'en-tête de
+    page via ui/components/page_header.py."""
+    l = QLabel(text.upper()); l.setObjectName("page_eyebrow"); return l
+
+def _make_page_title(text: str) -> QLabel:
+    """Titre de page (refonte, lot 0a) : 26px/600, palier FONT_SIZES['page_title'] — distinct de
+    _make_title (20px, titre de section), réservé à l'en-tête de page."""
+    l = QLabel(text); l.setObjectName("page_title"); return l
 
 
 # ──────────────────────────────────────────────
