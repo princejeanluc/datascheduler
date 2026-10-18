@@ -80,15 +80,12 @@ class FtpDialog(QDialog):
         self.inp_user = self._input("ex : finance_usr")
         self.inp_pass = self._input("••••••••", password=True)
 
-        self.inp_remote_dir = self._input("ex : /export/data/  (optionnel)")
-
         form.addRow(self._label("Nom du profil *"), self.inp_name)
         form.addRow(self._label("Hôte *"),          self.inp_host)
         form.addRow(self._label("Port"),             self.inp_port)
         form.addRow(self._label("Protocole"),        self.cb_protocol)
         form.addRow(self._label("Utilisateur *"),    self.inp_user)
         form.addRow(self._label("Mot de passe *"),   self.inp_pass)
-        form.addRow(self._label("Dossier distant"),  self.inp_remote_dir)
         root.addLayout(form)
 
         root.addWidget(self._build_test_zone())

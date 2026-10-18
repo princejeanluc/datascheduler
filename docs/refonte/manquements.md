@@ -124,7 +124,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Manquement | Oracle utilisé par Sqoop | Supprimer un profil Oracle ne signale pas les étapes Sqoop qui l'utilisent | `connections_view.py::_on_delete_database` — fait (lot K1) |
 | Manquement | Requête créée depuis une étape | La requête sélectionnée après création n'est pas forcément la nouvelle | `_new_sql_query` — fait (lot K2) |
 | Manquement | Date de test des bases | `list_all_db_profiles` ne renvoie pas `last_tested_at` | `database/db_manager.py` — fait (lot K3) |
-| Manquement | Dossier distant FTP | Champ du formulaire jamais enregistré | `ui/dialogs/ftp_dialog.py`, `FtpProfile` |
+| Manquement | Dossier distant FTP | Champ du formulaire jamais enregistré | `ui/dialogs/ftp_dialog.py`, `FtpProfile` — fait (lot K4) |
 | Manquement | Élévation dans le bilan | Le bilan de santé ignore les profils d'élévation | `connection_health_dialog.py::_collect_profiles` |
 | Manquement | Test en modification | Un test sur des valeurs non enregistrées est inscrit sur le profil enregistré | dialogues de profils |
 | Manquement | Interruption en arrière-plan | Interrompre un run en mode arrière-plan n'appelle pas `request_cancel_run` | `pipelines_view.py::_on_interrupt_pipeline` |
