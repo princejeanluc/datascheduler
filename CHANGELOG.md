@@ -29,6 +29,19 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.1] - 2026-10-18
+
+### Corrigé
+- **Refonte, lot 0b (heures affichées)** — les heures de run (Historique, détail de pipeline,
+  bilan de santé des connexions, Ressources, Dashboard) s'affichaient en UTC brut quel que soit
+  le fuseau réglé dans les Paramètres. Elles sont désormais converties vers ce fuseau avant
+  affichage. Les heures déjà dans le fuseau réglé (prochaine exécution planifiée, rattrapage
+  manqué) ne changent pas — elles ne l'étaient jamais en UTC.
+
+### Ajouté
+- `ui/time_display.py` — conversion et formatage partagés des heures affichées, nouveau point
+  central pour tout futur écran de la refonte.
+
 ## [0.46.0] - 2026-10-18
 
 ### Modifié
