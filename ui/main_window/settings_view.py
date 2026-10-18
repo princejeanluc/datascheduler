@@ -10,11 +10,13 @@ Reprend aussi les champs du digest de notification (NotificationSettings, exista
 catégorie "Notifications" — NotificationSettingsDialog est retiré au profit de cet écran unique.
 """
 
+import re
+from html import escape
 from zoneinfo import available_timezones
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
-    QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter,
+    QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter, QGraphicsOpacityEffect,
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFontMetrics
@@ -55,6 +57,29 @@ _BADGE_INFO = {
     "à la prochaine ouverture": ("neutral", "Prend effet à la prochaine ouverture de l'écran"),
     "immédiat": ("success", "Prend effet immédiatement"),
 }
+
+
+def _highlight(text: str, query: str) -> str:
+    """Rich text (A5, Parametres-recherche.html) : entoure chaque occurrence de `query` (recherche
+    insensible à la casse, casse d'origine du texte préservée) d'un <mark>. Sans query, renvoie le
+    texte échappé tel quel — toujours sûr à passer à QLabel.setText (QLabel détecte le HTML tout
+    seul s'il y en a, et affiche du texte normal sinon)."""
+    if not query:
+        return escape(text)
+    pattern = re.compile(re.escape(query), re.IGNORECASE)
+    pieces = []
+    last = 0
+    for m in pattern.finditer(text):
+        pieces.append(escape(text[last:m.start()]))
+        # <span>, pas <mark> : le sous-ensemble HTML du rich text Qt ne connaît pas <mark>
+        # (balise HTML5) et l'affiche tel quel au lieu de l'interpréter.
+        pieces.append(
+            f'<span style="background-color:{COLORS["search_highlight"]}; '
+            f'color:{COLORS["text_main"]}; border-radius:2px;">{escape(m.group(0))}</span>'
+        )
+        last = m.end()
+    pieces.append(escape(text[last:]))
+    return "".join(pieces)
 
 
 def _input_style(error: bool = False) -> str:
@@ -162,7 +187,7 @@ class SettingsView(QWidget):
 
         icon_lbl = QLabel()
         icon_lbl.setFixedWidth(18)
-        layout.addWidget(icon_lbl)
+        layout.addWidget(icon_lbl, alignment=Qt.AlignVCenter)
 
         text_col = QVBoxLayout(); text_col.setSpacing(1)
         name_lbl = QLabel(cat["label"])
@@ -184,7 +209,7 @@ class SettingsView(QWidget):
             f"color: {COLORS['signal_pale']}; font-size: 11px; font-family: {FONT_MONO_STACK};"
         )
         count_lbl.setVisible(False)
-        layout.addWidget(count_lbl)
+        layout.addWidget(count_lbl, alignment=Qt.AlignVCenter)
 
         frame.mouseReleaseEvent = lambda _, k=cat["key"]: self._select_category(k)
         return {"frame": frame, "icon_name": cat["icon"], "icon_lbl": icon_lbl,
@@ -209,6 +234,12 @@ class SettingsView(QWidget):
         title_block.addWidget(self._detail_sub)
         col.addLayout(title_block)
 
+        self._search_help_lbl = QLabel("")
+        self._search_help_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._search_help_lbl.setContentsMargins(28, 0, 28, 6)
+        self._search_help_lbl.setVisible(False)
+        col.addWidget(self._search_help_lbl)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -221,6 +252,13 @@ class SettingsView(QWidget):
         col.addWidget(scroll, stretch=1)
 
         self._build_rows()
+        # Sans ce stretch final, QVBoxLayout redistribue l'espace vertical excédentaire de la
+        # zone de défilement entre les lignes VISIBLES (flagrant en recherche, où seules 2-3
+        # lignes restent affichées sur ~22) au lieu de le laisser en blanc sous la dernière ligne
+        # — chaque ligne gagnait alors une hauteur variable selon le nombre de lignes visibles,
+        # au lieu de garder sa hauteur naturelle (bug latent, révélé par les pastilles à fond
+        # plein de ce lot, jamais visible avec le texte nu d'avant).
+        self._rows_layout.addStretch()
 
         footer = QHBoxLayout()
         footer.setContentsMargins(28, 10, 28, 20)
@@ -245,27 +283,34 @@ class SettingsView(QWidget):
         row_layout.setSpacing(20)
 
         text_col = QVBoxLayout(); text_col.setSpacing(3)
-        chip = QLabel(next(c["label"] for c in _CATEGORIES if c["key"] == category))
-        chip.setStyleSheet(
-            f"color: {COLORS['signal_pale']}; font-size: 9.5px; font-weight: 700; "
-            f"text-transform: uppercase; letter-spacing: 0.4px;"
-        )
+        chip = make_info_pill(next(c["label"] for c in _CATEGORIES if c["key"] == category),
+                               variant="info")
         chip.setVisible(False)
-        text_col.addWidget(chip)
+        # alignment=Qt.AlignLeft : sans lui, QVBoxLayout étire le QLabel (fond plein) sur toute
+        # la largeur de la colonne — invisible avec l'ancien style (pas de fond), mais flagrant
+        # avec le fond de make_info_pill (bug révélé, pas introduit, par ce changement).
+        text_col.addWidget(chip, alignment=Qt.AlignLeft)
 
         label_row = QHBoxLayout(); label_row.setSpacing(8)
         lbl = QLabel(label)
+        lbl.setTextFormat(Qt.RichText)
         lbl.setStyleSheet(
             f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['row_label']}px; font-weight: 600;")
         label_row.addWidget(lbl)
         if badge:
             variant, tooltip = _BADGE_INFO[badge]
-            label_row.addWidget(make_info_pill(badge, variant=variant, tooltip=tooltip))
+            pill = make_info_pill(badge, variant=variant, tooltip=tooltip)
+            # alignment=AlignVCenter : sans lui, QHBoxLayout étire le QLabel sur toute la hauteur
+            # de la ligne (son texte reste ancré en haut, la bordure/le fond de make_info_pill
+            # peint tout le rectangle étiré — même bug que le chip ci-dessus, autre axe).
+            label_row.addWidget(pill, alignment=Qt.AlignVCenter)
         label_row.addStretch()
         text_col.addLayout(label_row)
 
+        desc_lbl = None
         if desc:
             desc_lbl = QLabel(desc)
+            desc_lbl.setTextFormat(Qt.RichText)
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12.5px;")
             text_col.addWidget(desc_lbl)
@@ -291,6 +336,7 @@ class SettingsView(QWidget):
         self._row_widgets.append({
             "category": category, "label": label.lower(), "desc": desc.lower(),
             "wrapper": wrapper, "chip": chip,
+            "label_text": label, "desc_text": desc, "label_lbl": lbl, "desc_lbl": desc_lbl,
         })
 
     def _build_rows(self):
@@ -555,6 +601,10 @@ class SettingsView(QWidget):
         cat = next(c for c in _CATEGORIES if c["key"] == key)
         self._detail_title.setText(cat["label"])
         self._detail_sub.setText(cat["sub"])
+        self._search_help_lbl.setVisible(False)
+        for row in self._category_rows.values():
+            row["count_lbl"].setVisible(False)
+            row["frame"].setGraphicsEffect(None)
         for k, row in self._category_rows.items():
             active = k == key
             icon_color = COLORS["accent"] if active else COLORS["text_dim"]
@@ -570,6 +620,9 @@ class SettingsView(QWidget):
         for row in self._row_widgets:
             row["chip"].setVisible(False)
             row["wrapper"].setVisible(row["category"] == key)
+            row["label_lbl"].setText(_highlight(row["label_text"], ""))
+            if row["desc_lbl"]:
+                row["desc_lbl"].setText(_highlight(row["desc_text"], ""))
         self._on_frequency_changed()   # ré-applique le masquage conditionnel de "Jour"
 
     def _on_search_changed(self, text: str):
@@ -577,10 +630,44 @@ class SettingsView(QWidget):
         if not query:
             self._select_category(self._active_category)
             return
+
+        counts = {cat["key"]: 0 for cat in _CATEGORIES}
         for row in self._row_widgets:
             match = query in row["label"] or query in row["desc"]
             row["wrapper"].setVisible(match)
             row["chip"].setVisible(match)
+            row["label_lbl"].setText(_highlight(row["label_text"], query if match else ""))
+            if row["desc_lbl"]:
+                row["desc_lbl"].setText(_highlight(row["desc_text"], query if match else ""))
+            if match:
+                counts[row["category"]] += 1
+
+        for key, row in self._category_rows.items():
+            count = counts[key]
+            row["frame"].setStyleSheet(
+                f"QFrame {{ border: none; border-radius: 5px; background: transparent; "
+                f"border-left: 2px solid transparent; }}"
+                f"QFrame:hover {{ background: {COLORS['bg_hover']}; }}"
+            )
+            if count:
+                row["count_lbl"].setText(str(count))
+                row["count_lbl"].setVisible(True)
+                row["frame"].setGraphicsEffect(None)
+            else:
+                row["count_lbl"].setVisible(False)
+                effect = QGraphicsOpacityEffect(row["frame"])
+                effect.setOpacity(0.38)
+                row["frame"].setGraphicsEffect(effect)
+
+        total = sum(counts.values())
+        n_categories = sum(1 for c in counts.values() if c)
+        self._search_help_lbl.setText(
+            f"{total} réglage{'s' if total > 1 else ''} dans {n_categories} "
+            f"catégorie{'s' if n_categories > 1 else ''} · la recherche porte sur les noms et "
+            f"les descriptions"
+        )
+        self._search_help_lbl.setVisible(True)
+
         self._detail_title.setText("Résultats")
         self._detail_sub.setText(f"Paramètres correspondant à « {text.strip()} »")
 

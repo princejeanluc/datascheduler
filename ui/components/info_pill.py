@@ -24,8 +24,14 @@ def make_info_pill(text: str, variant: str = "neutral", tooltip: str = "") -> QL
     border_rule = f"border: 1px solid {border};" if border else "border: none;"
     bg_rule = f"background: {bg};" if bg else "background: transparent;"
     lbl = QLabel(text)
+    # border-radius: 9px, pas la valeur "999px" vue sur la maquette (convention web pour "toujours
+    # complètement arrondi, quelle que soit la hauteur") — le moteur QSS de Qt, lui, calcule le
+    # sizeHint d'un widget à partir de la valeur numérique du rayon, et une valeur aussi grande
+    # gonflait la hauteur réelle du label à ~90px au lieu de ~20px (bug constaté à l'écran). 9px
+    # dépasse déjà la moitié de la hauteur réelle de la pastille (~18-20px) : le rendu visuel —
+    # un contour totalement arrondi — est identique.
     lbl.setStyleSheet(
-        f"color: {color}; {bg_rule} {border_rule} border-radius: 999px; "
+        f"color: {color}; {bg_rule} {border_rule} border-radius: 9px; "
         f"padding: 1px 7px; font-size: 10.5px; font-weight: 600;"
     )
     if tooltip:

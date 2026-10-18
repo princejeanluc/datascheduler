@@ -129,6 +129,73 @@ def test_search_shows_category_chip_only_while_searching(qapp, test_db):
     assert not matched["chip"].isHidden()
 
 
+def test_search_shows_a_result_count_per_matching_category(qapp, test_db):
+    """A5 (docs/refonte/ecrans/Parametres.md) : "rafraîch" matche 2 lignes, toutes deux
+    catégorie Interface."""
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    assert view._category_rows["interface"]["count_lbl"].text() == "2"
+    assert not view._category_rows["interface"]["count_lbl"].isHidden()
+
+
+def test_search_dims_categories_without_any_match(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    for key, row in view._category_rows.items():
+        effect = row["frame"].graphicsEffect()
+        if key == "interface":
+            assert effect is None
+        else:
+            assert effect is not None and effect.opacity() < 1.0
+
+
+def test_clearing_search_removes_counts_and_dimming(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+    view.inp_search.setText("")
+
+    for row in view._category_rows.values():
+        assert row["count_lbl"].isHidden()
+        assert row["frame"].graphicsEffect() is None
+
+
+def test_search_highlights_the_matched_term_in_label_and_description(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    row = _row(view, "dashboard")
+    assert "background-color" in row["label_lbl"].text()
+    assert "rafraîch" in row["label_lbl"].text().lower()
+
+
+def test_search_help_line_shows_result_and_category_counts(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    assert not view._search_help_lbl.isHidden()
+    assert "2 réglages" in view._search_help_lbl.text()
+    assert "1 catégorie" in view._search_help_lbl.text()
+
+
+def test_search_help_line_hidden_outside_search(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view._search_help_lbl.isHidden()
+
+
 def test_max_concurrent_runs_setting_saves_and_is_applied(qapp, test_db):
     """Depuis le chantier suivi des ressources, ce champ est réellement appliqué par
     run_pipeline() (tests/test_concurrency_cap.py) — ici on vérifie seulement que l'écran le
