@@ -20,7 +20,10 @@ def test_warning_color_is_distinct_from_success_and_danger():
 
 
 def test_font_sizes_declares_all_expected_tiers():
-    expected_keys = {"display", "title", "subtitle_dialog", "body", "label", "caption"}
+    expected_keys = {
+        "page_title", "display", "title", "panel_title", "subtitle_dialog", "row_label",
+        "body", "label", "caption",
+    }
     assert set(FONT_SIZES) == expected_keys
 
 
@@ -50,3 +53,35 @@ def test_font_stacks_reference_the_custom_face_with_a_system_fallback():
 
 def test_dialog_style_uses_the_ui_font_stack_not_a_hardcoded_family():
     assert FONT_UI_STACK in DIALOG_STYLE
+
+
+# ──────────────────────────────────────────────
+#  Refonte, lot 0a — nouvelles clés COLORS relevées dans FONDATIONS.md (sections 1 et 6). Chaque
+#  valeur est figée ici pour qu'une maquette future ne puisse pas glisser sans que ce test échoue.
+# ──────────────────────────────────────────────
+
+def test_lot_0a_colors_are_declared_with_their_documented_values():
+    expected = {
+        "border_strong": "#4a463f",
+        "text_soft": "#c9c4bc",
+        "success_dim": "#2f7d3c",
+        "bg_info": "#16282f", "border_info": "#24414b",
+        "bg_success": "#132116", "border_success": "#24502c",
+        "bg_warning": "#241d10", "border_warning": "#5a4719",
+        "bg_danger": "#2a1715", "border_danger": "#6e2b28",
+        "bg_section": "#191714",
+        "token_bg": "#2a1d10", "token_border": "#4a3520",
+        "sql_string": "#7ec8a4",
+        "editor_current_line": "#1f1c18",
+        "relation": "#a58cf0",
+    }
+    assert len(expected) == 17
+    for key, value in expected.items():
+        assert COLORS[key] == value, key
+
+
+def test_relation_color_matches_the_passerelles_step_family():
+    """Même valeur que la famille d'étape Passerelles (lot 0a) — un lien vers un objet lié doit
+    visuellement évoquer la même famille que CONDITION/GATEWAY_*."""
+    from ui.step_editor.common import _FAMILY_COLORS
+    assert COLORS["relation"] == _FAMILY_COLORS["Passerelles"]

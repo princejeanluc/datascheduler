@@ -40,6 +40,25 @@ COLORS = {
     "text_main":  "#f2efeb",   # texte principal — blanc doux
     "text_dim":   "#9c968d",   # texte secondaire
     "text_muted": "#756f66",   # texte discret / version (contraste AA sur bg_main)
+    "text_soft":  "#c9c4bc",   # texte courant dans un bandeau coloré (refonte, lot 0a)
+
+    # Refonte (lot 0a) — bordure forte et succès atténué, hors des dégradés bandeau/étape
+    "border_strong": "#4a463f",   # bordure de bulle, de fenêtre flottante, zone pointillée
+    "success_dim":   "#2f7d3c",   # case « 1 réussite » de la carte de fréquence
+
+    # Refonte (lot 0a) — bandeaux (fond + bordure assortie), un couple par sémantique
+    "bg_info":      "#16282f", "border_info":    "#24414b",
+    "bg_success":   "#132116", "border_success": "#24502c",
+    "bg_warning":   "#241d10", "border_warning": "#5a4719",
+    "bg_danger":    "#2a1715", "border_danger":  "#6e2b28",
+
+    # Refonte (lot 0a) — relevées dans les fiches d'écran, consommateurs à venir lot par lot
+    "bg_section":           "#191714",   # fond d'un en-tête de section dans une liste
+    "token_bg":             "#2a1d10",   # jeton {…} dans l'éditeur SQL
+    "token_border":         "#4a3520",
+    "sql_string":           "#7ec8a4",   # chaîne dans l'éditeur SQL (déjà utilisée en dur dans ui/sql_editor.py)
+    "editor_current_line":  "#1f1c18",   # ligne courante de l'éditeur
+    "relation":             "#a58cf0",   # lien vers un objet lié (« via Bastion », « après X »)
 }
 
 # ──────────────────────────────────────────────
@@ -63,9 +82,12 @@ FONT_MONO_STACK = f'"{FONT_MONO}", "Consolas", monospace'
 # ──────────────────────────────────────────────
 
 FONT_SIZES = {
+    "page_title":      26,   # titre de page (refonte, lot 0a)
     "display":         28,   # valeur de StatCard (Dashboard)
     "title":           20,   # titre de section (#section_title)
+    "panel_title":     17,   # titre de section ou de panneau (refonte, lot 0a)
     "subtitle_dialog": 15,   # titre de dialogue de configuration d'étape
+    "row_label":       14,   # libellé de ligne (refonte, lot 0a)
     "body":            13,   # texte courant, boutons, champs — taille de base globale
     "label":           11,   # libellé de carte en majuscules (StatCard, badges)
     "caption":         10,   # version, notes de bas de champ, texte le plus discret

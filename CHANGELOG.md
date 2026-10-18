@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.0] - 2026-10-18
+
+### Modifié
+- **Refonte, lot 0a (fondations)** — les 18 couleurs par type d'étape (canevas graphique,
+  vignettes de pipeline, sélecteur de type) sont remplacées par 7 couleurs de famille (Extraction
+  & chargement, Transfert & diffusion, Exécution & scripts, Big Data, Notification, Variables,
+  Passerelles) : « la couleur dit la famille, le texte dit le moteur ». Les sections du sélecteur
+  de type d'étape ne changent pas.
+
+### Ajouté
+- 17 nouvelles clés de couleur (`COLORS`) et 3 nouveaux paliers de taille de police
+  (`FONT_SIZES`) posés pour les écrans à venir de la refonte — sans effet visible sur les écrans
+  actuels.
+- Premier composant partagé de la refonte : `ui/components/make_page_header()` (en-tête de page
+  avec surtitre, titre, sous-titre optionnel et zone d'actions), pas encore utilisé par un écran
+  existant.
+- `scripts/capture_views.py` — outil de développement interne qui produit une capture d'écran de
+  chaque vue, pour comparer visuellement une PR de la refonte à sa maquette.
+
 ## [0.45.0] - 2026-10-11
 
 ### Ajouté

@@ -16,46 +16,65 @@ except ImportError:
 #  MÉTADONNÉES PAR TYPE D'ÉTAPE
 # ──────────────────────────────────────────────
 
+# Couleur par famille (refonte, lot 0a — maquette Grammaire) : « la couleur dit la famille, le
+# texte dit le moteur ». Remplace les 18 couleurs par type qui existaient avant ce lot — une
+# famille n'est PAS la "category" ci-dessous (qui pilote les sections de StepTypeChooserDialog) :
+# Big Data par exemple n'a pas sa propre section, ses types restent rangés dans "Exécution &
+# scripts" (_CATEGORY_ORDER, step_type_chooser_dialog.py), inchangée par ce lot.
+_FAMILY_COLORS = {
+    "Extraction et chargement": "#6BB4CF",
+    "Transfert et diffusion":   "#b5c96a",
+    "Exécution et scripts":     "#d68fb8",
+    "Big Data":                 "#4fb3a0",
+    "Notification":             "#c9a37a",
+    "Variables":                "#b8b2a8",
+    "Passerelles":               "#a58cf0",
+}
+
 # "category" regroupe les types dans le sélecteur (StepTypeChooserDialog) — voir
 # _CATEGORY_ORDER dans step_type_chooser_dialog.py pour l'ordre d'affichage des sections.
 STEP_META = {
-    "DB_EXTRACT":     {"label": "Extraction base de données", "color": "#4fc3f7",
+    "DB_EXTRACT":     {"label": "Extraction base de données", "family": "Extraction et chargement",
                        "category": "Extraction & chargement", "icon": "fa5s.file-export"},
-    "FTP_DOWNLOAD":   {"label": "Téléchargement FTP",  "color": "#ffa726",
+    "FTP_DOWNLOAD":   {"label": "Téléchargement FTP",  "family": "Extraction et chargement",
                        "category": "Extraction & chargement", "icon": "fa5s.cloud-download-alt"},
-    "DB_LOAD":        {"label": "Chargement base de données", "color": "#26a69a",
+    "DB_LOAD":        {"label": "Chargement base de données", "family": "Extraction et chargement",
                        "category": "Extraction & chargement", "icon": "fa5s.file-import"},
-    "FTP_UPLOAD":     {"label": "Envoi FTP",          "color": "#FF7900",
+    "FTP_UPLOAD":     {"label": "Envoi FTP",          "family": "Transfert et diffusion",
                        "category": "Transfert & diffusion", "icon": "fa5s.cloud-upload-alt"},
-    "LOCAL_COPY":     {"label": "Copie locale",       "color": "#66bb6a",
+    "LOCAL_COPY":     {"label": "Copie locale",       "family": "Transfert et diffusion",
                        "category": "Transfert & diffusion", "icon": "fa5s.copy"},
-    "COMPRESS":       {"label": "Compression (ZIP)",  "color": "#8d6e63",
+    "COMPRESS":       {"label": "Compression (ZIP)",  "family": "Transfert et diffusion",
                        "category": "Transfert & diffusion", "icon": "fa5s.file-archive"},
-    "DB_EXECUTE":     {"label": "Exécution base de données", "color": "#29b6f6",
+    "DB_EXECUTE":     {"label": "Exécution base de données", "family": "Exécution et scripts",
                        "category": "Exécution & scripts", "icon": "fa5s.terminal"},
-    "PYTHON_SCRIPT":  {"label": "Script Python",      "color": "#ce93d8",
+    "PYTHON_SCRIPT":  {"label": "Script Python",      "family": "Exécution et scripts",
                        "category": "Exécution & scripts", "icon": "fa5b.python"},
-    "SPARK_SQL":      {"label": "Spark SQL",          "color": "#e57373",
+    "SPARK_SQL":      {"label": "Spark SQL",          "family": "Big Data",
                        "category": "Exécution & scripts", "icon": "fa5s.fire"},
-    "SQOOP_EXPORT":   {"label": "Export Sqoop (→ Oracle)", "color": "#f06292",
+    "SQOOP_EXPORT":   {"label": "Export Sqoop (→ Oracle)", "family": "Big Data",
                        "category": "Exécution & scripts", "icon": "fa5s.exchange-alt"},
-    "SQOOP_IMPORT":   {"label": "Import Sqoop (Oracle →)", "color": "#4db6ac",
+    "SQOOP_IMPORT":   {"label": "Import Sqoop (Oracle →)", "family": "Big Data",
                        "category": "Exécution & scripts", "icon": "fa5s.random"},
-    "EMAIL_NOTIFY":   {"label": "Notification email", "color": "#ef5350",
+    "EMAIL_NOTIFY":   {"label": "Notification email", "family": "Notification",
                        "category": "Notification & intégration", "icon": "fa5s.envelope"},
-    "HTTP_REQUEST":   {"label": "Appel HTTP",          "color": "#ab47bc",
+    "HTTP_REQUEST":   {"label": "Appel HTTP",          "family": "Notification",
                        "category": "Notification & intégration", "icon": "fa5s.globe"},
-    "CONDITION":      {"label": "Condition / Routeur", "color": "#7e57c2",
+    "CONDITION":      {"label": "Condition / Routeur", "family": "Passerelles",
                        "category": "Contrôle de flux", "icon": "fa5s.code-branch"},
-    "GATEWAY_PARALLEL": {"label": "Passerelle parallèle", "color": "#5c6bc0",
+    "GATEWAY_PARALLEL": {"label": "Passerelle parallèle", "family": "Passerelles",
                        "category": "Contrôle de flux", "icon": "fa5s.share-alt"},
-    "GATEWAY_JOIN":   {"label": "Passerelle de jonction", "color": "#26c6da",
+    "GATEWAY_JOIN":   {"label": "Passerelle de jonction", "family": "Passerelles",
                        "category": "Contrôle de flux", "icon": "fa5s.compress-arrows-alt"},
-    "EXTRACT_VARIABLES": {"label": "Extraction de variables", "color": "#ffca28",
+    "EXTRACT_VARIABLES": {"label": "Extraction de variables", "family": "Variables",
                        "category": "Contrôle de flux", "icon": "fa5s.tags"},
-    "SET_VARIABLE":   {"label": "Définir une variable", "color": "#8bc34a",
+    "SET_VARIABLE":   {"label": "Définir une variable", "family": "Variables",
                        "category": "Contrôle de flux", "icon": "fa5s.equals"},
 }
+
+for _meta in STEP_META.values():
+    _meta["color"] = _FAMILY_COLORS[_meta["family"]]
+del _meta
 
 DAYS_OF_WEEK = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 

@@ -58,7 +58,7 @@ class SqlHighlighter(QSyntaxHighlighter):
         kw_fmt.setFontWeight(700)
 
         str_fmt = QTextCharFormat()
-        str_fmt.setForeground(QColor("#7ec8a4"))
+        str_fmt.setForeground(QColor(COLORS["sql_string"]))
 
         cmt_fmt = QTextCharFormat()
         cmt_fmt.setForeground(QColor("#666666"))
