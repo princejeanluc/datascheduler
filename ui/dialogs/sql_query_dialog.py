@@ -27,6 +27,10 @@ class SqlQueryDialog(QDialog):
     def __init__(self, parent=None, query=None):
         super().__init__(parent)
         self._query = query
+        # Renseigné par _on_save() — permet à l'appelant de savoir précisément QUELLE requête
+        # vient d'être créée/modifiée, plutôt que de deviner via le dernier élément d'une liste
+        # triée par nom (correctif K2, docs/refonte/LOTS.md).
+        self.result_query_id = None
         self.setWindowTitle("Requête SQL" if query is None else "Modifier la requête")
         self.setMinimumSize(680, 520)
         self.setStyleSheet(DIALOG_STYLE)
@@ -118,9 +122,11 @@ class SqlQueryDialog(QDialog):
         if self._query:
             db.update_sql_query(self._query.id, name=name, sql_text=sql,
                                 description=desc, oracle_profile_id=oracle_id)
+            self.result_query_id = self._query.id
         else:
-            db.create_sql_query(name=name, sql_text=sql,
+            created = db.create_sql_query(name=name, sql_text=sql,
                                 description=desc, oracle_profile_id=oracle_id)
+            self.result_query_id = created.id
         self.accept()
 
     def _fill_fields(self, query):

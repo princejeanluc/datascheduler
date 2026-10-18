@@ -179,11 +179,13 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
         from database import db_manager as db
-        if SqlQueryDialog(self).exec():
+        dlg = SqlQueryDialog(self)
+        if dlg.exec():
             self._sql_queries = db.get_sql_queries()
             cb.clear(); cb.addItem("— Sélectionner une requête SQL —", None)
             for q in self._sql_queries: cb.addItem(q.name, q.id)
-            cb.setCurrentIndex(cb.count() - 1)
+            idx = cb.findData(dlg.result_query_id)
+            cb.setCurrentIndex(idx if idx >= 0 else cb.count() - 1)
 
     def _prefill(self):
         c = self._config
