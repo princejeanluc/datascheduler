@@ -121,7 +121,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 
 | Type | Sujet | Détail | Où |
 |---|---|---|---|
-| Manquement | Oracle utilisé par Sqoop | Supprimer un profil Oracle ne signale pas les étapes Sqoop qui l'utilisent | `connections_view.py::_on_delete_database` |
+| Manquement | Oracle utilisé par Sqoop | Supprimer un profil Oracle ne signale pas les étapes Sqoop qui l'utilisent | `connections_view.py::_on_delete_database` — fait (lot K1) |
 | Manquement | Requête créée depuis une étape | La requête sélectionnée après création n'est pas forcément la nouvelle | `_new_sql_query` |
 | Manquement | Date de test des bases | `list_all_db_profiles` ne renvoie pas `last_tested_at` | `database/db_manager.py` |
 | Manquement | Dossier distant FTP | Champ du formulaire jamais enregistré | `ui/dialogs/ftp_dialog.py`, `FtpProfile` |

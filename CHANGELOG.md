@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.46.2] - 2026-10-18
+
+### Corrigé
+- **Correctif K1** — supprimer un profil Oracle utilisé uniquement par une étape Sqoop (Export
+  ou Import Sqoop) ne prévenait jamais l'utilisateur, contrairement aux étapes DB_EXTRACT/
+  DB_EXECUTE/DB_LOAD qui l'utiliseraient. Le pipeline concerné est désormais listé dans
+  l'avertissement avant suppression, comme pour les autres types d'étape.
+
 ## [0.46.1] - 2026-10-18
 
 ### Corrigé
