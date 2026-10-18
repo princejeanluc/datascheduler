@@ -389,8 +389,9 @@ class SettingsView(QWidget):
                        "l'appli fermée, tant que la session est ouverte.", self.cb_execution_mode,
                        badge="au redémarrage")
 
-        self.lbl_worker_status = QLabel("—")
-        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self.lbl_worker_status = QLabel("Sans objet en mode « Dans l'application seulement »")
+        self.lbl_worker_status.setTextFormat(Qt.RichText)
+        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
         self._add_row("scheduler", "État du worker en arrière-plan",
                        "Déduit du dernier échantillon de ressources — le worker en écrit un en "
                        "continu tant qu'il tourne.", self.lbl_worker_status)
@@ -571,22 +572,28 @@ class SettingsView(QWidget):
 
         settings = db.get_app_settings()
         if settings.execution_mode != "BACKGROUND":
-            self.lbl_worker_status.setText("—")
+            self.lbl_worker_status.setText("Sans objet en mode « Dans l'application seulement »")
+            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
             return
 
         sample = db.get_latest_resource_sample()
         if not sample:
-            self.lbl_worker_status.setText("Arrêté (aucun signal reçu)")
-            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+            self._set_worker_status_dot("Arrêté (aucun signal reçu)", COLORS["danger"])
             return
 
         age_s = (datetime.utcnow() - sample.timestamp).total_seconds()
         if age_s <= 2 * settings.resource_sample_interval_s:
-            self.lbl_worker_status.setText(f"Actif (dernier signal {fmt_relative(sample.timestamp)})")
-            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['success']}; font-size: 12px;")
+            self._set_worker_status_dot(
+                f"Actif (dernier signal {fmt_relative(sample.timestamp)})", COLORS["success"])
         else:
-            self.lbl_worker_status.setText(f"Arrêté (dernier signal {fmt_relative(sample.timestamp)})")
-            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+            self._set_worker_status_dot(
+                f"Arrêté (dernier signal {fmt_relative(sample.timestamp)})", COLORS["danger"])
+
+    def _set_worker_status_dot(self, text: str, color: str):
+        """Point coloré en rich text (A6) — même patron que
+        dashboard_view.py::_set_legend_text, pas un nouveau composant."""
+        self.lbl_worker_status.setText(f'<span style="color:{color};">●</span>&nbsp;{text}')
+        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 12px;")
 
     # ── Navigation catégories / recherche ─────
 

@@ -314,7 +314,7 @@ def test_execution_mode_row_present_and_prefills_default(qapp, test_db):
     view = SettingsView()
     assert view.cb_execution_mode is not None
     assert view.cb_execution_mode.currentData() == "IN_APP"
-    assert view.lbl_worker_status.text() == "—"
+    assert "Sans objet" in view.lbl_worker_status.text()
 
 
 def test_execution_mode_row_prefills_background(qapp, test_db):
@@ -422,11 +422,13 @@ def test_on_save_without_mode_change_does_not_touch_logon_task(qapp, test_db, mo
 
 
 def test_refresh_worker_status_shows_dash_in_app_mode(qapp, test_db):
+    """A6 (docs/refonte/ecrans/Parametres.md) : texte discret "Sans objet" en mode application,
+    plutôt que le simple tiret "—" d'avant ce lot."""
     from ui.main_window.settings_view import SettingsView
 
     view = SettingsView()
     view._refresh_worker_status()
-    assert view.lbl_worker_status.text() == "—"
+    assert "Sans objet" in view.lbl_worker_status.text()
 
 
 def test_refresh_worker_status_shows_stopped_without_any_sample(qapp, test_db):
