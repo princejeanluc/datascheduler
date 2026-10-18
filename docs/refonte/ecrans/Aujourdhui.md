@@ -101,7 +101,7 @@ Un élément est en lot A quand la fonction ou la donnée existe déjà, même s
 2. « Tout exécuter » passe d'un `QMessageBox.question` à une fenêtre à cases. Les tests de `test_dashboard_run_all_confirm.py` simulent `QMessageBox.question` : peut-on les réécrire pour la nouvelle fenêtre ?
 3. Ordre des dépendances (C5, C6) : un enfant déclenché par un parent sélectionné n'est plus lancé séparément. Aujourd'hui il est lancé deux fois (une fois direct, une fois par déclenchement). Ce changement de comportement est-il voulu ?
 4. La maquette propose « Reprendre depuis l'échec » alors que « rien n'a réussi avant ». Dans le code, `resumable_state_json` n'est écrit que si une étape a réussi : sans cela il n'y a pas de reprise. Faut-il afficher « Relancer » dans ce cas ?
-5. La carte « actifs » compte aujourd'hui tous les pipelines (`len(pipelines)`) sous le libellé « Pipelines actifs ». On corrige (A6) ?
+5. ~~La carte « actifs » compte aujourd'hui tous les pipelines (`len(pipelines)`) sous le libellé « Pipelines actifs ».~~ Corrigé hors Lot A, en correctif K6 (`docs/refonte/LOTS.md`) : la carte ne compte plus que les pipelines actifs.
 6. Le bandeau des manqués disparaît au profit des cartes MANQUÉE. Où placer « Lancer tout » et « Ignorer tout » quand il y en a plusieurs ?
 7. Titre de la page quand rien n'est à traiter : « Aujourd'hui », ou une phrase du type « Rien ne demande ton attention » ?
 8. Les heures du journal sont écrites en UTC dans `log_text`. On convertit le préfixe à l'affichage (proposé ici), ou on change l'écriture (hors règle) ?
