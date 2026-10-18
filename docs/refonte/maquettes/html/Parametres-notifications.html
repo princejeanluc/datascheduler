@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Paramètres, résumé hebdomadaire</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+a{color:#FF9933}a:hover{color:#FF7900}
+button{font-family:inherit}
+</style>
+</head>
+<body>
+
+<div style="width: 100%; min-width: 1280px; height: 900px; display: flex; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden; position: relative">
+<nav aria-label="Navigation principale" style="width: 56px; flex-shrink: 0; background: #1c1a17; border-right: 1px solid #35322d; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 0"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7900" stroke-width="2" stroke-linecap="round" role="img" aria-label="KULU"><circle cx="5" cy="6" r="2.5"></circle><circle cx="5" cy="18" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 6h3a4 4 0 0 1 4 4v0.5M7.5 18h3a4 4 0 0 0 4-4v-0.5M14.5 12h2"></path></svg><div style="height: 18px"></div><button aria-label="Aujourd'hui" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></button><a href="Main.html" aria-label="Pipelines" style="width: 40px; height: 40px; border-radius: 8px; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="12" r="2"></circle><path d="M7 6h3a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H7M14 12h3"></path></svg></a><button aria-label="Connexions" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path></svg></button><button aria-label="Requêtes SQL" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"></ellipse><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></button><button aria-label="Historique" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg></button><button aria-label="Ressources" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg></button><div style="flex-grow: 1"></div><button aria-label="Paramètres" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button><button aria-label="Aide" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button></nav>
+  <main style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; padding: 24px 32px 20px 32px; gap: 18px;">
+    <header style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #9c968d">CE POSTE · KULU 0.45</span>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 600">Paramètres</h1>
+    </header>
+    <div style="flex: 1 1 auto; min-height: 0; display: flex; gap: 24px">
+      <aside aria-label="Catégories" style="width: 264px; flex-shrink: 0; display: flex; flex-direction: column; gap: 14px; padding: 4px 0">
+        <label style="height: 34px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg><span style="flex-grow: 1"><span style="color: #756f66">Rechercher un paramètre…</span></span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #756f66; border: 1px solid #35322d; border-radius: 4px; padding: 0 5px">Ctrl F</span>
+        </label>
+        <nav style="display: flex; flex-direction: column; gap: 2px">
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/><circle cx="8" cy="8" r="2.5"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Ordonnanceur</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Planification, rattrapages, exécution en arrière-plan</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2.5h10v11H3z"/><path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Journalisation</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fichiers de logs et niveau de détail</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="9" rx="1.5"/><path d="M6 14h4"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Interface</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Fréquences de rafraîchissement</span></span><span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: #3d1f00; color: #f2efeb; box-shadow: inset 2px 0 0 #FF7900;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#FF7900" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a4 4 0 0 1 8 0v3l1.5 2h-11L4 10z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Notifications</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Résumé périodique par email</span></span><span style="display: flex; gap: 6px; align-items: center"><span title="2 réglage(s) modifié(s)" style="font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 700; color: #000; background: #FF7900; border-radius: 999px; padding: 0 6px">2</span></span>
+        </a>
+        <a href="#" style="display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 10px; border-radius: 6px; text-decoration: none; color: inherit; background: transparent;">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12l3-4 3 2 3-5 3 3"/></svg>
+          <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-size: 13.5px; font-weight: 600">Ressources</span><span style="font-size: 11.5px; color: #9c968d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Échantillonnage CPU et mémoire</span></span><span></span>
+        </a>
+        </nav>
+        <div style="flex-grow: 1"></div>
+        <div style="font-size: 11.5px; color: #756f66; line-height: 1.5; padding: 0 4px">Réglages enregistrés pour ce poste, dans la base locale de Kulu.</div>
+      </aside>
+      <section style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; background: #1c1a17; border: 1px solid #35322d; border-radius: 10px">
+        <div style="padding: 16px 20px 12px 20px; border-bottom: 1px solid #35322d; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 17px; font-weight: 600">Notifications</span><span style="font-size: 12.5px; color: #9c968d">Résumé périodique des exécutions par email.</span></div>
+        <div style="flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column">
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Résumé périodique activé</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Envoie un email récapitulatif des exécutions depuis le dernier envoi.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span role="switch" aria-checked="true" style="width: 38px; height: 22px; border-radius: 999px; background: #FF7900; position: relative; display: inline-block; flex-shrink: 0"><span style="position: absolute; top: 2px; left: 18px; width: 18px; height: 18px; border-radius: 50%; background: #f2efeb"></span></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Profil SMTP</span><span style="display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: #3fb950"><span style="width: 8px; height: 8px; border-radius: 50%; background: #3fb950; flex-shrink: 0"></span>testé hier</span><span style="font-size: 10px; font-weight: 600; color: #FF9933; border: 1px solid #6b4520; border-radius: 999px; padding: 0 6px; white-space: nowrap">proposé</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Utilisé pour l'envoi du résumé. Les profils se gèrent dans Connexions.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 280px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; box-sizing: border-box">SMTP Orange interne<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Destinataires</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Adresses séparées par une virgule.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 380px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; font-size: 13px; color: #f2efeb; white-space: nowrap; overflow: hidden">sophie.martin@orange.com, karim.benali@orange.com</span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; box-shadow: inset 3px 0 0 #FF7900;">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Fréquence</span><span title="Modifié, non enregistré" style="width: 7px; height: 7px; border-radius: 50%; background: #FF7900"></span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px"></span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 200px; height: 32px; border: 1px solid #FF7900; border-radius: 6px; background: #141210; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; box-sizing: border-box">Hebdomadaire<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; box-shadow: inset 3px 0 0 #FF7900;">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Jour</span><span title="Modifié, non enregistré" style="width: 7px; height: 7px; border-radius: 50%; background: #FF7900"></span><span style="font-size: 10.5px; color: #6BB4CF">apparaît en Hebdomadaire</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Jour d'envoi du résumé hebdomadaire.</span>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 200px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; font-size: 13px; box-sizing: border-box">Lundi<svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="#9c968d" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></span></div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 14px 20px; border-bottom: 1px solid #2c2925; ">
+          <div style="display: flex; flex-direction: column; gap: 5px; min-width: 0">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap"><span style="font-size: 14px; font-weight: 600">Heure d'envoi</span></div>
+            <span style="font-size: 12.5px; color: #9c968d; line-height: 1.45; max-width: 620px">Format HH:MM, dans le fuseau de l'ordonnanceur (Europe/Paris).</span>
+            <div style="margin-top: 8px; border: 1px solid #35322d; border-radius: 8px; background: #141210; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; max-width: 640px">
+              <div style="display: flex; align-items: center; gap: 8px"><span style="font-size: 12.5px; font-weight: 600">Prochain envoi : lundi 19 octobre à 08:00</span><span style="font-size: 10px; font-weight: 600; color: #FF9933; border: 1px solid #6b4520; border-radius: 999px; padding: 0 6px; white-space: nowrap">proposé</span></div>
+              <span style="font-size: 12.5px; color: #c9c4bc">Contiendra les exécutions depuis lundi 12 octobre 08:00 : <b>148</b> runs, <span style="color: #f85149">3 échecs</span> sur 2 pipelines.</span>
+              <div style="display: flex; gap: 8px"><button style="height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8l12-5.5L10 14l-2.5-4.5z"/></svg>Envoyer un essai à moi</button><button style="height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap">Voir l'aperçu</button></div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; justify-content: flex-end; gap: 10px"><span style="width: 100px; height: 32px; border: 1px solid #35322d; border-radius: 6px; background: #141210; display: flex; align-items: center; padding: 0 10px; box-sizing: border-box; font-size: 13px; color: #f2efeb; white-space: nowrap; overflow: hidden">08:00</span></div>
+        </div>
+        </div>
+      <footer style="display: flex; align-items: center; gap: 12px; padding: 12px 20px; border-top: 1px solid #35322d; background: #1c1a17; border-radius: 0 0 10px 10px">
+        <span style="display: flex; align-items: center; gap: 8px; font-size: 12.5px"><span style="width: 8px; height: 8px; border-radius: 50%; background: #FF7900; flex-shrink: 0"></span><span><b>2 réglages modifiés</b> <span style="color: #9c968d">· non enregistrés</span></span><span style="font-size: 10px; font-weight: 600; color: #FF9933; border: 1px solid #6b4520; border-radius: 999px; padding: 0 6px; white-space: nowrap">proposé</span></span><a href="#" style="font-size: 12.5px; color: #9c968d; margin-left: 6px">Annuler les modifications</a><div style="flex-grow: 1"></div><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #756f66">Ctrl S</span><button style="height: 34px; padding: 0 16px; border-radius: 6px; border: none; background: #FF7900; color: #000; font-weight: 700; display: flex; align-items: center; gap: 8px; text-decoration: none; white-space: nowrap; ">Enregistrer</button>
+      </footer>
+      </section>
+    </div>
+  </main>
+</div>
+</body>
+</html>

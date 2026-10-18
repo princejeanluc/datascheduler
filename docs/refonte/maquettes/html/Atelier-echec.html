@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Atelier, échec et reprise</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+a{color:#FF9933}a:hover{color:#FF7900}
+button{font-family:inherit}
+</style>
+</head>
+<body>
+
+<div style="width: 100%; min-width: 1280px; height: 900px; display: flex; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden">
+
+  <nav aria-label="Navigation principale" style="width: 56px; flex-shrink: 0; background: #1c1a17; border-right: 1px solid #35322d; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7900" stroke-width="2" stroke-linecap="round" role="img" aria-label="KULU"><circle cx="5" cy="6" r="2.5"></circle><circle cx="5" cy="18" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 6h3a4 4 0 0 1 4 4v0.5M7.5 18h3a4 4 0 0 0 4-4v-0.5M14.5 12h2"></path></svg>
+    <div style="height: 18px"></div>
+    <button aria-label="Aujourd'hui" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></button>
+    <button aria-label="Pipelines" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="12" r="2"></circle><path d="M7 6h3a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H7M14 12h3"></path></svg></button>
+    <button aria-label="Connexions" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path></svg></button>
+    <button aria-label="Requêtes SQL" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"></ellipse><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></button>
+    <button aria-label="Historique" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg></button>
+    <button aria-label="Ressources" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg></button>
+    <div style="flex-grow: 1"></div>
+    <button aria-label="Paramètres" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button>
+    <button aria-label="Aide" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button>
+  </nav>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+
+    <header style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 20px; border-bottom: 1px solid #35322d; background: #1c1a17">
+      <a href="#" style="color: #9c968d; text-decoration: none">Pipelines</a>
+      <span style="color: #756f66">/</span>
+      <button style="display: flex; align-items: center; gap: 8px; background: transparent; border: none; color: #f2efeb; font-size: 15px; font-weight: 600; padding: 6px 8px; border-radius: 6px">Reporting ventes J-1 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9c968d" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #2a1514; border: 1px solid #6b2a26; color: #f85149; font-size: 12px; font-weight: 600"><span style="width: 7px; height: 7px; border-radius: 50%; background: #f85149"></span>Échec à 11:28 · Dépôt partenaire</span>
+      <div style="flex-grow: 1"></div>
+      <button style="height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Relancer tout</button>
+      <a href="Main.html" style="height: 34px; padding: 0 16px; border-radius: 6px; background: #FF7900; color: #000; font-weight: 700; display: flex; align-items: center; gap: 8px; text-decoration: none"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.4" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.5-5.8M4 4v4h4"></path></svg>Reprendre depuis l'échec</a>
+    </header>
+
+    <div style="flex: 1 1 auto; min-height: 0; display: flex">
+
+      <section aria-label="Canevas du pipeline" style="flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; background-color: #141210; background-image: radial-gradient(#2c2925 1px, transparent 1px); background-size: 16px 16px">
+
+        <div role="toolbar" aria-label="Outils du canevas" aria-orientation="vertical" style="position: absolute; left: 12px; top: 56px; width: 40px; box-sizing: border-box; padding: 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; background: #1c1a17; border: 1px solid #35322d; border-radius: 10px; z-index: 3; opacity: 0.5">
+          <span style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #9c968d"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>
+          <span style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #9c968d"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="3"></rect></svg></span>
+          <span style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; color: #9c968d"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path></svg></span>
+        </div>
+        <span style="position: absolute; left: 64px; top: 20px; font-size: 12px; color: #9c968d">Vue de l'exécution du 18/10 à 11:28 · <a href="Main.html">revenir à l'édition</a></span>
+
+        <svg aria-hidden="true" width="1044" height="600" viewBox="0 0 1044 600" style="position: absolute; left: 0; top: 0" fill="none" stroke-width="1.6">
+          <path d="M224 300 H246" stroke="#3fb950"></path>
+          <path d="M282 288 C312 288, 312 220, 342 220" stroke="#3fb950"></path>
+          <path d="M282 312 C312 312, 312 440, 342 440" stroke="#756f66" stroke-dasharray="4 4"></path>
+          <path d="M390 220 C402 220, 402 150, 412 150" stroke="#3fb950"></path>
+          <path d="M390 220 C402 220, 402 290, 412 290" stroke="#3fb950"></path>
+          <path d="M572 290 H594" stroke="#3fb950"></path>
+          <path d="M572 150 C730 150, 730 220, 776 220" stroke="#3fb950"></path>
+          <path d="M754 290 C768 290, 768 220, 776 220" stroke="#756f66" stroke-dasharray="4 4"></path>
+          <path d="M824 220 H846" stroke="#756f66" stroke-dasharray="4 4"></path>
+          <path d="M674 326 V404" stroke="#E8B339" stroke-width="2.6"></path>
+        </svg>
+
+        <div style="position: absolute; left: 64px; top: 264px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #6BB4CF">EXTRACTION · ORACLE</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Extraire ventes J-1</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 41 s · 83 212 l.</div>
+        </div>
+
+        <div style="position: absolute; left: 246px; top: 276px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 14px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 14px">?</span>
+        </div>
+        <span style="position: absolute; left: 290px; top: 204px; font-size: 11px; font-weight: 600; color: #3fb950">vrai</span>
+
+        <div style="position: absolute; left: 342px; top: 196px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 12px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 16px">+</span>
+        </div>
+
+        <div style="position: absolute; left: 412px; top: 114px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #6BB4CF">CHARGEMENT · POSTGRES</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Charger l'entrepôt</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 1 min 02</div>
+        </div>
+
+        <div style="position: absolute; left: 412px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #b5c96a">COMPRESSION · ZIP</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Compresser</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ 6 s · 4,1 Mo</div>
+        </div>
+
+        <div style="position: absolute; left: 594px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #2a1514; border: 2px solid #f85149; border-radius: 10px; padding: 7px 9px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #b5c96a">ENVOI · SFTP</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Dépôt partenaire</div>
+          <div style="font-size: 11px; color: #f85149; margin-top: 5px">✗ 3 tentatives refusées</div>
+          <span style="position: absolute; left: 72px; bottom: -7px; width: 12px; height: 12px; border-radius: 50%; background: #E8B339; color: #141210; font-size: 9px; font-weight: 700; display: flex; align-items: center; justify-content: center">!</span>
+        </div>
+
+        <div style="position: absolute; left: 760px; top: 176px; width: 80px; text-align: center; font-size: 11.5px; font-weight: 600; color: #f85149">Toutes (ET)</div>
+        <div style="position: absolute; left: 776px; top: 196px; width: 48px; height: 48px">
+          <div style="position: absolute; left: 7px; top: 7px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #2a1514; border: 1.5px solid #f85149; border-radius: 5px"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 16px; text-align: center; color: #f85149; font-weight: 700; font-size: 11px">ET</span>
+        </div>
+        <span style="position: absolute; left: 744px; top: 252px; width: 112px; text-align: center; font-size: 11px; color: #f85149">une branche manque</span>
+
+        <div style="position: absolute; left: 846px; top: 184px; width: 160px; height: 72px; box-sizing: border-box; background: transparent; border: 1px dashed #4a463f; border-radius: 10px; padding: 8px 10px; color: #9c968d">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em">NOTIFICATION · EMAIL</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Prévenir l'équipe</div>
+          <div style="font-size: 11px; margin-top: 5px">non exécutée</div>
+        </div>
+
+        <div style="position: absolute; left: 342px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; background: transparent; border: 1px dashed #4a463f; border-radius: 10px; padding: 8px 10px; color: #9c968d">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em">NOTIFICATION · EMAIL</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Alerte volume nul</div>
+          <div style="font-size: 11px; margin-top: 5px">non exécutée</div>
+        </div>
+
+        <div style="position: absolute; left: 594px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; background: #221c10; border: 1.5px solid #E8B339; border-radius: 10px; padding: 8px 10px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #d68fb8">APPEL HTTP · WEBHOOK</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Signaler l'échec</div>
+          <div style="font-size: 11px; color: #3fb950; margin-top: 5px">✓ via le port d'erreur · 1 s</div>
+        </div>
+
+        <div style="position: absolute; left: 64px; top: 520px; display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: #1c1a17; border: 1px solid #35322d; font-size: 12px">
+          <span style="color: #3fb950; font-weight: 600">5 réussies</span><span style="color: #756f66">·</span><span style="color: #f85149; font-weight: 600">2 en échec</span><span style="color: #756f66">·</span><span style="color: #9c968d">2 non exécutées</span><span style="color: #756f66">·</span><span style="color: #E8B339">1 chemin d'erreur suivi</span>
+        </div>
+      </section>
+
+      <aside aria-label="Diagnostic de l'échec" style="width: 340px; flex-shrink: 0; border-left: 1px solid #35322d; background: #1c1a17; display: flex; flex-direction: column; min-height: 0">
+        <div style="padding: 16px 18px 12px 18px; border-bottom: 1px solid #35322d; display: flex; flex-direction: column; gap: 6px">
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #f85149">ÉCHEC · ENVOI SFTP</span>
+          <span style="font-size: 17px; font-weight: 600">Dépôt partenaire</span>
+        </div>
+        <div style="flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 16px">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; line-height: 1.5; padding: 10px 12px; border-radius: 6px; background: #141210; border: 1px solid #6b2a26; color: #f2efeb">Connection refused<br>sftp.partner.fr:22</div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">TENTATIVES</span>
+            <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span>1 · 11:29:09</span><span style="color: #f85149">refusée</span></div>
+            <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span>2 · 11:29:44</span><span style="color: #f85149">refusée</span></div>
+            <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 12px"><span>3 · 11:30:19</span><span style="color: #f85149">refusée</span></div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">CE QUI S'EST PASSÉ ENSUITE</span>
+            <span style="line-height: 1.5"><span style="color: #E8B339">Port d'erreur</span> suivi : <b>Signaler l'échec</b> a appelé le webhook (réponse 200).</span>
+            <span style="line-height: 1.5"><span style="color: #f85149">Jonction ET</span> en échec : <b>Prévenir l'équipe</b> n'a pas été exécutée.</span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">PISTE</span>
+            <span style="line-height: 1.5; color: #9c968d">La connexion <span style="color: #f2efeb">SFTP Partenaire</span> n'a jamais été testée.</span>
+            <button style="height: 32px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Tester la connexion</button>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #2a1d10; border: 1px solid #6b4520">
+            <span style="font-weight: 600">Reprendre depuis l'échec</span>
+            <span style="line-height: 1.5; color: #9c968d">Rejoue <span style="color: #f2efeb">Dépôt partenaire</span> puis la suite. Les 5 étapes réussies ne sont pas rejouées : leurs fichiers sont réutilisés.</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <section aria-label="Exécution en échec" style="height: 188px; flex-shrink: 0; border-top: 1px solid #35322d; background: #1c1a17; display: flex; flex-direction: column">
+      <div style="display: flex; align-items: center; gap: 16px; padding: 10px 20px; border-bottom: 1px solid #2c2925">
+        <span style="font-weight: 600; border-bottom: 2px solid #FF7900; padding-bottom: 2px">Chronogramme</span>
+        <span style="color: #9c968d">Journal</span>
+        <span style="color: #9c968d">Variables</span>
+        <div style="flex-grow: 1"></div>
+        <span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #f85149"><span style="width: 7px; height: 7px; border-radius: 50%; background: #f85149"></span>Échec · aujourd'hui 11:28 · 2 min 04</span>
+      </div>
+      <div style="flex: 1 1 auto; padding: 8px 20px 10px 20px; display: flex; flex-direction: column; gap: 5px; font-size: 12px">
+        <div style="display: flex; align-items: center; gap: 12px; color: #9c968d; font-family: 'JetBrains Mono', monospace; font-size: 10px"><span style="width: 170px; flex-shrink: 0"></span><div style="flex-grow: 1; display: flex; justify-content: space-between"><span>0 s</span><span>30 s</span><span>1 min</span><span>1 min 30</span><span>2 min</span></div><span style="width: 90px; flex-shrink: 0"></span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Extraire ventes J-1</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 0%; width: 33%; top: 0; bottom: 0; background: #6BB4CF; border-radius: 3px"></div></div><span style="width: 90px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">41 s</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Charger l'entrepôt</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 33%; width: 50%; top: 0; bottom: 0; background: #6BB4CF; border-radius: 3px"></div></div><span style="width: 90px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">1 min 02</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0">Compresser</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 33%; width: 4.8%; top: 0; bottom: 0; background: #b5c96a; border-radius: 3px"></div></div><span style="width: 90px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">6 s</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0; color: #f85149">Dépôt partenaire</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 37.9%; width: 4%; top: 0; bottom: 0; background: #f85149; border-radius: 3px"></div><div style="position: absolute; left: 41.9%; width: 24.2%; top: 5px; height: 1px; background: #6b2a26"></div><div style="position: absolute; left: 66.1%; width: 4%; top: 0; bottom: 0; background: #f85149; border-radius: 3px"></div><div style="position: absolute; left: 70.1%; width: 24.3%; top: 5px; height: 1px; background: #6b2a26"></div><div style="position: absolute; left: 94.4%; width: 4%; top: 0; bottom: 0; background: #f85149; border-radius: 3px"></div></div><span style="width: 90px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #f85149">3 × refus</span></div>
+        <div style="display: flex; align-items: center; gap: 12px"><span style="width: 170px; flex-shrink: 0; color: #E8B339">Signaler l'échec</span><div style="flex-grow: 1; height: 11px; position: relative; background: #242220; border-radius: 3px"><div style="position: absolute; left: 98.4%; width: 1.6%; top: 0; bottom: 0; background: #E8B339; border-radius: 3px"></div></div><span style="width: 90px; flex-shrink: 0; text-align: right; font-family: 'JetBrains Mono', monospace; color: #9c968d">1 s</span></div>
+        <div style="font-size: 11px; color: #756f66; padding-left: 182px">Les traits fins entre les tentatives sont les 30 s d'attente avant chaque réessai.</div>
+      </div>
+    </section>
+  </div>
+</div>
+</body>
+</html>

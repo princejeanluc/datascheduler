@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Atelier, ajouter une étape</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+a{color:#FF9933}a:hover{color:#FF7900}
+button{font-family:inherit}
+</style>
+</head>
+<body>
+
+<div style="width: 100%; min-width: 1280px; height: 900px; display: flex; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; overflow: hidden">
+
+  <nav aria-label="Navigation principale" style="width: 56px; flex-shrink: 0; background: #1c1a17; border-right: 1px solid #35322d; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 0">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#FF7900" stroke-width="2" stroke-linecap="round" role="img" aria-label="KULU"><circle cx="5" cy="6" r="2.5"></circle><circle cx="5" cy="18" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 6h3a4 4 0 0 1 4 4v0.5M7.5 18h3a4 4 0 0 0 4-4v-0.5M14.5 12h2"></path></svg>
+    <div style="height: 18px"></div>
+    <button aria-label="Aujourd'hui" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg></button>
+    <button aria-label="Pipelines" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: #3d1f00; color: #FF7900; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="6" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="12" r="2"></circle><path d="M7 6h3a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4H7M14 12h3"></path></svg></button>
+    <button aria-label="Connexions" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path></svg></button>
+    <button aria-label="Requêtes SQL" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"></ellipse><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"></path></svg></button>
+    <button aria-label="Historique" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v5l3 2"></path></svg></button>
+    <button aria-label="Ressources" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-6 4 12 2-6h6"></path></svg></button>
+    <div style="flex-grow: 1"></div>
+    <button aria-label="Paramètres" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"></path></svg></button>
+    <button aria-label="Aide" style="width: 40px; height: 40px; border: none; border-radius: 8px; background: transparent; color: #9c968d; display: flex; align-items: center; justify-content: center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 16.5v.5"></path></svg></button>
+  </nav>
+
+  <div style="flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column">
+
+    <header style="height: 56px; flex-shrink: 0; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 20px; border-bottom: 1px solid #35322d; background: #1c1a17">
+      <a href="#" style="color: #9c968d; text-decoration: none">Pipelines</a>
+      <span style="color: #756f66">/</span>
+      <button style="display: flex; align-items: center; gap: 8px; background: transparent; border: none; color: #f2efeb; font-size: 15px; font-weight: 600; padding: 6px 8px; border-radius: 6px">Reporting ventes J-1 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9c968d" stroke-width="2.4" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <span style="display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: #242220; border: 1px solid #35322d; color: #9c968d; font-size: 12px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #E8B339"></span>Brouillon · 3 modifications · enregistré automatiquement</span>
+      <div style="flex-grow: 1"></div>
+      <button style="height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Valider à blanc</button>
+      <button style="height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid #35322d; background: transparent; color: #f2efeb; font-weight: 600">Publier</button>
+      <a href="Atelier-echec.html" style="height: 34px; padding: 0 16px; border-radius: 6px; background: #FF7900; color: #000; font-weight: 700; display: flex; align-items: center; gap: 8px; text-decoration: none"><svg width="12" height="12" viewBox="0 0 24 24" fill="#000" aria-hidden="true"><path d="M6 4l14 8-14 8z"></path></svg>Exécuter</a>
+    </header>
+
+    <div style="flex: 1 1 auto; min-height: 0; display: flex">
+
+      <section aria-label="Canevas du pipeline" style="flex: 1 1 auto; min-width: 0; position: relative; overflow: hidden; background-color: #141210; background-image: radial-gradient(#2c2925 1px, transparent 1px); background-size: 16px 16px">
+
+        <div aria-hidden="true" style="position: absolute; inset: 0; opacity: 0.4">
+          <svg width="1044" height="600" viewBox="0 0 1044 600" style="position: absolute; left: 0; top: 0" fill="none" stroke-width="1.6">
+            <path d="M224 300 H246" stroke="#9c968d"></path>
+            <path d="M282 288 C312 288, 312 220, 342 220" stroke="#3fb950"></path>
+            <path d="M282 312 C312 312, 312 440, 342 440" stroke="#756f66" stroke-dasharray="4 4"></path>
+            <path d="M390 220 C402 220, 402 150, 412 150" stroke="#9c968d"></path>
+            <path d="M390 220 C402 220, 402 290, 412 290" stroke="#9c968d"></path>
+            <path d="M572 290 H594" stroke="#9c968d"></path>
+            <path d="M572 150 C730 150, 730 220, 776 220" stroke="#9c968d"></path>
+            <path d="M754 290 C768 290, 768 220, 776 220" stroke="#9c968d"></path>
+            <path d="M674 326 V404" stroke="#E8B339" stroke-dasharray="4 4"></path>
+          </svg>
+          <div style="position: absolute; left: 64px; top: 264px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px"><div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #6BB4CF">EXTRACTION · ORACLE</div><div style="font-size: 13px; font-weight: 600; margin-top: 4px">Extraire ventes J-1</div></div>
+          <div style="position: absolute; left: 253px; top: 283px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <div style="position: absolute; left: 349px; top: 203px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+          <div style="position: absolute; left: 412px; top: 114px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px"><div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #6BB4CF">CHARGEMENT · POSTGRES</div><div style="font-size: 13px; font-weight: 600; margin-top: 4px">Charger l'entrepôt</div></div>
+          <div style="position: absolute; left: 412px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px"><div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #b5c96a">COMPRESSION · ZIP</div><div style="font-size: 13px; font-weight: 600; margin-top: 4px">Compresser</div></div>
+          <div style="position: absolute; left: 594px; top: 254px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px"><div style="font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #b5c96a">ENVOI · SFTP</div><div style="font-size: 13px; font-weight: 600; margin-top: 4px">Dépôt partenaire</div></div>
+          <div style="position: absolute; left: 342px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; border: 1px dashed #4a463f; border-radius: 10px; padding: 8px 10px"><div style="font-size: 13px; font-weight: 600; margin-top: 16px">Alerte volume nul</div></div>
+          <div style="position: absolute; left: 594px; top: 404px; width: 160px; height: 72px; box-sizing: border-box; border: 1px dashed #6b5527; border-radius: 10px; padding: 8px 10px"><div style="font-size: 13px; font-weight: 600; margin-top: 16px">Signaler l'échec</div></div>
+        </div>
+
+        <svg aria-hidden="true" width="1044" height="600" viewBox="0 0 1044 600" style="position: absolute; left: 0; top: 0" fill="none">
+          <path d="M824 220 H846" stroke="#FF7900" stroke-width="2"></path>
+          <path d="M835 228 V280" stroke="#FF7900" stroke-width="1.5" stroke-dasharray="3 3"></path>
+        </svg>
+        <div style="position: absolute; left: 783px; top: 203px; width: 34px; height: 34px; transform: rotate(45deg); box-sizing: border-box; background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 5px"></div>
+        <span style="position: absolute; left: 790px; top: 213px; width: 20px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 11px">ET</span>
+        <div style="position: absolute; left: 846px; top: 184px; width: 160px; height: 72px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 8px 10px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #c9a37a"><span style="width: 6px; height: 6px; border-radius: 2px; background: #c9a37a"></span>NOTIFICATION · EMAIL</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Prévenir l'équipe</div>
+        </div>
+        <span style="position: absolute; left: 822px; top: 208px; width: 26px; height: 26px; border-radius: 50%; background: #FF7900; color: #000; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 4px rgba(255,121,0,0.2)">+</span>
+
+        <div style="position: absolute; left: 760px; top: 280px; width: 160px; height: 72px; box-sizing: border-box; background: rgba(42,29,16,0.9); border: 1.5px dashed #FF7900; border-radius: 10px; padding: 8px 10px; box-shadow: 0 12px 28px rgba(0,0,0,0.45); transform: rotate(-2deg)">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.05em; color: #b5c96a"><span style="width: 6px; height: 6px; border-radius: 2px; background: #b5c96a"></span>COPIE LOCALE</div>
+          <div style="font-size: 13px; font-weight: 600; margin-top: 4px">Archiver le fichier</div>
+          <div style="font-size: 11px; color: #FF9933; margin-top: 5px">Relâcher pour insérer ici</div>
+        </div>
+        <span style="position: absolute; left: 760px; top: 362px; width: 220px; font-size: 12px; color: #FF9933">Insérée entre la jonction et « Prévenir l'équipe », liaisons refaites automatiquement</span>
+
+        <aside aria-label="Bibliothèque d'étapes" style="position: absolute; left: 0; top: 0; bottom: 0; width: 312px; background: #1c1a17; border-right: 1px solid #35322d; box-shadow: 12px 0 32px rgba(0,0,0,0.35); display: flex; flex-direction: column; z-index: 4">
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px 10px 16px"><span style="font-size: 15px; font-weight: 600">Ajouter</span><a href="Main.html" aria-label="Fermer la bibliothèque" style="color: #9c968d; text-decoration: none; font-size: 18px; line-height: 1">×</a></div>
+          <label style="margin: 0 16px; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px; border-radius: 6px; border: 2px solid #FF7900; background: #141210"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9c968d" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4 4"></path></svg><span style="position: absolute; left: -9999px">Rechercher une étape ou un modèle</span><input placeholder="Étape, passerelle ou modèle…" style="flex-grow: 1; min-width: 0; background: transparent; border: none; color: #f2efeb; font-family: inherit; font-size: 13px; outline: none"></label>
+          <span style="padding: 8px 16px 6px 16px; font-size: 11px; color: #756f66">Glisser sur le canevas ou une liaison · Entrée insère après la sélection</span>
+
+          <div style="flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 4px 8px 12px 8px; display: flex; flex-direction: column; gap: 1px">
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 8px 8px 4px 8px">MES MODÈLES</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5c96a; box-shadow: 0 0 0 2px #1c1a17, 0 0 0 3px #FF7900"></span><span style="flex-grow: 1">Dépôt SFTP partenaire</span><span style="font-size: 11px; color: #756f66">Envoi FTP</span></div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #6BB4CF; box-shadow: 0 0 0 2px #1c1a17, 0 0 0 3px #FF7900"></span><span style="flex-grow: 1">Extraction Oracle standard</span><span style="font-size: 11px; color: #756f66">Extraction</span></div>
+
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 10px 8px 4px 8px">PASSERELLES</div>
+            <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 2px 8px 4px 8px">
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 8px; border: 1px solid #35322d; background: #241f2e"><span style="width: 20px; height: 20px; transform: rotate(45deg); border: 1.5px solid #a58cf0; border-radius: 3px; box-sizing: border-box; display: flex; align-items: center; justify-content: center"><span style="transform: rotate(-45deg); color: #c7b6ff; font-size: 11px; font-weight: 700">?</span></span><span style="font-size: 11.5px">Aiguillage</span></div>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 8px; border: 1px solid #35322d; background: #241f2e"><span style="width: 20px; height: 20px; transform: rotate(45deg); border: 1.5px solid #a58cf0; border-radius: 3px; box-sizing: border-box; display: flex; align-items: center; justify-content: center"><span style="transform: rotate(-45deg); color: #c7b6ff; font-size: 12px; font-weight: 700">+</span></span><span style="font-size: 11.5px">Parallèle</span></div>
+              <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 4px; border-radius: 8px; border: 1px solid #35322d; background: #241f2e"><span style="width: 20px; height: 20px; transform: rotate(45deg); border: 1.5px solid #a58cf0; border-radius: 3px; box-sizing: border-box; display: flex; align-items: center; justify-content: center"><span style="transform: rotate(-45deg); color: #c7b6ff; font-size: 8px; font-weight: 700">ET</span></span><span style="font-size: 11.5px">Jonction</span></div>
+            </div>
+
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 10px 8px 4px 8px">EXTRACTION ET CHARGEMENT</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #6BB4CF"></span>Extraction base de données</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #6BB4CF"></span>Téléchargement FTP</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #6BB4CF"></span>Chargement base de données</div>
+
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 10px 8px 4px 8px">TRANSFERT ET DIFFUSION</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5c96a"></span>Envoi FTP</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; background: #3d1f00; color: #f2efeb"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5c96a"></span><span style="flex-grow: 1">Copie locale</span><span style="font-size: 11px; color: #FF9933">en cours de dépôt</span></div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5c96a"></span>Compression ZIP</div>
+
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 10px 8px 4px 8px">EXÉCUTION ET SCRIPTS</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #d68fb8"></span>Script Python</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #d68fb8"></span>Instruction SQL</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #d68fb8"></span>Appel HTTP</div>
+
+            <div style="font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d; padding: 10px 8px 4px 8px">BIG DATA · NOTIFICATION · VARIABLES</div>
+            <div style="display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: 6px; color: #9c968d"><span style="width: 10px; height: 10px; border-radius: 3px; background: #4fb3a0"></span>Spark SQL, Sqoop import, Sqoop export…</div>
+          </div>
+        </aside>
+      </section>
+
+      <aside aria-label="Aperçu du type d'étape" style="width: 340px; flex-shrink: 0; border-left: 1px solid #35322d; background: #1c1a17; display: flex; flex-direction: column; gap: 16px; padding: 18px">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #b5c96a">APERÇU · TRANSFERT ET DIFFUSION</span>
+        <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 17px; font-weight: 600">Copie locale</span><span style="color: #9c968d; line-height: 1.5">Copie le fichier reçu dans un dossier local ou réseau, avec des jetons de date dans le nom.</span></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 8px; background: #242220; font-size: 12px">
+          <div style="display: flex; justify-content: space-between"><span style="color: #9c968d">Reçoit</span><span>un fichier de l'étape amont</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #9c968d">Produit</span><span style="font-family: 'JetBrains Mono', monospace">output_file</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #9c968d">Connexion</span><span>aucune</span></div>
+          <div style="display: flex; justify-content: space-between"><span style="color: #9c968d">Port d'erreur</span><span style="color: #E8B339">oui, comme toutes les étapes</span></div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px"><span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">À REMPLIR APRÈS L'INSERTION</span><span>Dossier de destination</span><span>Nom du fichier, ex. <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px">ventes_{yyyyMMdd}.zip</span></span></div>
+        <div style="flex-grow: 1"></div>
+        <a href="Atelier-etape.html" style="height: 36px; border-radius: 6px; border: 1px solid #FF7900; color: #FF9933; font-weight: 600; display: flex; align-items: center; justify-content: center; text-decoration: none">Insérer à l'emplacement marqué</a>
+      </aside>
+    </div>
+
+    <section aria-label="Dernière exécution, repliée" style="height: 36px; flex-shrink: 0; border-top: 1px solid #35322d; background: #1c1a17; display: flex; align-items: center; gap: 12px; padding: 0 20px; font-size: 12px; color: #9c968d">
+      <span style="width: 7px; height: 7px; border-radius: 50%; background: #3fb950"></span>Dernière exécution réussie · aujourd'hui 06:00 · 2 min 01
+      <span style="flex-grow: 1"></span>
+      <button style="background: transparent; border: none; color: #9c968d; font-size: 12px">Déplier ▴</button>
+    </section>
+  </div>
+</div>
+</body>
+</html>

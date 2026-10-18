@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Kulu — Grammaire des nœuds</title>
+
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#141210}
+</style>
+</head>
+<body>
+
+<div style="width: 1440px; height: 900px; box-sizing: border-box; padding: 44px 56px; background: #141210; color: #f2efeb; font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif; font-size: 13px; display: flex; flex-direction: column; gap: 28px">
+
+  <header style="display: flex; flex-direction: column; gap: 6px">
+    <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #FF9933">ATELIER · GRAMMAIRE DES NŒUDS</span>
+    <h1 style="margin: 0; font-size: 28px; font-weight: 600">Une carte fait un travail. Un losange décide du chemin.</h1>
+    <p style="margin: 0; color: #9c968d; font-size: 14px">Deux formes seulement, reconnaissables avant même de lire : les étapes transforment ou déplacent la donnée, les passerelles orientent le flux sans la toucher.</p>
+  </header>
+
+  <div style="flex: 1 1 auto; display: grid; grid-template-columns: 1.35fr 1fr 1fr; gap: 28px; min-height: 0">
+
+    <section style="background: #1c1a17; border: 1px solid #35322d; border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 18px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Étape · carte rectangulaire</h2>
+
+      <div style="display: flex; gap: 28px; align-items: flex-start">
+        <div style="position: relative; width: 236px; height: 150px; flex-shrink: 0">
+          <div style="position: absolute; left: 12px; top: 24px; width: 200px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 10px 12px">
+            <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #6BB4CF"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6BB4CF"></span>EXTRACTION · ORACLE<span style="flex-grow: 1"></span><span style="color: #9c968d">▾</span></div>
+            <div style="font-size: 14px; font-weight: 600; margin-top: 6px">Extraire ventes J-1</div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9c968d; margin-top: 4px">Ventes quotidiennes</div>
+            <div style="margin-top: 9px; padding-top: 7px; border-top: 1px solid #35322d; font-size: 11px; color: #3fb950">✓ 41 s · 83 212 l.</div>
+          </div>
+          <span style="position: absolute; left: 6px; top: 70px; width: 12px; height: 12px; border-radius: 50%; background: #141210; border: 2px solid #9c968d; box-sizing: border-box"></span>
+          <span style="position: absolute; left: 206px; top: 70px; width: 12px; height: 12px; border-radius: 50%; background: #141210; border: 2px solid #9c968d; box-sizing: border-box"></span>
+          <span style="position: absolute; left: 106px; top: 128px; width: 12px; height: 12px; border-radius: 50%; background: #141210; border: 2px solid #E8B339; box-sizing: border-box"></span>
+
+          <span style="position: absolute; left: 22px; top: 0; width: 18px; height: 18px; border-radius: 50%; background: #FF7900; color: #000; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">1</span>
+          <span style="position: absolute; left: 216px; top: 0; width: 18px; height: 18px; border-radius: 50%; background: #FF7900; color: #000; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">2</span>
+          <span style="position: absolute; left: -14px; top: 68px; width: 18px; height: 18px; border-radius: 50%; background: #FF7900; color: #000; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">3</span>
+          <span style="position: absolute; left: 220px; top: 88px; width: 18px; height: 18px; border-radius: 50%; background: #FF7900; color: #000; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">4</span>
+          <span style="position: absolute; left: 126px; top: 132px; width: 18px; height: 18px; border-radius: 50%; background: #FF7900; color: #000; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">5</span>
+        </div>
+        <ol style="margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 7px; color: #f2efeb; line-height: 1.45">
+          <li><b>Famille et type</b> : la couleur dit la famille, le texte dit le moteur.</li>
+          <li><b>Déplier</b> pour lire la config et les variables sans ouvrir de dialogue.</li>
+          <li><b>Entrée</b> à gauche : la donnée arrive.</li>
+          <li><b>Sortie</b> à droite : le résultat repart, avec son volume.</li>
+          <li><b>Port d'erreur</b> en bas, toujours ambre : on y branche ce qui doit se passer si l'étape échoue.</li>
+        </ol>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">DÉPLIÉE</span>
+        <div style="width: 236px; box-sizing: border-box; background: #242220; border: 1px solid #35322d; border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px">
+          <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.06em; color: #6BB4CF"><span style="width: 6px; height: 6px; border-radius: 2px; background: #6BB4CF"></span>EXTRACTION · ORACLE<span style="flex-grow: 1"></span><span style="color: #9c968d">▴</span></div>
+          <div style="font-size: 14px; font-weight: 600">Extraire ventes J-1</div>
+          <div style="display: grid; grid-template-columns: 64px 1fr; row-gap: 3px; font-size: 11px"><span style="color: #9c968d">Profil</span><span>Oracle PROD</span><span style="color: #9c968d">Requête</span><span>Ventes quotidiennes</span><span style="color: #9c968d">Fichier</span><span style="font-family: 'JetBrains Mono', monospace">ventes_{yyyyMMdd}.csv</span></div>
+          <div style="display: flex; gap: 6px; flex-wrap: wrap"><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #1f2a30; color: #6BB4CF">↳ lit var:region</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #3d1f00; color: #FF9933">↳ écrit nb_lignes</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section style="background: #1c1a17; border: 1px solid #35322d; border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 20px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Passerelle · losange violet</h2>
+
+      <div style="display: flex; gap: 18px; align-items: center">
+        <div style="position: relative; width: 72px; height: 64px; flex-shrink: 0">
+          <div style="position: absolute; left: 13px; top: 9px; width: 46px; height: 46px; transform: rotate(45deg); background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 6px; box-sizing: border-box"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 22px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 16px">?</span>
+          <span style="position: absolute; left: 56px; top: 14px; width: 10px; height: 10px; border-radius: 50%; background: #3fb950"></span>
+          <span style="position: absolute; left: 56px; top: 40px; width: 10px; height: 10px; border-radius: 50%; background: #141210; border: 2px solid #9c968d; box-sizing: border-box"></span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 600; font-size: 14px">Aiguillage</span><span style="color: #9c968d; line-height: 1.45">Choisit une branche selon une expression. Sorties <span style="color: #3fb950">vrai</span> et faux.</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #9c968d">var:nb_lignes &gt; 0</span></div>
+      </div>
+
+      <div style="display: flex; gap: 18px; align-items: center">
+        <div style="position: relative; width: 72px; height: 64px; flex-shrink: 0">
+          <div style="position: absolute; left: 13px; top: 9px; width: 46px; height: 46px; transform: rotate(45deg); background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 6px; box-sizing: border-box"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 20px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 18px">+</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 600; font-size: 14px">Parallèle</span><span style="color: #9c968d; line-height: 1.45">Lance toutes les branches qui en partent, en même temps.</span></div>
+      </div>
+
+      <div style="display: flex; gap: 18px; align-items: center">
+        <div style="position: relative; width: 72px; height: 64px; flex-shrink: 0">
+          <div style="position: absolute; left: 13px; top: 9px; width: 46px; height: 46px; transform: rotate(45deg); background: #241f2e; border: 1.5px solid #a58cf0; border-radius: 6px; box-sizing: border-box"></div>
+          <span style="position: absolute; left: 0; right: 0; top: 24px; text-align: center; color: #c7b6ff; font-weight: 700; font-size: 12px">ET</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 600; font-size: 14px">Jonction ET / OU</span><span style="color: #9c968d; line-height: 1.45">Attend toutes les branches (ET) ou la première qui aboutit (OU).</span></div>
+      </div>
+
+      <p style="margin: 0; padding: 12px 14px; border-radius: 8px; background: #241f2e; color: #c7b6ff; line-height: 1.5; font-size: 12px">Pas de résumé ni de statut long : une passerelle se lit à sa forme et à son symbole, son nom s'affiche au-dessus. Elle garde un port d'erreur : une jonction ET échoue si une branche manque.</p>
+    </section>
+
+    <section style="background: #1c1a17; border: 1px solid #35322d; border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px">
+      <h2 style="margin: 0; font-size: 16px; font-weight: 600">Liaisons et états</h2>
+
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <div style="display: flex; align-items: center; gap: 14px"><svg width="96" height="16" aria-hidden="true"><path d="M2 8H94" stroke="#9c968d" stroke-width="1.6"></path></svg><span>Donnée transmise</span></div>
+        <div style="display: flex; align-items: center; gap: 14px"><svg width="96" height="16" aria-hidden="true"><path d="M2 8H94" stroke="#3fb950" stroke-width="1.6"></path></svg><span>Branche prise au dernier passage</span></div>
+        <div style="display: flex; align-items: center; gap: 14px"><svg width="96" height="16" aria-hidden="true"><path d="M2 8H94" stroke="#756f66" stroke-width="1.6" stroke-dasharray="4 4"></path></svg><span>Branche non prise</span></div>
+        <div style="display: flex; align-items: center; gap: 14px"><svg width="96" height="16" aria-hidden="true"><path d="M2 8H94" stroke="#E8B339" stroke-width="1.6" stroke-dasharray="4 4"></path></svg><span>Chemin d'erreur, en attente</span></div>
+        <div style="display: flex; align-items: center; gap: 14px"><svg width="96" height="16" aria-hidden="true"><path d="M2 8H94" stroke="#E8B339" stroke-width="2.2"></path></svg><span>Chemin d'erreur déclenché</span></div>
+      </div>
+
+      <div style="height: 1px; background: #35322d"></div>
+
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <div style="height: 46px; border-radius: 8px; background: #242220; border: 2px solid #FF7900; display: flex; align-items: center; justify-content: center; font-size: 12px">Sélectionnée</div>
+        <div style="height: 46px; border-radius: 8px; background: #2a1d10; border: 1px solid #FF7900; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #FF9933">En cours · 62 %</div>
+        <div style="height: 46px; border-radius: 8px; background: #2a1514; border: 1.5px solid #f85149; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #f85149">En échec</div>
+        <div style="height: 46px; border-radius: 8px; background: transparent; border: 1px dashed #4a463f; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #9c968d">Non exécutée</div>
+      </div>
+    </section>
+  </div>
+
+  <footer style="display: flex; align-items: center; gap: 22px; flex-wrap: wrap; padding-top: 4px">
+    <span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: #9c968d">FAMILLES</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #6BB4CF"></span>Extraction et chargement</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b5c96a"></span>Transfert et diffusion</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #d68fb8"></span>Exécution et scripts</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #4fb3a0"></span>Big Data</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #c9a37a"></span>Notification</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #b8b2a8"></span>Variables</span>
+    <span style="display: flex; align-items: center; gap: 7px"><span style="width: 10px; height: 10px; border-radius: 3px; background: #a58cf0"></span>Passerelles</span>
+    <span style="flex-grow: 1"></span>
+    <span style="color: #9c968d">L'ambre est réservé à l'erreur, le vert au succès, l'orange à l'action et à la sélection.</span>
+  </footer>
+</div>
+</body>
+</html>
