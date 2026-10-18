@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
     QComboBox, QCheckBox, QSpinBox, QLineEdit, QMessageBox, QCompleter,
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFontMetrics
 from version import __version__
-from ui.styles import COLORS
+from ui.styles import COLORS, FONT_MONO_STACK
 from ui.time_display import fmt_relative
 from ui.step_editor.common import DAYS_OF_WEEK
 from ui.components import make_page_header
@@ -44,6 +45,8 @@ _CATEGORIES = [
 # plus courant), le reste trié alphabétiquement.
 _TIMEZONES = ["UTC"] + sorted(available_timezones() - {"UTC"})
 _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+_CATEGORY_SUB_WIDTH = 150   # px — largeur dispo connue d'avance (rail 240px, largeur fixe)
 
 
 def _input_style(error: bool = False) -> str:
@@ -128,19 +131,56 @@ class SettingsView(QWidget):
         self.inp_search.textChanged.connect(self._on_search_changed)
         rail_layout.addWidget(self.inp_search)
 
-        self._category_buttons: dict[str, QPushButton] = {}
+        self._category_rows: dict[str, dict] = {}
         for cat in _CATEGORIES:
-            btn = QPushButton(f"  {cat['label']}")
-            btn.setIcon(_icon(cat["icon"], COLORS["text_dim"]))
-            btn.setFlat(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(34)
-            btn.clicked.connect(lambda _, k=cat["key"]: self._select_category(k))
-            rail_layout.addWidget(btn)
-            self._category_buttons[cat["key"]] = btn
+            row = self._make_category_row(cat)
+            rail_layout.addWidget(row["frame"])
+            self._category_rows[cat["key"]] = row
 
         rail_layout.addStretch()
         return rail
+
+    def _make_category_row(self, cat: dict) -> dict:
+        """Entrée de catégorie du rail (refonte, lot A-Paramètres — A1) : icône, nom, sous-titre
+        tronqué, et un compteur de résultats de recherche masqué par défaut (A5). Même patron
+        clickable que `_make_card` (step_type_chooser_dialog.py) : QFrame + mouseReleaseEvent
+        assigné, pas un QPushButton — aucun test ne dépend du type exact (vérifié)."""
+        frame = QFrame()
+        frame.setCursor(Qt.PointingHandCursor)
+        frame.setFixedHeight(48)
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(10)
+
+        icon_lbl = QLabel()
+        icon_lbl.setFixedWidth(18)
+        layout.addWidget(icon_lbl)
+
+        text_col = QVBoxLayout(); text_col.setSpacing(1)
+        name_lbl = QLabel(cat["label"])
+        name_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13.5px; font-weight: 600;")
+        text_col.addWidget(name_lbl)
+        sub_lbl = QLabel()
+        sub_lbl.setStyleSheet(f"color: {COLORS['text_dim']};")
+        sub_font = sub_lbl.font(); sub_font.setPixelSize(12)
+        sub_lbl.setFont(sub_font)
+        sub_lbl.setFixedWidth(_CATEGORY_SUB_WIDTH)
+        sub_lbl.setToolTip(cat["sub"])
+        sub_lbl.setText(QFontMetrics(sub_font).elidedText(
+            cat["sub"], Qt.ElideRight, _CATEGORY_SUB_WIDTH))
+        text_col.addWidget(sub_lbl)
+        layout.addLayout(text_col, 1)
+
+        count_lbl = QLabel("")
+        count_lbl.setStyleSheet(
+            f"color: {COLORS['signal_pale']}; font-size: 11px; font-family: {FONT_MONO_STACK};"
+        )
+        count_lbl.setVisible(False)
+        layout.addWidget(count_lbl)
+
+        frame.mouseReleaseEvent = lambda _, k=cat["key"]: self._select_category(k)
+        return {"frame": frame, "icon_name": cat["icon"], "icon_lbl": icon_lbl,
+                "name_lbl": name_lbl, "sub_lbl": sub_lbl, "count_lbl": count_lbl}
 
     def _build_detail(self) -> QVBoxLayout:
         col = QVBoxLayout()
@@ -509,16 +549,17 @@ class SettingsView(QWidget):
         cat = next(c for c in _CATEGORIES if c["key"] == key)
         self._detail_title.setText(cat["label"])
         self._detail_sub.setText(cat["sub"])
-        for k, btn in self._category_buttons.items():
+        for k, row in self._category_rows.items():
             active = k == key
-            cat_icon = next(c["icon"] for c in _CATEGORIES if c["key"] == k)
-            btn.setIcon(_icon(cat_icon, COLORS["signal"] if active else COLORS["text_dim"]))
-            btn.setStyleSheet(
-                f"QPushButton {{ text-align: left; border: none; border-radius: 5px; "
-                f"padding: 0 10px; color: {COLORS['text_main'] if active else COLORS['text_dim']}; "
-                f"background: {COLORS['bg_card'] if active else 'transparent'}; "
-                f"border-left: 2px solid {COLORS['signal'] if active else 'transparent'}; }}"
-                f"QPushButton:hover {{ background: {COLORS['bg_hover']}; }}"
+            icon_color = COLORS["accent"] if active else COLORS["text_dim"]
+            icon = _icon(row["icon_name"], icon_color)
+            if icon:
+                row["icon_lbl"].setPixmap(icon.pixmap(16, 16))
+            row["frame"].setStyleSheet(
+                f"QFrame {{ border: none; border-radius: 5px; "
+                f"background: {COLORS['bg_active'] if active else 'transparent'}; "
+                f"border-left: 2px solid {COLORS['accent'] if active else 'transparent'}; }}"
+                f"QFrame:hover {{ background: {COLORS['bg_active'] if active else COLORS['bg_hover']}; }}"
             )
         for row in self._row_widgets:
             row["chip"].setVisible(False)
