@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QColor
 from ui.styles import COLORS, DIALOG_STYLE
+from ui.time_display import fmt_datetime
 from ui.main_window.widgets import _configure_columns
 
 _CATEGORY_LABELS = {
@@ -191,7 +192,7 @@ class ConnectionHealthDialog(QDialog):
         cells = [
             _CATEGORY_LABELS.get(row["category"], row["category"]),
             row["name"],
-            last_tested_at.strftime("%d/%m/%Y %H:%M") if last_tested_at else "Jamais testé",
+            fmt_datetime(last_tested_at) if last_tested_at else "Jamais testé",
         ]
         for c_idx, cell in enumerate(cells):
             item = QTableWidgetItem(cell)
