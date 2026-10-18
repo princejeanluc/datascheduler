@@ -11,7 +11,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 
 from ui.styles import COLORS
-from ui.main_window.widgets import _icon
 
 _VARIANTS = {
     "info":    (COLORS["bg_info"], COLORS["border_info"], COLORS["signal_pale"]),
@@ -23,6 +22,10 @@ _VARIANTS = {
 
 def make_banner(variant: str, icon_name: str, title: str, text: str, actions=None) -> QWidget:
     """`actions` est un QWidget seul, une liste de QWidget, ou None (pas de zone d'actions)."""
+    # Import différé : même raison que dans page_header.py (dépendance circulaire selon l'ordre
+    # d'import).
+    from ui.main_window.widgets import _icon
+
     bg, border, icon_color = _VARIANTS[variant]
     banner = QWidget()
     banner.setStyleSheet(
