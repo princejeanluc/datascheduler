@@ -41,6 +41,50 @@ def _settings_view():
     return SettingsView()
 
 
+def _settings_view_recherche():
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+    return view
+
+
+def _settings_view_arriere_plan():
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    return view
+
+
+def _settings_view_refus():
+    """register_logon_task() simulé en échec (politique IT) — même scénario que
+    tests/test_settings_view.py::test_failure_banner_shown_when_background_registration_fails."""
+    from unittest.mock import patch
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    with patch("core.task_scheduler.register_logon_task", return_value=False):
+        view._on_save()
+    return view
+
+
+def _settings_view_notifications_hebdomadaire():
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    view.select_category("notifications")
+    idx = view.cb_frequency.findData("WEEKLY")
+    view.cb_frequency.setCurrentIndex(idx)
+    return view
+
+
+def _settings_view_enregistre():
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    view._on_save()
+    return view
+
+
 def _resources_view():
     from ui.main_window.resources_view import ResourcesView
     return ResourcesView()
@@ -51,9 +95,16 @@ def _dashboard_view():
     return DashboardView()
 
 
-# (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue capturable.
+# (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue/état capturable.
+# Parametres-validation n'est pas capturé : son contenu distinctif (bandeau de validation en
+# ligne par champ) est C3, gated par la décision P1 — voir docs/refonte/impact/a-parametres.md.
 REGISTRY = [
     ("parametres", _settings_view),
+    ("parametres-recherche", _settings_view_recherche),
+    ("parametres-arriere-plan", _settings_view_arriere_plan),
+    ("parametres-refus", _settings_view_refus),
+    ("parametres-notifications", _settings_view_notifications_hebdomadaire),
+    ("parametres-enregistre", _settings_view_enregistre),
     ("ressources", _resources_view),
     ("aujourdhui", _dashboard_view),
 ]

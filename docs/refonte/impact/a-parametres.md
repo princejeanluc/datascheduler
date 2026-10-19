@@ -83,3 +83,23 @@ commits de ce lot, aucune migration à défaire.
    ligne par champ) est C3, gated par P1. Le comportement actuel sur un champ invalide reste une
    `QMessageBox.warning` bloquante, non capturable proprement en offscreen — capture omise,
    signalé dans la PR plutôt que simulée de façon trompeuse.
+5. **Fidélité au texte des maquettes (relecture a posteriori)** : une première passe avait édité
+   le texte existant du code plutôt que de reprendre les maquettes mot pour mot (REGLES.md
+   section 3). Corrigé après relecture directe du HTML brut de `Parametres.html`,
+   `Parametres-refus.html` et `Parametres-notifications.html` — texte des lignes Ordonnanceur/
+   Interface/Notifications désormais repris tel quel. `Parametres-arriere-plan`,
+   `Parametres-enregistre` et `Parametres-recherche` n'ont pas été relues en HTML brut (confiance
+   dans le résumé déjà produit, revérifié cohérent avec les rendus réels) ; `Parametres-validation`
+   non plus (hors périmètre, voir point 4).
+6. **Interrupteurs** : la section « composants construits dès maintenant » ci-dessus ne
+   mentionnait pas l'Interrupteur (FONDATIONS.md section 3, marqué « non » à l'origine). Une
+   relecture des maquettes a montré qu'il est bien utilisé sur cet écran (3 réglages booléens,
+   `role="switch"` sur la maquette, sans badge « proposé ») — construit dans ce lot
+   (`ui/components/switch.py`), contrairement à la lecture initiale qui l'avait classé « sans
+   consommateur, différé ».
+7. **Artefact visuel résiduel** : un très léger changement de teinte est visible au zoom sur le
+   bord droit de la ligne de catégorie active (capture au-delà de la résolution native). Investigué
+   en profondeur (geométrie de widgets masqués, `border-radius`, règles `:hover`, dépassement de
+   largeur du contenu, cache de style Qt, effets graphiques, tooltips — tous exclus un par un,
+   chacun confirmé non responsable par un test isolé) sans en trouver la cause exacte. Non bloquant
+   (REGLES.md : pixel-exact non exigé), signalé pour trace plutôt que masqué.
