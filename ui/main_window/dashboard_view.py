@@ -440,11 +440,13 @@ class DashboardView(QWidget):
             self.table.setRowHeight(r_idx, 44)
 
     def _refresh_rail(self, pipelines, all_runs):
-        """Rail "Prochaines & en cours" — voir _build_ui(). Reconstruit à chaque refresh() (comme
-        le tableau des dernières exécutions), le nombre/type de chips changeant dynamiquement."""
+        """Rail en 2 groupes MAINTENANT / ENSUITE (A2) — voir _build_ui(). Reconstruit à chaque
+        refresh() (comme le tableau des dernières exécutions), le nombre/type de chips changeant
+        dynamiquement."""
         from datetime import datetime, timezone
 
         from core.pipeline import is_pipeline_running
+        from database import db_manager as db
 
         while self._rail_layout.count():
             item = self._rail_layout.takeAt(0)
@@ -452,7 +454,8 @@ class DashboardView(QWidget):
                 item.widget().deleteLater()
 
         running_ids = {p.id for p in pipelines if p.is_active and is_pipeline_running(p.id)}
-        chips = []
+        step_labels = db.get_running_step_labels()
+        now_chips = []
         for p in pipelines:
             if p.id not in running_ids:
                 continue
@@ -463,32 +466,51 @@ class DashboardView(QWidget):
             if started_at:
                 secs = int((datetime.now(timezone.utc).replace(tzinfo=None) - started_at).total_seconds())
                 m, s = divmod(max(secs, 0), 60)
-                elapsed = f" · {m}m {s:02d}s"
-            chips.append(self._make_rail_chip(
+                elapsed = f" · {m:02d}:{s:02d}"
+            step = step_labels.get(p.id, "Étape en cours…")
+            now_chips.append(self._make_rail_chip(
                 running=True, dot_color=COLORS["signal"],
-                main_text=p.name, main_mono=False, sub_text=f"en cours{elapsed}",
+                main_text=p.name, main_mono=False, sub_text=f"{step}{elapsed}",
             ))
 
         upcoming = sorted(
             (p for p in pipelines if p.is_active and p.next_run_at and p.id not in running_ids),
             key=lambda p: p.next_run_at,
         )[:3]
-        for p in upcoming:
-            chips.append(self._make_rail_chip(
+        next_chips = [
+            self._make_rail_chip(
                 running=False, dot_color=COLORS["text_muted"],
                 main_text=fmt_datetime_local(p.next_run_at, fmt="%d/%m %H:%M"), main_mono=True, sub_text=p.name,
-            ))
+            )
+            for p in upcoming
+        ]
 
-        if not chips:
+        if not now_chips and not next_chips:
             placeholder = QLabel("Aucune exécution en cours ni planifiée pour l'instant.")
             placeholder.setStyleSheet(
                 f"color: {COLORS['text_muted']}; font-size: 11.5px; font-style: italic;"
             )
             self._rail_layout.addWidget(placeholder)
-        else:
-            for chip in chips:
+            return
+
+        if now_chips:
+            self._rail_layout.addWidget(self._make_rail_group_label("MAINTENANT"))
+            for chip in now_chips:
                 self._rail_layout.addWidget(chip)
-            self._rail_layout.addStretch()
+        if next_chips:
+            self._rail_layout.addWidget(self._make_rail_group_label("ENSUITE"))
+            for chip in next_chips:
+                self._rail_layout.addWidget(chip)
+        self._rail_layout.addStretch()
+
+    @staticmethod
+    def _make_rail_group_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-family: {FONT_MONO_STACK}; font-size: 10px; "
+            f"font-weight: 700; letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        return lbl
 
     def _make_rail_chip(self, *, running: bool, dot_color: str, main_text: str,
                          main_mono: bool, sub_text: str) -> QFrame:
