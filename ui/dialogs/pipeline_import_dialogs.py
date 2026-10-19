@@ -8,10 +8,11 @@ from types import SimpleNamespace
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
     QLineEdit, QRadioButton, QButtonGroup, QPushButton, QFrame, QTableWidget,
-    QTableWidgetItem,
+    QTableWidgetItem, QWidget,
 )
 from PySide6.QtCore import Qt
 from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
+from database.export_import import _unique_name
 
 
 # ──────────────────────────────────────────────
@@ -124,6 +125,36 @@ class PipelineImportPasswordDialog(QDialog):
         return f
 
 
+def _step_badge(number: str, label: str, state: str) -> QHBoxLayout:
+    """Un repère du bandeau 4 étapes (A11) : `state` est "done" (✓, vert), "current" (orange
+    plein) ou "pending" (contour neutre)."""
+    row = QHBoxLayout(); row.setSpacing(6)
+    circle = QLabel("✓" if state == "done" else number)
+    circle.setFixedSize(18, 18)
+    circle.setAlignment(Qt.AlignCenter)
+    if state == "done":
+        circle.setStyleSheet(
+            f"background: {COLORS['success']}; color: #141210; border-radius: 9px; "
+            f"font-size: 10.5px; font-weight: 700;"
+        )
+    elif state == "current":
+        circle.setStyleSheet(
+            f"background: {COLORS['accent']}; color: #000; border-radius: 9px; "
+            f"font-size: 10.5px; font-weight: 700;"
+        )
+    else:
+        circle.setStyleSheet(
+            f"background: transparent; color: {COLORS['text_muted']}; border: 1.5px solid "
+            f"{COLORS['text_muted']}; border-radius: 9px; font-size: 10.5px; font-weight: 700;"
+        )
+    row.addWidget(circle)
+    text_color = COLORS["text_main"] if state in ("done", "current") else COLORS["text_muted"]
+    text_lbl = QLabel(label)
+    text_lbl.setStyleSheet(f"color: {text_color}; font-size: 12.5px;")
+    row.addWidget(text_lbl)
+    return row
+
+
 # ──────────────────────────────────────────────
 #  DIALOGUE : REVUE DE L'IMPORT (chantier 5c)
 # ──────────────────────────────────────────────
@@ -142,9 +173,10 @@ class PipelineImportReviewDialog(QDialog):
         "ssh": "SSH (nœud edge)", "kerberos": "Kerberos", "elevation": "Élévation (sudo su)",
     }
 
-    def __init__(self, parent=None, plan=None):
+    def __init__(self, parent=None, plan=None, password_used: bool = False):
         super().__init__(parent)
         self.plan = plan
+        self._password_used = password_used
         self._combo_by_decision = []   # [(EntityDecision, QComboBox)]
         self.rb_rename = None
         self.rb_overwrite = None
@@ -165,6 +197,12 @@ class PipelineImportReviewDialog(QDialog):
         root.addWidget(title)
         root.addWidget(self._sep())
 
+        # A11 : bandeau à 4 repères (Fichier/Mot de passe/Revue/Réglages) — le flux réel reste un
+        # seul dialogue combiné pour Revue+Réglages (voir note d'impact, question ouverte 2) :
+        # ces deux derniers repères sont donc marqués "en cours" ensemble plutôt que scindés en
+        # deux pages navigables.
+        root.addWidget(self._build_step_badges())
+
         pipeline_data = self.plan.bundle["pipeline"]
         pipeline_lbl = QLabel(f"Pipeline : « {pipeline_data['name']} »")
         pipeline_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13px; font-weight: 600;")
@@ -176,14 +214,36 @@ class PipelineImportReviewDialog(QDialog):
 
         if self.plan.pipeline_action == "collision":
             existing_name = existing.name if existing else "?"
+            # A11, question ouverte 10 (tranchée) : le code détecte cette collision par UUID (le
+            # même pipeline déjà importé), jamais par nom comme le ferait croire le titre de la
+            # maquette ("UN PIPELINE PORTE DÉJÀ CE NOM") — titre corrigé pour décrire ce qui est
+            # réellement détecté.
+            collision_heading = QLabel("CE PIPELINE EXISTE DÉJÀ")
+            collision_heading.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 10.5px; font-weight: 700; "
+                f"letter-spacing: 0.06em;"
+            )
+            root.addWidget(collision_heading)
+
             self.rb_rename = QRadioButton("Importer comme copie renommée")
             self.rb_rename.setChecked(True)
+            self.rb_rename.setStyleSheet(f"color: {COLORS['text_main']};")
+            root.addWidget(self.rb_rename)
+            # Le suffixe réel vient de _unique_name (database/export_import.py), jamais le
+            # "(2)" de la maquette — A11 le confirme explicitement.
+            all_names = {p.name for p in db.get_pipelines()}
+            renamed_preview = _unique_name(f"{pipeline_data['name']} (import)", all_names)
+            rename_preview_lbl = QLabel(f"« {renamed_preview} »")
+            rename_preview_lbl.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: 11px; margin-left: 22px;"
+            )
+            root.addWidget(rename_preview_lbl)
+
             self.rb_overwrite = QRadioButton(f"Écraser le pipeline existant « {existing_name} »")
+            self.rb_overwrite.setStyleSheet(f"color: {COLORS['text_main']};")
+            root.addWidget(self.rb_overwrite)
             group = QButtonGroup(self)
             group.addButton(self.rb_rename); group.addButton(self.rb_overwrite)
-            for rb in (self.rb_rename, self.rb_overwrite):
-                rb.setStyleSheet(f"color: {COLORS['text_main']};")
-                root.addWidget(rb)
             warn = QLabel("Écraser remplace définitivement les étapes du pipeline existant.")
             warn.setStyleSheet(f"color: {COLORS['warning']}; font-size: 10.5px; font-style: italic;")
             root.addWidget(warn)
@@ -246,6 +306,27 @@ class PipelineImportReviewDialog(QDialog):
         btn_ok.setFixedHeight(36); btn_ok.clicked.connect(self._on_confirm)
         btn_row.addWidget(btn_cancel); btn_row.addWidget(btn_ok)
         root.addLayout(btn_row)
+
+    def _build_step_badges(self) -> QWidget:
+        """A11 : bandeau Fichier/Mot de passe/Revue/Réglages — Revue et Réglages restent le même
+        dialogue combiné (voir note d'impact, question ouverte 2), marqués "en cours" ensemble."""
+        host = QWidget()
+        row = QHBoxLayout(host)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+        steps = [
+            ("1", "Fichier", "done"),
+            ("2", "Mot de passe", "done" if self._password_used else "pending"),
+            ("3", "Revue", "current"),
+            ("4", "Réglages", "current"),
+        ]
+        for i, (number, label, state) in enumerate(steps):
+            row.addLayout(_step_badge(number, label, state))
+            if i < len(steps) - 1:
+                sep = QFrame(); sep.setFixedHeight(1)
+                sep.setStyleSheet(f"background: {COLORS['border']};")
+                row.addWidget(sep, 1)
+        return host
 
     def _build_settings_preview(self, pipeline_data: dict, existing) -> QFrame:
         """Aperçu actif/planification du pipeline entrant (correctif friction d'import) —

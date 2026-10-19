@@ -563,6 +563,7 @@ class PipelinesView(QWidget):
             return
 
         plan = plan_import_from_file(path)
+        password_used = False
 
         if plan.needs_password:
             # Le dialogue valide lui-même (verify=...) et reste ouvert en cas de mot de passe
@@ -575,12 +576,13 @@ class PipelinesView(QWidget):
             if not pwd_dlg.exec():
                 return
             plan = pwd_dlg.plan
+            password_used = True
 
         if not plan.success:
             QMessageBox.critical(self, "Échec de l'import", plan.error or "Erreur inconnue.")
             return
 
-        review_dlg = PipelineImportReviewDialog(self, plan=plan)
+        review_dlg = PipelineImportReviewDialog(self, plan=plan, password_used=password_used)
         if not review_dlg.exec():
             return
 
