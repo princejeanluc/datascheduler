@@ -343,3 +343,37 @@ def test_resources_view_sets_reference_line_from_max_concurrent_runs(qapp, test_
     # Seul le graphique "pipelines en cours" porte la référence (A6) — jamais CPU/RAM.
     assert view._chart_cpu._reference_value is None
     assert view._chart_ram._reference_value is None
+
+
+# ── A7 : heure du pic sur la carte Pic CPU ──────────────────────────────────
+
+def test_format_peak_time_shows_aujourdhui_when_peak_is_today():
+    from ui.main_window.resources_view import _format_peak_time
+    from datetime import date
+
+    peak = datetime(2026, 10, 18, 7, 5)
+    assert _format_peak_time(peak, date(2026, 10, 18)) == "aujourd'hui 07:05"
+
+
+def test_format_peak_time_shows_date_when_peak_is_not_today():
+    from ui.main_window.resources_view import _format_peak_time
+    from datetime import date
+
+    peak = datetime(2026, 10, 15, 7, 5)
+    assert _format_peak_time(peak, date(2026, 10, 18)) == "15/10 07:05"
+
+
+def test_resources_view_peak_cpu_card_shows_subtitle_at_the_time_of_the_peak(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+    from database.models import ResourceSample
+
+    now = datetime.utcnow()
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=now - timedelta(minutes=10), cpu_percent=5.0, memory_mb=100.0))
+        s.add(ResourceSample(timestamp=now - timedelta(minutes=5), cpu_percent=88.0, memory_mb=100.0))
+        s.add(ResourceSample(timestamp=now, cpu_percent=5.0, memory_mb=100.0))
+
+    view = ResourcesView()
+
+    assert view._card_peak_cpu._lbl_value.text() == "88 %"
+    assert "aujourd'hui" in view._card_peak_cpu._lbl_sub.text()

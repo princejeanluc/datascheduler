@@ -55,6 +55,15 @@ _HINT_NO_PIPELINE = "Aucun pipeline en cours à cet instant."
 _MARGIN_LEFT, _MARGIN_RIGHT, _MARGIN_TOP, _MARGIN_BOTTOM = 34, 4, 6, 6
 
 
+def _format_peak_time(peak_local: datetime, today_local) -> str:
+    """« aujourd'hui HH:MM » si le pic est tombé aujourd'hui (fuseau réglé), sinon
+    « DD/MM HH:MM » — la maquette (Ressources.html) ne montre que des pics du jour même, cas non
+    couvert ignoré plutôt que deviné (A7, note d'impact)."""
+    if peak_local.date() == today_local:
+        return f"aujourd'hui {peak_local.strftime('%H:%M')}"
+    return peak_local.strftime("%d/%m %H:%M")
+
+
 def _nice_ceiling(value: float) -> float:
     """Plus petite valeur « ronde » (1, 2 ou 5 × une puissance de 10) au-dessus de `value` — pour
     des graduations d'axe lisibles plutôt qu'un maximum brut (ex. « 200 »/« 100 » plutôt que
@@ -568,6 +577,12 @@ class ResourcesView(QWidget):
         self._chart_count.set_reference(max_concurrent, f"plafond {max_concurrent}")
         self._card_running.set_value(f"{running_now} / {max_concurrent}")
         self._card_peak_cpu.set_value(f"{max(cpu_values, default=0):.0f} %")
+        if cpu_values:
+            peak_index = max(range(len(cpu_values)), key=lambda i: cpu_values[i])
+            peak_local = to_display(self._samples[peak_index].timestamp)
+            self._card_peak_cpu.set_subtitle(_format_peak_time(peak_local, to_display(datetime.utcnow()).date()))
+        else:
+            self._card_peak_cpu.set_subtitle("")
         self._card_memory.set_value(f"{ram_values[-1]:.0f} Mo" if ram_values else "—")
         self._card_samples.set_value(str(len(self._samples)))
 
