@@ -24,7 +24,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtWidgets import QApplication, QDialog
+from PySide6.QtWidgets import QApplication, QDialog, QMenu, QPushButton, QLabel
 
 from ui.fonts import register_app_fonts
 from ui.main_window.widgets import GLOBAL_STYLE
@@ -265,6 +265,151 @@ def _dashboard_view_rattrapage():
     return MissedPipelinesDialog(None, missed)
 
 
+def _pipelines_view_vide():
+    """A14 : état vide en trois cartes (Pipelines-vide) — capturée avant toute création de
+    pipeline dans ce registre (base encore vide à ce moment), comme aujourdhui-premier."""
+    from ui.main_window.pipelines_view import PipelinesView
+    return PipelinesView()
+
+
+def _pipelines_view():
+    """Pipelines : un échec reprenable, un enfant (déclenchement), un en cours, un manqué, un
+    inactif — critère d'acceptation de la fiche."""
+    from datetime import datetime, timedelta
+    from database.models import Pipeline, PipelineRun
+    from ui.main_window.pipelines_view import PipelinesView
+
+    parent = db.create_pipeline(
+        name="synchro-clients-crm", description="Oracle CRM -> référentiel clients",
+        frequency="DAILY", scheduled_time="07:00",
+    )
+    db.save_steps(parent.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire clients",
+        "config": {"_step_key": "step-1"}, "retry_count": 2,
+    }])
+    run = db.create_run(parent.id)
+    db.finish_run(run.id, "FAILED", error_message="ORA-12541: TNS:no listener", failed_step_key="step-1")
+    with db.get_session() as s:
+        s.get(PipelineRun, run.id).resumable_state_json = "{}"   # reprenable
+        s.get(Pipeline, parent.id).last_status = "FAILED"
+
+    child = db.create_pipeline(
+        name="export-hive-oracle", description="Agrégats Hive vers l'entrepôt",
+        frequency="DAILY", scheduled_time="08:00",
+    )
+    db.save_steps(child.id, [{"step_type": "SPARK_SQL"}, {"step_type": "DB_EXECUTE"}])
+    db.set_pipeline_trigger(child.id, parent.id, "SUCCESS")
+
+    running = db.create_pipeline(name="appel-api-facturation", description="Factures du jour vers le partage")
+    db.save_steps(running.id, [{"step_type": "HTTP_REQUEST"}, {"step_type": "LOCAL_COPY"}])
+    running_run = db.create_run(running.id)
+    with db.get_session() as s:
+        s.get(PipelineRun, running_run.id).started_at = datetime.utcnow() - timedelta(seconds=42)
+        s.get(Pipeline, running.id).last_status = "RUNNING"
+    db.update_run_progress(running_run.id, "Étape 2/4 : Appeler l'API", "log", "step-2")
+    import core.pipeline as pipeline_module
+    import threading
+    pipeline_module._active_runs[running.id] = threading.Event()
+
+    missed = db.create_pipeline(name="purge-fichiers-temporaires", description="Nettoie C:\\Kulu\\tmp")
+    from core import missed_runs
+    missed_runs._pending[missed.id] = {
+        "pipeline_id": missed.id, "name": missed.name,
+        "expected_at": datetime.utcnow() - timedelta(hours=3), "late_minutes": 180,
+    }
+
+    inactive = db.create_pipeline(name="controle-ventes-mensuel", description="Écarts ventes / facturation")
+    db.set_pipeline_active(inactive.id, False)
+
+    view = PipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.refresh()
+    # Retiré après refresh() (déjà reflété dans les widgets construits) — ne doit pas fausser
+    # is_pipeline_running() pour les fabriques suivantes du même registre (même précaution que
+    # dashboard_view_encours plus haut).
+    pipeline_module._active_runs.pop(running.id, None)
+    return view
+
+
+def _pipelines_view_menu():
+    """Pipelines-menu : le menu "⋯" capturé seul (jamais composité avec la vue derrière — même
+    traitement que Aujourdhui-tout/-rattrapage, ce sont des popups indépendants du point de vue
+    de Qt, invisibles dans le grab() du widget parent)."""
+    from database.models import Pipeline
+    from ui.main_window.pipelines_view import PipelinesView
+
+    pipeline = db.create_pipeline(name="synchro-clients-crm-menu", description="Oracle CRM -> référentiel clients")
+    db.save_steps(pipeline.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire clients",
+        "config": {"_step_key": "step-1"}, "retry_count": 2,
+    }])
+    run = db.create_run(pipeline.id)
+    db.finish_run(run.id, "FAILED", error_message="ORA-12541: TNS:no listener", failed_step_key="step-1")
+    with db.get_session() as s:
+        s.get(Pipeline, pipeline.id).last_status = "FAILED"
+
+    view = PipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    app = QApplication.instance()
+    app.processEvents()
+    view.refresh()
+
+    # La base est partagée avec les fabriques précédentes du registre (ex. "pipelines" a déjà
+    # ajouté 5 lignes) — retrouve la bonne ligne par nom, jamais une position fixe.
+    row = next(
+        r for r in range(view.table.rowCount())
+        if "synchro-clients-crm-menu" in view.table.cellWidget(r, 0).findChildren(QLabel)[0].text()
+    )
+    cell = view.table.cellWidget(row, 5)
+    btn_more = next(b for b in cell.findChildren(QPushButton) if b.menu() is not None)
+    menu = btn_more.menu()
+    menu.popup(btn_more.mapToGlobal(btn_more.rect().bottomRight()))
+    app.processEvents()
+    return menu
+
+
+def _pipelines_view_validation():
+    """Pipelines-validation : panneau latéral de validation à blanc (A10), réutilise SidePanel."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    pipeline = db.create_pipeline(name="synchro-clients-crm-validation")
+    # Pas d'étape : dry_run_pipeline() échoue tout de suite sur la forme, sans test réseau réel
+    # (rapide et déterministe pour une capture).
+
+    view = PipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._on_validate_pipeline(pipeline.id, pipeline.name)
+    view._validation_thread.wait(5000)
+    QApplication.instance().processEvents()
+    _settle_side_panel(view)
+    return view
+
+
+def _pipelines_view_suppression():
+    """Pipelines-suppression : fenêtre de suppression modale (A13), capturée seule — même
+    traitement que Aujourdhui-rattrapage (QDialog construit directement, jamais via .exec())."""
+    from ui.dialogs import PipelineDeleteDialog
+
+    parent = db.create_pipeline(
+        name="synchro-clients-crm-suppr", frequency="DAILY", scheduled_time="07:00",
+    )
+    child1 = db.create_pipeline(name="export-hive-oracle-suppr", frequency="DAILY", scheduled_time="08:00")
+    db.set_pipeline_trigger(child1.id, parent.id, "FAILURE")
+    child2 = db.create_pipeline(name="reporting-ventes-j1-suppr", frequency="DAILY", scheduled_time="06:00")
+    db.set_pipeline_trigger(child2.id, parent.id, "SUCCESS")
+    for _ in range(52):
+        run = db.create_run(parent.id)
+        db.finish_run(run.id, "SUCCESS")
+
+    dependents = db.get_pipelines_triggered_by(parent.id)
+    return PipelineDeleteDialog(None, parent, dependents, db.count_runs(parent.id))
+
+
 # (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue/état capturable.
 # Parametres-validation n'est pas capturé : son contenu distinctif (bandeau de validation en
 # ligne par champ) est C3, gated par la décision P1 — voir docs/refonte/impact/a-parametres.md.
@@ -285,9 +430,15 @@ REGISTRY = [
     ("ressources-7j", _resources_view_7j),
     ("ressources", _resources_view),
     ("ressources-survol", _resources_view_survol),
-    # "aujourdhui-premier" doit passer avant toute création de pipeline dans ce registre (base
-    # encore vide à ce moment -> état A12), "aujourdhui" ajoute ensuite les siens.
+    # "pipelines-vide" et "aujourdhui-premier" doivent tous deux passer avant la moindre création
+    # de pipeline dans ce registre (base encore vide à ce moment) — groupés ici avant toute
+    # fabrique qui en crée, peu importe l'ordre relatif entre les deux (aucun des deux n'en crée).
+    ("pipelines-vide", _pipelines_view_vide),
     ("aujourdhui-premier", _dashboard_view),
+    ("pipelines", _pipelines_view),
+    ("pipelines-menu", _pipelines_view_menu),
+    ("pipelines-validation", _pipelines_view_validation),
+    ("pipelines-suppression", _pipelines_view_suppression),
     ("aujourdhui", _dashboard_view_avec_donnees),
     ("aujourdhui-execution", _dashboard_view_execution),
     ("aujourdhui-encours", _dashboard_view_encours),
@@ -315,10 +466,11 @@ def capture_all(out_dir: Path) -> list[Path]:
     produced = []
     for name, build_view in REGISTRY:
         view = build_view()
-        # Aujourdhui-tout/-rattrapage (QMessageBox/QDialog, jamais des vues plein écran) :
-        # forcer 1440x900 laisserait une grande zone vide autour d'une fenêtre flottante conçue
-        # pour sa taille naturelle (REGLES.md section 6, point 3 — reste une capture "propre").
-        if not isinstance(view, QDialog):
+        # Aujourdhui-tout/-rattrapage/Pipelines-suppression (QMessageBox/QDialog) et
+        # Pipelines-menu (QMenu) : jamais des vues plein écran — forcer 1440x900 laisserait une
+        # grande zone vide autour d'une fenêtre/d'un popup flottant conçu pour sa taille
+        # naturelle (REGLES.md section 6, point 3 — reste une capture "propre").
+        if not isinstance(view, (QDialog, QMenu)):
             view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
         view.show()
         app.processEvents()
