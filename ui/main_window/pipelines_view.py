@@ -904,18 +904,19 @@ class PipelinesView(QWidget):
         self.refresh()
 
     def _on_delete_pipeline(self, pipeline_id: int):
+        """A13 : fenêtre modale dédiée (ui/dialogs/pipeline_delete_dialog.py), remplace l'ancien
+        QMessageBox.question inline — dépendants avec leur propre planification, « Exporter
+        d'abord », « Supprimer » en danger."""
         from database import db_manager as db
+        from ui.dialogs import PipelineDeleteDialog
+
+        pipeline = db.get_pipeline(pipeline_id)
+        if not pipeline:
+            return
         dependents = db.get_pipelines_triggered_by(pipeline_id)
-        if dependents:
-            names = ", ".join(p.name for p in dependents)
-            msg = (
-                f"{len(dependents)} pipeline(s) se lance(nt) après celui-ci : {names}.\n\n"
-                f"Le supprimer quand même ? Ces pipelines repasseront en planification seule."
-            )
-        else:
-            msg = "Supprimer ce pipeline ?"
-        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
-        if reply == QMessageBox.Yes:
+        run_count = db.count_runs(pipeline_id)
+        dlg = PipelineDeleteDialog(self, pipeline, dependents, run_count)
+        if dlg.exec():
             db.delete_pipeline(pipeline_id)
             self.refresh()
 

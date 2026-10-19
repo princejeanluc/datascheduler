@@ -167,22 +167,5 @@ def test_pipelines_view_plan_column_has_no_trigger_tooltip_without_configuration
     assert item.toolTip() == ""
 
 
-def test_pipelines_view_delete_warns_about_dependent_pipelines(qapp, test_db, monkeypatch):
-    from database import db_manager as db
-    from ui.main_window import pipelines_view as pv_module
-
-    a = db.create_pipeline(name="A")
-    b = db.create_pipeline(name="B")
-    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")
-
-    captured = {}
-    def fake_question(parent, title, text, *args, **kwargs):
-        captured["text"] = text
-        return pv_module.QMessageBox.No
-    monkeypatch.setattr(pv_module.QMessageBox, "question", staticmethod(fake_question))
-
-    view = pv_module.PipelinesView()
-    view._on_delete_pipeline(a.id)
-
-    assert "B" in captured["text"]
-    assert db.get_pipeline(a.id) is not None   # refusé -> pas supprimé
+# Lot A-Pipelines (A13) : _on_delete_pipeline ouvre désormais PipelineDeleteDialog (une vraie
+# fenêtre, plus un QMessageBox.question inline) — voir tests/test_pipeline_delete_dialog.py.
