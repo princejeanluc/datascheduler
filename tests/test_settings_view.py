@@ -129,6 +129,75 @@ def test_search_shows_category_chip_only_while_searching(qapp, test_db):
     assert not matched["chip"].isHidden()
 
 
+def test_search_shows_a_result_count_per_matching_category(qapp, test_db):
+    """A5 (docs/refonte/ecrans/Parametres.md) : "rafraîch" matche 4 lignes (les descriptions de
+    "Log d'exécution en direct" et "Traçage lumineux" contiennent aussi "rafraîchie à cet
+    intervalle" — confirmé sur Parametres-recherche.html), toutes catégorie Interface."""
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    assert view._category_rows["interface"]["count_lbl"].text() == "4"
+    assert not view._category_rows["interface"]["count_lbl"].isHidden()
+
+
+def test_search_dims_categories_without_any_match(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    for key, row in view._category_rows.items():
+        effect = row["frame"].graphicsEffect()
+        if key == "interface":
+            assert effect is None
+        else:
+            assert effect is not None and effect.opacity() < 1.0
+
+
+def test_clearing_search_removes_counts_and_dimming(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+    view.inp_search.setText("")
+
+    for row in view._category_rows.values():
+        assert row["count_lbl"].isHidden()
+        assert row["frame"].graphicsEffect() is None
+
+
+def test_search_highlights_the_matched_term_in_label_and_description(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    row = _row(view, "dashboard")
+    assert "background-color" in row["label_lbl"].text()
+    assert "rafraîch" in row["label_lbl"].text().lower()
+
+
+def test_search_help_line_shows_result_and_category_counts(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    view.inp_search.setText("rafraîch")
+
+    assert not view._search_help_lbl.isHidden()
+    assert "4 réglages" in view._search_help_lbl.text()
+    assert "1 catégorie" in view._search_help_lbl.text()
+    assert "Échap" in view._search_help_lbl.text()
+
+
+def test_search_help_line_hidden_outside_search(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view._search_help_lbl.isHidden()
+
+
 def test_max_concurrent_runs_setting_saves_and_is_applied(qapp, test_db):
     """Depuis le chantier suivi des ressources, ce champ est réellement appliqué par
     run_pipeline() (tests/test_concurrency_cap.py) — ici on vérifie seulement que l'écran le
@@ -247,7 +316,7 @@ def test_execution_mode_row_present_and_prefills_default(qapp, test_db):
     view = SettingsView()
     assert view.cb_execution_mode is not None
     assert view.cb_execution_mode.currentData() == "IN_APP"
-    assert view.lbl_worker_status.text() == "—"
+    assert "Sans objet" in view.lbl_worker_status.text()
 
 
 def test_execution_mode_row_prefills_background(qapp, test_db):
@@ -320,6 +389,59 @@ def test_on_save_shows_success_style_when_background_registration_succeeds(qapp,
     assert COLORS["success"] in view._save_status_lbl.styleSheet()
 
 
+def test_failure_banner_hidden_by_default(qapp, test_db):
+    from ui.main_window.settings_view import SettingsView
+
+    view = SettingsView()
+    assert view._failure_banner.isHidden()
+
+
+def test_failure_banner_shown_when_background_registration_fails(qapp, test_db, monkeypatch):
+    """A7 (docs/refonte/ecrans/Parametres.md) : bandeau persistant, en plus du texte du pied
+    (inchangé, voir test_on_save_reverts_to_in_app_when_background_registration_fails)."""
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+
+    assert not view._failure_banner.isHidden()
+
+
+def test_failure_banner_fermer_button_hides_it(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QPushButton
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+    assert not view._failure_banner.isHidden()
+
+    btn_fermer = next(b for b in view._failure_banner.findChildren(QPushButton)
+                       if b.text() == "Fermer")
+    btn_fermer.click()
+    assert view._failure_banner.isHidden()
+
+
+def test_failure_banner_hidden_again_after_a_successful_save(qapp, test_db, monkeypatch):
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: False)
+
+    from ui.main_window.settings_view import SettingsView
+    view = SettingsView()
+    idx = view.cb_execution_mode.findData("BACKGROUND")
+    view.cb_execution_mode.setCurrentIndex(idx)
+    view._on_save()
+    assert not view._failure_banner.isHidden()
+
+    monkeypatch.setattr("core.task_scheduler.register_logon_task", lambda: True)
+    view._on_save()
+    assert view._failure_banner.isHidden()
+
+
 def test_on_save_switching_to_in_app_unregisters_task_and_enqueues_shutdown(qapp, test_db, monkeypatch):
     db.update_app_settings(execution_mode="BACKGROUND")
     calls = []
@@ -355,11 +477,13 @@ def test_on_save_without_mode_change_does_not_touch_logon_task(qapp, test_db, mo
 
 
 def test_refresh_worker_status_shows_dash_in_app_mode(qapp, test_db):
+    """A6 (docs/refonte/ecrans/Parametres.md) : texte discret "Sans objet" en mode application,
+    plutôt que le simple tiret "—" d'avant ce lot."""
     from ui.main_window.settings_view import SettingsView
 
     view = SettingsView()
     view._refresh_worker_status()
-    assert view.lbl_worker_status.text() == "—"
+    assert "Sans objet" in view.lbl_worker_status.text()
 
 
 def test_refresh_worker_status_shows_stopped_without_any_sample(qapp, test_db):

@@ -80,6 +80,11 @@ def test_lot_0a_colors_are_declared_with_their_documented_values():
         assert COLORS[key] == value, key
 
 
+def test_search_highlight_color_is_declared():
+    """Lot A-Parametres — surlignage du terme cherché (Parametres-recherche.html)."""
+    assert COLORS["search_highlight"] == "#5a3410"
+
+
 def test_relation_color_matches_the_passerelles_step_family():
     """Même valeur que la famille d'étape Passerelles (lot 0a) — un lien vers un objet lié doit
     visuellement évoquer la même famille que CONDITION/GATEWAY_*."""

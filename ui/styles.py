@@ -59,6 +59,9 @@ COLORS = {
     "sql_string":           "#7ec8a4",   # chaîne dans l'éditeur SQL (déjà utilisée en dur dans ui/sql_editor.py)
     "editor_current_line":  "#1f1c18",   # ligne courante de l'éditeur
     "relation":             "#a58cf0",   # lien vers un objet lié (« via Bastion », « après X »)
+
+    # Refonte (lot A-Parametres) — surlignage du terme cherché (Parametres-recherche.html)
+    "search_highlight":     "#5a3410",
 }
 
 # ──────────────────────────────────────────────

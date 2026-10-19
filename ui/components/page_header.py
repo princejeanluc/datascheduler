@@ -7,12 +7,16 @@ sous-titre optionnel, puis une zone d'actions poussée à droite par un espace e
 
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
 
-from ui.main_window.widgets import _make_page_eyebrow, _make_page_title, _make_subtitle
-
 
 def make_page_header(eyebrow: str, title: str, subtitle: str = "", actions=None) -> QWidget:
     """`actions` est un QWidget seul, une liste de QWidget (boutons alignés avec un espacement de
     10px, comme sur Pipelines.html), ou None (pas de zone d'actions)."""
+    # Import différé : ui.main_window.widgets (via ui.main_window) importe lui-même ce module
+    # (settings_view.py etc.) — un import en tête de fichier ici créerait une dépendance
+    # circulaire selon l'ordre d'import (révélé par un test import ant ui.components en premier,
+    # jamais par du code applicatif qui importe toujours ui.main_window.* en premier).
+    from ui.main_window.widgets import _make_page_eyebrow, _make_page_title, _make_subtitle
+
     header = QWidget()
     row = QHBoxLayout(header)
     row.setContentsMargins(0, 0, 0, 0)
