@@ -97,18 +97,18 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 
 | Type | Sujet | Détail | Où |
 |---|---|---|---|
-| Manquement | Pas d'axes | Aucun axe du temps ni graduation : on ne peut lire ni l'heure d'une pointe ni sa valeur | `resources_view.py::_TimeSeriesChart.paintEvent` |
-| Manquement | Valeur survolée absente | Le titre de chaque graphique montre la dernière valeur, pas celle de l'instant survolé | `resources_view.py::_chart_title_row`, `_on_chart_hover` |
+| Manquement | Pas d'axes | Aucun axe du temps ni graduation : on ne peut lire ni l'heure d'une pointe ni sa valeur | `resources_view.py::_TimeSeriesChart.paintEvent` — fait (lot A-Ressources) |
+| Manquement | Valeur survolée absente | Le titre de chaque graphique montre la dernière valeur, pas celle de l'instant survolé | `resources_view.py::_chart_title_row`, `_on_chart_hover` — fait (lot A-Ressources) |
 | Manquement | CPU écrêté | `psutil.Process().cpu_percent` dépasse 100 % sur plusieurs cœurs, mais l'échelle est fixée à 100 | `core/scheduler.py::_sample_resources`, `_TimeSeriesChart(max_value=100)` |
 | Manquement | 7 jours non agrégés | Jusqu'à 10 080 points chargés et dessinés tels quels, sans regroupement | `db_manager.py::get_resource_samples` |
 | Manquement | « En cours » local | La carte lit `_active_runs` du processus de la fenêtre ; en mode arrière-plan, les runs du worker n'y sont pas comptés (déduit) | `resources_view.py::refresh` |
 | Manquement | Échec de mesure silencieux | Une mesure qui échoue (psutil absent, par exemple) n'est écrite que dans les logs ; l'écran reste vide sans explication | `core/scheduler.py::_sample_resources` |
 | Manquement | Rafraîchissement figé | La minuterie de l'écran garde l'intervalle lu au démarrage, même si on le change dans Paramètres | `ResourcesView.__init__` |
-| Proposition | Plafond sur le graphique | Ligne pointillée du plafond d'exécutions simultanées sur « Pipelines en cours » | `AppSettings.max_concurrent_runs` |
+| Proposition | Plafond sur le graphique | Ligne pointillée du plafond d'exécutions simultanées sur « Pipelines en cours » | `AppSettings.max_concurrent_runs` — fait (lot A-Ressources) |
 | Proposition | Pastilles enrichies | Statut et durée de chaque run, clic pour l'ouvrir dans l'Historique | `_pipeline_chip` |
 | Proposition | Plage au glisser | Choisir une plage, voir ses runs alignés sur le même temps, zoomer ou ouvrir l'Historique filtré | nouveau |
 | Proposition | Enveloppe sur 7 jours | Moyenne par heure avec zone min–max, et marques des runs en échec | nouveau |
-| Proposition | Heure du pic | La carte « Pic CPU » dit quand il a eu lieu | `resources_view.py::refresh` |
+| Proposition | Heure du pic | La carte « Pic CPU » dit quand il a eu lieu | `resources_view.py::refresh` — fait (lot A-Ressources) |
 
 ## Transverse
 
