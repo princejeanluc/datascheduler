@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from ui.time_display import fmt_time, fmt_time_local, to_display
+from ui.time_display import fmt_time, fmt_time_local, fmt_relative, to_display
 from ui.components import make_page_header
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
@@ -102,12 +102,20 @@ class PipelinesView(QWidget):
 
     def __init__(self):
         super().__init__()
+        self._last_refresh_at = None
         self._build_ui()
         from database import db_manager as db
         self._timer = QTimer(self)
         self._timer.setInterval(db.get_app_settings().pipelines_refresh_s * 1000)
         self._timer.timeout.connect(self.refresh)
         self._timer.start()
+
+        # A9 : "actualisé il y a N s" doit avancer en continu, pas seulement au rythme du
+        # rafraîchissement complet (souvent 15-30s) — timer séparé, ne touche que ce label.
+        self._footer_timer = QTimer(self)
+        self._footer_timer.setInterval(1000)
+        self._footer_timer.timeout.connect(self._refresh_footer_label)
+        self._footer_timer.start()
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -164,6 +172,19 @@ class PipelinesView(QWidget):
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         layout.addWidget(self.table)
 
+        # A9 : pied de liste — seule la ligne de légende vraie est gardée ("↳ se lance après…") ;
+        # ni "clic sur la forme : ouvre l'Atelier" (C7, gated) ni "double-clic... ouvre l'Atelier"
+        # (faux avec P10 — le code garde PipelineDetailDialog) ne sont reproduits.
+        footer = QHBoxLayout()
+        footer_legend = QLabel("↳ se lance après un autre pipeline (déclenchement)")
+        footer_legend.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        footer.addWidget(footer_legend)
+        footer.addStretch()
+        self._footer_refreshed_lbl = QLabel("")
+        self._footer_refreshed_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        footer.addWidget(self._footer_refreshed_lbl)
+        layout.addLayout(footer)
+
         # Modèle de démarrage (chantier UX éditeur, Lot 1, C1) — dupliquer/adapter un squelette
         # réaliste plutôt que partir d'une toile blanche, visible uniquement tant qu'aucun
         # pipeline n'existe (même condition que le label lui-même, voir refresh() ci-dessous).
@@ -188,6 +209,9 @@ class PipelinesView(QWidget):
 
     def _on_search_changed(self, text: str):
         _filter_table_rows(self.table, text, columns=[0, 1, 2, 3, 4])
+
+    def _refresh_footer_label(self):
+        self._footer_refreshed_lbl.setText(f"actualisé {fmt_relative(self._last_refresh_at)}")
 
     def refresh(self):
         # Reconstruit toute la colonne Actions à chaque appel (y compris chaque QMenu "⋯") — si
@@ -471,6 +495,8 @@ class PipelinesView(QWidget):
             self.table.setRowHeight(r_idx, 52)
 
         self._on_search_changed(self.inp_search.text())
+        self._last_refresh_at = datetime.utcnow()
+        self._refresh_footer_label()
 
     def _on_new_pipeline(self):
         """Un seul point d'entrée de création (chantier fusion des éditeurs — l'ancien dialogue
