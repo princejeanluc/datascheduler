@@ -22,7 +22,8 @@ from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
 from ui.styles import COLORS, FONT_MONO
 from ui.time_display import fmt_datetime, fmt_time
-from .widgets import _make_title, _make_subtitle, StatCard
+from ui.components import make_page_header
+from .widgets import StatCard
 
 # Hues catégorielles validées (kit dataviz — CVD/contraste/luminosité, --pairs all en dark) —
 # distinctes de COLORS['accent']/['signal'] (identité de marque/nav), jamais réutilisées pour
@@ -32,6 +33,17 @@ _COLOR_RAM   = "#199e70"
 _COLOR_COUNT = "#d95926"
 
 _RANGES = [("1h", 1), ("6h", 6), ("24h", 24), ("7j", 24 * 7)]
+
+
+def _interval_label(seconds: int) -> str:
+    """« MINUTE » pour 60s (valeur par défaut, seule montrée sur la maquette), « N MINUTES »
+    pour un multiple de 60 au-delà, « N SECONDES » sinon — couvre toute la plage réelle du
+    réglage (QSpinBox 10-3600s, Paramètres > Ressources). Réutilisé par le surtitre (A1) et le
+    texte de l'état vide (A9)."""
+    if seconds % 60 == 0:
+        minutes = seconds // 60
+        return "MINUTE" if minutes == 1 else f"{minutes} MINUTES"
+    return f"{seconds} SECONDES"
 
 _HINT_HOVER = "Survolez un graphique pour voir le détail d'un instant."
 _HINT_NO_PIPELINE = "Aucun pipeline en cours à cet instant."
@@ -186,29 +198,31 @@ class ResourcesView(QWidget):
     # ── Construction ──────────────────────────
 
     def _build_ui(self):
+        from database import db_manager as db
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        header = QHBoxLayout()
-        header.setContentsMargins(32, 24, 32, 4)
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(_make_title("Ressources"))
-        title_col.addWidget(_make_subtitle(
-            "Utilisation de l'application dans le temps — de quoi repérer une corrélation avec "
-            "vos pipelines, pas une mesure isolée par pipeline (impossible : ils partagent le "
-            "même processus)."
-        ))
-        header.addLayout(title_col)
-        header.addStretch()
-
         self._range_buttons = {}
+        range_buttons = []
         for label, hours in _RANGES:
             btn = QPushButton(label)
             btn.setFixedHeight(30)
             btn.clicked.connect(lambda _, h=hours: self._on_range_changed(h))
-            header.addWidget(btn)
+            range_buttons.append(btn)
             self._range_buttons[hours] = btn
+
+        interval_s = db.get_app_settings().resource_sample_interval_s
+        header_widget = make_page_header(
+            f"PROCESSUS KULU · UN POINT PAR {_interval_label(interval_s)}",
+            "Ressources",
+            "Utilisation de l'application dans le temps, pour repérer un lien avec vos "
+            "pipelines. Ce n'est pas une mesure par pipeline : ils partagent le même processus.",
+            actions=range_buttons,
+        )
+        header_widget.layout().setContentsMargins(32, 24, 32, 4)
+        outer.addWidget(header_widget)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -295,7 +309,6 @@ class ResourcesView(QWidget):
 
         body.addWidget(self._correlate_panel)
 
-        outer.addLayout(header)
         outer.addWidget(scroll, stretch=1)
 
         self._set_active_range(24)
