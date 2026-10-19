@@ -385,9 +385,31 @@ class PipelinesView(QWidget):
             pid       = p.id
             is_active = p.is_active
             pname     = p.name
+            running = is_pipeline_running(pid)
+            resumable_run = db.get_last_resumable_run(pid)
+
             aw  = QWidget(); al = QHBoxLayout(aw); al.setContentsMargins(4, 4, 4, 4); al.setSpacing(4)
-            btn_run = _action_btn("fa5s.play", tooltip="Exécuter maintenant",
-                                  icon_color="#000000")
+
+            # A7 (DECISIONS.md::P8) : le premier bouton change selon l'état — reprendre si
+            # reprenable, arrêter si en cours, lancer sinon. Un second run reste possible depuis
+            # le menu "⋯" ("Exécuter depuis le début", A8) même quand une reprise est proposée ici.
+            if not is_active:
+                btn_run = _action_btn("fa5s.play", object_name="secondary", tooltip="Exécuter maintenant")
+                btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
+            elif running:
+                btn_run = _action_btn("fa5s.stop", object_name="secondary", tooltip="Interrompre")
+                btn_run.clicked.connect(lambda _, i=pid, n=pname: self._on_interrupt_pipeline(i, n))
+            elif resumable_run:
+                btn_run = _action_btn(
+                    "fa5s.history", object_name="accent_action", tooltip="Reprendre depuis l'échec",
+                )
+                btn_run.clicked.connect(
+                    lambda _, i=pid, n=pname, r=resumable_run.id: self._on_resume_pipeline(i, n, r)
+                )
+            else:
+                btn_run = _action_btn("fa5s.play", object_name="accent_action", tooltip="Exécuter maintenant")
+                btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
+
             btn_open = _action_btn(
                 "fa5s.project-diagram", object_name="secondary",
                 tooltip="Ouvrir l'éditeur — étapes et connexions",
@@ -397,15 +419,18 @@ class PipelinesView(QWidget):
                 tooltip="Paramètres du pipeline — nom, planification, déclenchement, actif",
             )
             btn_more = _action_btn("fa5s.ellipsis-h", object_name="secondary", tooltip="Plus d'actions")
-            btn_run.clicked.connect(lambda _, i=pid: self._on_run_pipeline(i))
             btn_open.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_graph(i))
             btn_settings.clicked.connect(lambda _, i=pid: self._on_edit_pipeline_settings(i))
 
-            # Actions secondaires (moins fréquentes) regroupées dans un menu — même patron que
-            # le bouton "+ Artefact" de ui/step_editor/base_config_dialog.py, pour ne pas garder
-            # 8 boutons pleine largeur par ligne dans une colonne "Actions".
+            # A8 : menu restylé — réordonné (Interrompre/Reprendre toujours en tête si
+            # applicables, puis Exécuter depuis le début/Valider, puis Dupliquer/Exporter/
+            # Désactiver, puis Supprimer en dernier) et complété d'un item permanent "Exécuter
+            # depuis le début" (compense A7 : le premier bouton de ligne ne lance plus un run
+            # frais quand une reprise est proposée). Même patron que le bouton "+ Artefact" de
+            # ui/step_editor/base_config_dialog.py, pour ne pas garder 8 boutons pleine largeur
+            # par ligne dans une colonne "Actions".
             menu = QMenu(btn_more)
-            if is_pipeline_running(pid):
+            if running:
                 # Accessible même quand la fenêtre d'exécution a été fermée entre-temps (elle
                 # continue en arrière-plan) — sans ça, aucun moyen direct d'interrompre un run
                 # dont on a fermé le dialogue de suivi.
@@ -413,22 +438,30 @@ class PipelinesView(QWidget):
                 act_interrupt.triggered.connect(
                     lambda _, i=pid, n=pname: self._on_interrupt_pipeline(i, n)
                 )
-            act_toggle = menu.addAction("Désactiver" if is_active else "Activer")
-            act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
-            act_validate = menu.addAction("Valider (à blanc)")
-            act_validate.triggered.connect(lambda _, i=pid, n=pname: self._on_validate_pipeline(i, n))
-            resumable_run = db.get_last_resumable_run(pid)
             if resumable_run:
                 act_resume = menu.addAction("Reprendre depuis l'échec")
                 act_resume.triggered.connect(
                     lambda _, i=pid, n=pname, r=resumable_run.id: self._on_resume_pipeline(i, n, r)
                 )
+            act_run_fresh = menu.addAction("Exécuter depuis le début")
+            act_run_fresh.triggered.connect(lambda _, i=pid: self._on_run_pipeline(i))
+            act_validate = menu.addAction("Valider à blanc")
+            act_validate.triggered.connect(lambda _, i=pid, n=pname: self._on_validate_pipeline(i, n))
+            menu.addSeparator()
             act_dup = menu.addAction("Dupliquer")
             act_dup.triggered.connect(lambda _, i=pid: self._on_duplicate_pipeline(i))
-            act_export = menu.addAction("Exporter")
+            act_export = menu.addAction("Exporter…")
             act_export.triggered.connect(lambda _, i=pid: self._on_export_pipeline(i))
+            if is_active:
+                toggle_text = "Désactiver"
+                if p.next_run_at:
+                    toggle_text += f" — ne partira plus à {fmt_time_local(p.next_run_at)}"
+            else:
+                toggle_text = "Activer"
+            act_toggle = menu.addAction(toggle_text)
+            act_toggle.triggered.connect(lambda _, i=pid, a=is_active: self._on_toggle_pipeline(i, a))
             menu.addSeparator()
-            act_del = menu.addAction("Supprimer")
+            act_del = menu.addAction("Supprimer…")
             act_del.triggered.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             btn_more.setMenu(menu)
 
