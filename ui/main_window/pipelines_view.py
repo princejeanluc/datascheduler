@@ -15,11 +15,12 @@ from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
 from ui.time_display import fmt_time, fmt_time_local, fmt_relative, to_display
-from ui.components import make_page_header
+from ui.components import make_page_header, SidePanel
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
     _make_empty_label, _make_button_with_hint, _STATUS_BADGE, _status_str,
     _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail, RunHistoryDots,
+    FONT_MONO_STACK,
 )
 
 # A3 : "Étape i/n : ..." déjà le format renvoyé par get_running_step_labels() (core/pipeline.py)
@@ -204,6 +205,10 @@ class PipelinesView(QWidget):
         layout.addWidget(self._empty_label)
 
         QShortcut(QKeySequence("Ctrl+N"), self, activated=self._on_new_pipeline)
+
+        # A10 : panneau latéral partagé (déjà construit pour Aujourd'hui), réutilisé ici pour la
+        # validation à blanc — remplace PipelineDryRunDialog (qui reste dans le code, orpheline).
+        self._side_panel = SidePanel(self)
 
         self.refresh()
 
@@ -625,8 +630,174 @@ class PipelinesView(QWidget):
             PipelineDetailDialog(self, pipeline=p).exec()
 
     def _on_validate_pipeline(self, pipeline_id: int, pipeline_name: str):
-        from ui.dialogs import PipelineDryRunDialog
-        PipelineDryRunDialog(pipeline_id, pipeline_name, self).exec()
+        """A10 : panneau latéral (remplace l'ancien PipelineDryRunDialog modal, qui reste dans
+        le code — son propre test reste vert — mais devient orpheline, plus appelée d'ici)."""
+        self._validation_pipeline_id = pipeline_id
+        content = self._build_validation_panel_content(pipeline_name)
+        self._side_panel.set_content(content)
+        self._side_panel.open()
+        self._run_validation(pipeline_id)
+
+    def _build_validation_panel_content(self, pipeline_name: str) -> QWidget:
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 4, 24, 20)
+        layout.setSpacing(12)
+
+        surtitle = QLabel("VALIDATION À BLANC · RIEN N'EST EXÉCUTÉ")
+        surtitle.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-family: {FONT_MONO_STACK}; font-size: 10px; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(surtitle)
+
+        title = QLabel(pipeline_name)
+        title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 17px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        intro = QLabel("Kulu vérifie la forme du graphe, les références et chaque connexion réelle.")
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {COLORS['text_dim']}; background: transparent; border: none;")
+        layout.addWidget(intro)
+
+        self._lbl_validation_status = QLabel("Validation en cours…")
+        self._lbl_validation_status.setWordWrap(True)
+        self._lbl_validation_status.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 13px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(self._lbl_validation_status)
+
+        counters_row = QHBoxLayout()
+        counters_row.setSpacing(20)
+        err_col = QVBoxLayout(); err_col.setSpacing(2)
+        self._lbl_validation_errors = QLabel("—")
+        self._lbl_validation_errors.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 22px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        err_col.addWidget(self._lbl_validation_errors)
+        err_label = QLabel("erreur(s)")
+        err_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px; background: transparent; border: none;")
+        err_col.addWidget(err_label)
+        counters_row.addLayout(err_col)
+
+        warn_col = QVBoxLayout(); warn_col.setSpacing(2)
+        self._lbl_validation_warnings = QLabel("—")
+        self._lbl_validation_warnings.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 22px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        warn_col.addWidget(self._lbl_validation_warnings)
+        warn_label = QLabel("avertissement(s)")
+        warn_label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px; background: transparent; border: none;")
+        warn_col.addWidget(warn_label)
+        counters_row.addLayout(warn_col)
+        counters_row.addStretch()
+        layout.addLayout(counters_row)
+
+        # Liste plate des messages existants (DryRunResult.errors/.warnings) — pas de sections
+        # GRAPHE/RÉFÉRENCES/CONNEXIONS RÉELLES structurées (C9, gated).
+        findings_host = QWidget()
+        findings_host.setStyleSheet("background: transparent;")
+        self._validation_findings_layout = QVBoxLayout(findings_host)
+        self._validation_findings_layout.setContentsMargins(0, 0, 0, 0)
+        self._validation_findings_layout.setSpacing(8)
+        self._validation_findings_layout.addStretch()
+        layout.addWidget(findings_host, 1)
+
+        footer = QHBoxLayout()
+        self._btn_validation_rerun = QPushButton("Relancer la validation")
+        self._btn_validation_rerun.setObjectName("secondary")
+        self._btn_validation_rerun.setFixedHeight(36)
+        self._btn_validation_rerun.clicked.connect(
+            lambda: self._run_validation(self._validation_pipeline_id)
+        )
+        footer.addWidget(self._btn_validation_rerun)
+        footer.addStretch()
+        layout.addLayout(footer)
+
+        return content
+
+    def _run_validation(self, pipeline_id: int):
+        from ui.dialogs.pipeline_dry_run_dialog import _DryRunThread
+
+        self._lbl_validation_status.setText("Validation en cours…")
+        self._lbl_validation_status.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 13px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        self._lbl_validation_errors.setText("—")
+        self._lbl_validation_warnings.setText("—")
+        self._clear_layout(self._validation_findings_layout)
+        self._btn_validation_rerun.setEnabled(False)
+
+        # Référence forte sur self — un objet QThread sans référence Python restante peut être
+        # garbage-collecté avant la fin de son exécution, même si Qt le garde vivant côté C++
+        # (même gotcha déjà documenté ailleurs dans le projet : GC Python vs parent Qt).
+        self._validation_thread = _DryRunThread(pipeline_id)
+        self._validation_thread.result_ready.connect(self._on_validation_result)
+        # Fermeture bloquée tant que ça tourne — même garantie que l'ancien
+        # PipelineDryRunDialog.closeEvent() (À garder tel quel).
+        self._side_panel.set_close_guard(lambda: self._validation_thread.isRunning())
+        self._validation_thread.start()
+
+    def _on_validation_result(self, result):
+        self._btn_validation_rerun.setEnabled(True)
+        self._side_panel.set_close_guard(None)
+        self._clear_layout(self._validation_findings_layout)
+
+        n_errors = len(result.errors)
+        n_warnings = len(result.warnings)
+        self._lbl_validation_errors.setText(str(n_errors))
+        self._lbl_validation_errors.setStyleSheet(
+            f"color: {COLORS['danger'] if n_errors else COLORS['success']}; font-size: 22px; "
+            f"font-weight: 700; background: transparent; border: none;"
+        )
+        self._lbl_validation_warnings.setText(str(n_warnings))
+        self._lbl_validation_warnings.setStyleSheet(
+            f"color: {COLORS['warning'] if n_warnings else COLORS['text_main']}; font-size: 22px; "
+            f"font-weight: 700; background: transparent; border: none;"
+        )
+
+        if n_errors:
+            status_text = "Validation échouée — corrigez les erreurs avant d'activer la planification."
+            status_color = COLORS["danger"]
+        elif n_warnings:
+            status_text = (
+                f"Validé avec {n_warnings} avertissement(s) "
+                f"({result.checked_connections} connexion(s) vérifiée(s))."
+            )
+            status_color = COLORS["warning"]
+        else:
+            status_text = f"Aucun problème détecté ({result.checked_connections} connexion(s) vérifiée(s))."
+            status_color = COLORS["success"]
+        self._lbl_validation_status.setText(status_text)
+        self._lbl_validation_status.setStyleSheet(
+            f"color: {status_color}; font-size: 13px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+
+        for msg in result.errors:
+            lbl = QLabel(f"❌  {msg}"); lbl.setWordWrap(True)
+            lbl.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px; background: transparent; border: none;")
+            self._validation_findings_layout.insertWidget(self._validation_findings_layout.count() - 1, lbl)
+        for msg in result.warnings:
+            lbl = QLabel(f"⚠  {msg}"); lbl.setWordWrap(True)
+            lbl.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px; background: transparent; border: none;")
+            self._validation_findings_layout.insertWidget(self._validation_findings_layout.count() - 1, lbl)
+
+    @staticmethod
+    def _clear_layout(layout):
+        while layout.count() > 1:   # garde le stretch final en dernière position
+            item = layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
 
     def _on_duplicate_pipeline(self, pipeline_id: int):
         from database.export_import import duplicate_pipeline
