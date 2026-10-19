@@ -3,6 +3,9 @@ DataScheduler — ui/main_window/pipelines_view.py
 Vue Pipelines : liste + création + export/import.
 """
 
+import re
+from datetime import datetime
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -11,13 +14,62 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from ui.time_display import fmt_datetime_local
+from ui.time_display import fmt_datetime_local, fmt_time, fmt_time_local
 from ui.components import make_page_header
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
     _make_empty_label, _make_button_with_hint, _STATUS_BADGE, _status_str,
-    _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail,
+    _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail, RunHistoryDots,
 )
+
+# A3 : "Étape i/n : ..." déjà le format renvoyé par get_running_step_labels() (core/pipeline.py)
+# — la ligne de détail de l'état n'en garde que "i/n", sans le libellé de l'étape.
+_RUNNING_STEP_RE = re.compile(r"Étape (\d+)/(\d+)")
+
+
+def _format_elapsed_mmss(started_at) -> str:
+    """Écoulé d'un run en cours, en MM:SS — jamais converti (c'est une durée), même principe que
+    le rail d'Aujourd'hui (dashboard_view.py), dupliqué ici plutôt que partagé (REGLES.md : trois
+    lignes semblables plutôt qu'une abstraction prématurée)."""
+    if not started_at:
+        return "00:00"
+    seconds = max(0, int((datetime.utcnow() - started_at).total_seconds()))
+    m, s = divmod(seconds, 60)
+    return f"{m:02d}:{s:02d}"
+
+
+def _format_duration_short(seconds) -> str:
+    """« 2 min 04 » / « 38 s » — même format que la colonne Durée d'Aujourd'hui, dupliqué ici."""
+    if not seconds:
+        return "0 s"
+    m, s = divmod(int(seconds), 60)
+    return f"{m} min {s:02d}" if m else f"{s} s"
+
+
+def _pipeline_state_detail(p, status: str, last_run, running_label: str, missed) -> tuple:
+    """Texte + couleur de la ligne de détail sous la pastille d'état (A3). Priorité, comme le
+    badge existant : inactif > en cours > manqué > échec > réussi > rien (jamais exécuté, pas de
+    changement). Pas d'état "En attente" (C4, gated) : un enfant bloqué par son parent montre son
+    propre dernier état réel, jamais le texte synthétique de la maquette."""
+    if not p.is_active:
+        return "Inactif", COLORS["text_dim"]
+    if status == "RUNNING":
+        match = _RUNNING_STEP_RE.search(running_label or "")
+        if match and last_run is not None:
+            elapsed = _format_elapsed_mmss(last_run.started_at)
+            return f"étape {match.group(1)}/{match.group(2)} · {elapsed}", COLORS["text_dim"]
+        return running_label or "", COLORS["text_dim"]
+    if missed:
+        return f"prévue {fmt_time_local(missed['expected_at'])}", COLORS["warning"]
+    if status == "FAILED" and last_run is not None:
+        err = (last_run.error_message or "").strip().splitlines()[0] if last_run.error_message else ""
+        err = err if len(err) <= 40 else err[:39] + "…"
+        detail = fmt_time(last_run.started_at)
+        return (f"{detail} · {err}" if err else detail), COLORS["danger"]
+    if status == "SUCCESS" and last_run is not None:
+        duration = _format_duration_short(last_run.duration_seconds)
+        return f"{fmt_time(last_run.started_at)} · {duration}", COLORS["text_dim"]
+    return "", COLORS["text_dim"]
 
 
 class PipelinesView(QWidget):
@@ -88,7 +140,7 @@ class PipelinesView(QWidget):
         self.table.setShowGrid(False)
         _configure_columns(self.table, stretch_cols={0, 2})
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table.setColumnWidth(1, 130)
+        self.table.setColumnWidth(1, 150)   # A3 : la ligne de détail a besoin d'un peu plus de place
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
         self.table.setColumnWidth(5, 156)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
@@ -134,9 +186,11 @@ class PipelinesView(QWidget):
         from core.pipeline import is_cancel_requested, is_pipeline_running
         from core.scheduler import describe_schedule
         from core.steps import is_routing_node
+        from core.missed_runs import get_pending
         pipelines = db.get_pipelines()
         ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
+        missed_map = {m["pipeline_id"]: m for m in get_pending()}
         self._pipeline_ids = [p.id for p, _depth in ordered]
 
         n_total = len(pipelines)
@@ -189,17 +243,66 @@ class PipelinesView(QWidget):
             name_indent = "    " * (depth - 1) if depth else ""
             name_display = f"{name_indent}{'↳ ' if depth else ''}{p.name}"
             name_color = COLORS["text_dim"] if (depth or not p.is_active) else COLORS["text_main"]
+
+            # A3/A4 : une seule requête des 8 derniers runs par ligne, réutilisée pour le détail
+            # d'état (le plus récent) et pour les pastilles RunHistoryDots de la colonne Étapes.
+            runs8 = db.get_runs(p.id, 8)
+            last_run = runs8[0] if runs8 else None
+            detail_text, detail_color = _pipeline_state_detail(
+                p, st, last_run, step_labels.get(p.id, ""), missed_map.get(p.id),
+            )
+
             cells = [name_display, st, steps_str, plan, next_run]
             for c_idx, cell in enumerate(cells):
-                if c_idx == 1:
+                if c_idx == 0:
+                    # A2 : nom + description en dessous (cell-widget, même patron que la colonne
+                    # Étapes déjà en cell-widget) — le connecteur d'arbre existant (indentation +
+                    # "↳ ") est gardé tel quel, pas de ligne dessinée façon maquette.
+                    name_w = QWidget()
+                    name_vl = QVBoxLayout(name_w)
+                    name_vl.setContentsMargins(4, 0, 4, 0)
+                    name_vl.setSpacing(2)
+                    name_lbl = QLabel(name_display)
+                    name_lbl.setStyleSheet(
+                        f"color: {name_color}; font-weight: 600; font-size: 13.5px; "
+                        f"background: transparent; border: none;"
+                    )
+                    name_vl.addWidget(name_lbl)
+                    if p.description:
+                        desc_lbl = QLabel(p.description)
+                        desc_lbl.setStyleSheet(
+                            f"color: {COLORS['text_dim']}; font-size: 11.5px; "
+                            f"background: transparent; border: none;"
+                        )
+                        name_vl.addWidget(desc_lbl)
+                    self.table.setCellWidget(r_idx, c_idx, name_w)
+                elif c_idx == 1:
+                    # A3 : pastille existante (inchangée) + une ligne de détail selon l'état.
+                    state_w = QWidget()
+                    state_vl = QVBoxLayout(state_w)
+                    state_vl.setContentsMargins(4, 0, 4, 0)
+                    state_vl.setSpacing(3)
+                    is_missed = p.is_active and st != "RUNNING" and p.id in missed_map
                     badge_st   = "INACTIF" if not p.is_active else st
                     if p.is_active and st == "RUNNING" and is_cancel_requested(p.id):
                         badge_st = "ARRÊT EN COURS"
+                    elif is_missed:
+                        badge_st = "MANQUÉ"
                     badge_name = "badge_idle" if not p.is_active else _STATUS_BADGE.get(st, "badge_idle")
+                    if is_missed:
+                        badge_name = "badge_missed"
                     badge = _make_status_badge(badge_st, badge_name)
                     if p.is_active and st == "RUNNING":
                         badge.setToolTip(step_labels.get(p.id, ""))
-                    self.table.setCellWidget(r_idx, c_idx, badge)
+                    state_vl.addWidget(badge, 0, Qt.AlignLeft)
+                    if detail_text:
+                        detail_lbl = QLabel(detail_text)
+                        detail_lbl.setStyleSheet(
+                            f"color: {detail_color}; font-size: 11px; "
+                            f"background: transparent; border: none;"
+                        )
+                        state_vl.addWidget(detail_lbl)
+                    self.table.setCellWidget(r_idx, c_idx, state_w)
                 elif c_idx == 2:
                     # Vignette de flux + résumé texte (chantier identité, vague 3, idée 8) — la
                     # vignette donne une reconnaissance visuelle immédiate, le texte reste
@@ -219,12 +322,16 @@ class PipelinesView(QWidget):
                         f"color: {text_color}; background: transparent; border: none;"
                     )
                     steps_hl.addWidget(steps_lbl)
+                    # A4 : pastilles des 8 derniers runs, réutilise RunHistoryDots (déjà un
+                    # composant partagé de widgets.py, utilisé par Aujourd'hui).
+                    dots = RunHistoryDots([_status_str(r.status) for r in reversed(runs8)])
+                    steps_hl.addWidget(dots)
                     steps_hl.addStretch()
                     steps_w.setToolTip(steps_str)
                     self.table.setCellWidget(r_idx, c_idx, steps_w)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(name_color if c_idx == 0 else text_color))
+                    item.setForeground(QColor(text_color))
                     if c_idx == 3 and trigger_tooltip:
                         item.setToolTip(trigger_tooltip)
                     self.table.setItem(r_idx, c_idx, item)

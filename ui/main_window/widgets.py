@@ -476,6 +476,17 @@ QLabel#badge_idle {{
     font-weight: 700;
     letter-spacing: 0.5px;
 }}
+/* Lot A-Pipelines (A3) : pipeline en attente dans core.missed_runs — même famille de couleur
+   que le badge "warning" déjà utilisé ailleurs (Aujourd'hui, carte MANQUÉE). */
+QLabel#badge_missed {{
+    background-color: rgba(232,179,57,0.12);
+    color: {COLORS['warning']};
+    border-radius: 3px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}}
 
 /* ── Cartes et séparateurs ── */
 QFrame#card {{
