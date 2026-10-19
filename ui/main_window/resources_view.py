@@ -22,7 +22,7 @@ from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
 from ui.styles import COLORS, FONT_MONO
-from ui.time_display import fmt_datetime, fmt_time
+from ui.time_display import fmt_datetime, fmt_time, to_display
 from ui.components import make_page_header
 from .widgets import StatCard
 
@@ -185,7 +185,7 @@ class _TimeSeriesChart(QWidget):
         """Grille + 2 graduations de valeur à gauche (A2) : mi-hauteur et sommet de l'échelle —
         jamais « 0 » (ligne de base implicite, pas étiquetée sur la maquette)."""
         grid_pen = QPen(QColor(COLORS["bg_hover"])); grid_pen.setWidthF(1)
-        label_pen = QPen(QColor(COLORS["text_dim"]))
+        label_pen = QPen(QColor(COLORS["text_muted"]))
         painter.setFont(QFont(FONT_MONO, 8))
         axis_max = self._max_value()
         for frac in (0.0, 0.5, 1.0):
@@ -224,6 +224,118 @@ def _smooth_path(points: list[QPointF]) -> QPainterPath:
         c2 = QPointF(p2.x() - (p3.x() - p1.x()) / 6, p2.y() - (p3.y() - p1.y()) / 6)
         path.cubicTo(c1, c2, p2)
     return path
+
+
+_DAY_ABBR = ["lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."]
+
+
+class _TimeAxis(QWidget):
+    """Axe du temps commun sous les 3 graphiques (A3) — mêmes marges gauche/droite que
+    _TimeSeriesChart._plot_rect() pour un alignement x exact avec leurs points. Jamais une
+    mesure indépendante : affiche seulement les timestamps déjà chargés par
+    ResourcesView.refresh(), convertis au fuseau réglé (A4, ui.time_display). Se synchronise au
+    même signal hovered/hover_left que les 3 graphiques (voir ResourcesView._on_chart_hover),
+    sans en émettre lui-même — l'axe ne déclenche jamais le survol, il le suit."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._timestamps: list[datetime] = []
+        self._crosshair_index: int | None = None
+        self.setFixedHeight(20)
+
+    def set_data(self, timestamps: list[datetime]) -> None:
+        self._timestamps = timestamps
+        self.update()
+
+    def set_crosshair(self, index: int | None) -> None:
+        if index != self._crosshair_index:
+            self._crosshair_index = index
+            self.update()
+
+    # ── Géométrie (même patron que _TimeSeriesChart) ──
+
+    def _plot_rect(self) -> QRectF:
+        return QRectF(
+            _MARGIN_LEFT, 0,
+            max(0.0, self.width() - _MARGIN_LEFT - _MARGIN_RIGHT),
+            self.height(),
+        )
+
+    def _x_at(self, index: int) -> float:
+        plot = self._plot_rect()
+        n = len(self._timestamps)
+        return plot.left() if n <= 1 else plot.left() + (index / (n - 1)) * plot.width()
+
+    def _is_multiday(self) -> bool:
+        if len(self._timestamps) < 2:
+            return False
+        return (self._timestamps[-1] - self._timestamps[0]) >= timedelta(hours=36)
+
+    def _tick_indices(self) -> list[int]:
+        """Un index par graduation voulue : un par jour calendaire (fuseau réglé) sur une plage
+        multi-jours (7j), sinon un par pas d'heures « rond » choisi selon la durée totale
+        couverte (3h en 24h, comme la fiche le prescrit ; 1h/6h ne sont précisées par aucune
+        maquette — pas de valeur « ronde » à reprendre, choix de jugement signalé dans la note
+        d'impact). Le premier échantillon n'est JAMAIS une graduation forcée : il tombe presque
+        toujours au milieu d'un pas (la fenêtre glisse en continu, pas alignée sur une limite
+        ronde), ce qui collait sinon un libellé juste à côté du suivant, à peine quelques
+        minutes plus loin (chevauchement constaté à l'écran) — seul un changement de case entre
+        deux échantillons CONSÉCUTIFS compte comme une graduation."""
+        n = len(self._timestamps)
+        if n < 2:
+            return []
+        local = [to_display(t) for t in self._timestamps]
+        if self._is_multiday():
+            bucket_of = lambda dt: dt.date()
+        else:
+            hours = (self._timestamps[-1] - self._timestamps[0]).total_seconds() / 3600
+            step_minutes = 180 if hours > 8 else (60 if hours > 2 else 15)
+            bucket_of = lambda dt: (dt.hour * 60 + dt.minute) // step_minutes
+
+        indices = []
+        previous_bucket = bucket_of(local[0])
+        for i in range(1, n):
+            bucket = bucket_of(local[i])
+            if bucket != previous_bucket:
+                indices.append(i)
+                previous_bucket = bucket
+        return indices
+
+    def _label_for(self, dt: datetime) -> str:
+        return f"{_DAY_ABBR[dt.weekday()]} {dt.day}" if self._is_multiday() else dt.strftime("%H:%M")
+
+    # ── Rendu ──────────────────────────────────────
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        plot = self._plot_rect()
+
+        painter.setFont(QFont(FONT_MONO, 8))
+        painter.setPen(QColor(COLORS["text_muted"]))
+        for i in self._tick_indices():
+            x = self._x_at(i)
+            label = self._label_for(to_display(self._timestamps[i]))
+            painter.drawText(QRectF(x - 30, 2, 60, 16), Qt.AlignCenter, label)
+
+        if self._crosshair_index is not None and self._timestamps:
+            idx = max(0, min(len(self._timestamps) - 1, self._crosshair_index))
+            x = self._x_at(idx)
+            text = to_display(self._timestamps[idx]).strftime("%H:%M")
+
+            # Étiquette blanche de l'heure survolée (A3, Ressources-survol.html : <rect fill=
+            # "#f2efeb"/><text fill="#141210">) — mêmes clés COLORS que le reste de l'appli,
+            # jamais une couleur en dur, même si le résultat visuel est un encart clair isolé.
+            painter.setFont(QFont(FONT_MONO, 9, QFont.DemiBold))
+            width = painter.fontMetrics().horizontalAdvance(text) + 12
+            rect = QRectF(min(max(x - width / 2, plot.left()), plot.right() - width), 1, width, 17)
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(COLORS["text_main"]))
+            painter.drawRoundedRect(rect, 4, 4)
+            painter.setPen(QColor(COLORS["bg_main"]))
+            painter.drawText(rect, Qt.AlignCenter, text)
+
+        painter.end()
 
 
 class ResourcesView(QWidget):
@@ -306,6 +418,9 @@ class ResourcesView(QWidget):
         charts_layout.addWidget(self._chart_title_row("Pipelines en cours", _COLOR_COUNT, "latest_count"))
         charts_layout.addWidget(self._chart_count)
 
+        self._time_axis = _TimeAxis()
+        charts_layout.addWidget(self._time_axis)
+
         for chart in self._charts:
             chart.hovered.connect(self._on_chart_hover)
             chart.hover_left.connect(self._on_chart_hover_left)
@@ -370,10 +485,16 @@ class ResourcesView(QWidget):
         label.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11.5px; font-weight: 600;")
         layout.addWidget(label)
         layout.addStretch()
+        # Valeur + qualificatif séparés (A5) — "3 %  maintenant" au repos, "90 %  à l'instant
+        # survolé" pendant un survol (Ressources-survol.html : 2 <span> de styles distincts).
         latest = QLabel("")
-        latest.setStyleSheet(f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 12px;")
+        latest.setStyleSheet(f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 12.5px; font-weight: 600;")
         layout.addWidget(latest)
+        qualifier = QLabel("")
+        qualifier.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11px;")
+        layout.addWidget(qualifier)
         setattr(self, f"_lbl_{latest_attr}", latest)
+        setattr(self, f"_lbl_{latest_attr}_qual", qualifier)
         return row
 
     # ── Plage temporelle ───────────────────────
@@ -412,10 +533,14 @@ class ResourcesView(QWidget):
         self._chart_cpu.set_data(cpu_values)
         self._chart_ram.set_data(ram_values)
         self._chart_count.set_data(count_values)
+        self._time_axis.set_data([s.timestamp for s in self._samples])
 
-        self._lbl_latest_cpu.setText(f"{cpu_values[-1]:.0f} %" if cpu_values else "—")
-        self._lbl_latest_ram.setText(f"{ram_values[-1]:.0f} Mo" if ram_values else "—")
-        self._lbl_latest_count.setText(f"{count_values[-1]} en cours" if count_values else "—")
+        self._latest_chart_texts = (
+            f"{cpu_values[-1]:.0f} %" if cpu_values else "—",
+            f"{ram_values[-1]:.0f} Mo" if ram_values else "—",
+            f"{count_values[-1]} en cours" if count_values else "—",
+        )
+        self._show_latest_chart_values()
 
         # Lecture seule d'un int (len() sur un dict) — pas besoin du verrou réel de
         # core.pipeline._active_runs_lock, juste utilisé ici pour affichage.
@@ -440,17 +565,44 @@ class ResourcesView(QWidget):
             and (r.finished_at is None or r.finished_at >= instant)
         ]
 
+    # ── Titre de graphique : valeur survolée vs dernière valeur (A5) ──
+
+    def _show_latest_chart_values(self):
+        """État de repos des titres de graphique — dernière valeur connue, qualificatif
+        « maintenant ». Mémorisé par refresh() (`_latest_chart_texts`) plutôt que recalculé ici,
+        pour revenir à l'identique après un survol sans requêter la base à nouveau."""
+        cpu_text, ram_text, count_text = self._latest_chart_texts
+        self._lbl_latest_cpu.setText(cpu_text)
+        self._lbl_latest_cpu_qual.setText("maintenant")
+        self._lbl_latest_ram.setText(ram_text)
+        self._lbl_latest_ram_qual.setText("maintenant")
+        self._lbl_latest_count.setText(count_text)
+        self._lbl_latest_count_qual.setText("maintenant")
+
+    def _show_hovered_chart_values(self, sample) -> None:
+        self._lbl_latest_cpu.setText(f"{sample.cpu_percent:.0f} %")
+        self._lbl_latest_cpu_qual.setText("à l'instant survolé")
+        self._lbl_latest_ram.setText(f"{sample.memory_mb:.0f} Mo")
+        self._lbl_latest_ram_qual.setText("à l'instant survolé")
+        self._lbl_latest_count.setText(f"{self._running_count_at(sample.timestamp)} en cours")
+        self._lbl_latest_count_qual.setText("à l'instant survolé")
+
     # ── Curseur synchronisé + panneau de corrélation ──
 
     def _on_chart_hover(self, index: int):
         for chart in self._charts:
             chart.set_crosshair(index)
+        self._time_axis.set_crosshair(index)
         if 0 <= index < len(self._samples):
-            self._update_correlate_panel(self._samples[index].timestamp)
+            sample = self._samples[index]
+            self._show_hovered_chart_values(sample)
+            self._update_correlate_panel(sample.timestamp)
 
     def _on_chart_hover_left(self):
         for chart in self._charts:
             chart.set_crosshair(None)
+        self._time_axis.set_crosshair(None)
+        self._show_latest_chart_values()
         self._clear_correlate_panel()
 
     def _clear_correlate_panel(self):
