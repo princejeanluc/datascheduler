@@ -325,3 +325,21 @@ def test_resources_view_chart_title_restores_maintenant_after_hover_left(qapp, t
     # Revient à la DERNIÈRE valeur (77 %), pas à celle qui était survolée (12 %).
     assert view._lbl_latest_cpu.text() == "77 %"
     assert view._lbl_latest_cpu_qual.text() == "maintenant"
+
+
+# ── A6 : ligne pointillée du plafond ────────────────────────────────────────
+
+def test_resources_view_sets_reference_line_from_max_concurrent_runs(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=5.0, memory_mb=150.0)
+    db.update_app_settings(max_concurrent_runs=9)
+
+    view = ResourcesView()
+    view.refresh()
+
+    assert view._chart_count._reference_value == 9
+    assert view._chart_count._reference_label == "plafond 9"
+    # Seul le graphique "pipelines en cours" porte la référence (A6) — jamais CPU/RAM.
+    assert view._chart_cpu._reference_value is None
+    assert view._chart_ram._reference_value is None

@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 
-from ui.styles import COLORS, FONT_MONO
+from ui.styles import COLORS, FONT_MONO, FONT_UI
 from ui.time_display import fmt_datetime, fmt_time, to_display
 from ui.components import make_page_header
 from .widgets import StatCard
@@ -152,6 +152,7 @@ class _TimeSeriesChart(QWidget):
         plot = self._plot_rect()
 
         self._draw_grid(painter, plot)
+        self._draw_reference(painter, plot)
 
         if len(self._values) >= 2:
             points = [self._point_at(i) for i in range(len(self._values))]
@@ -196,6 +197,24 @@ class _TimeSeriesChart(QWidget):
                 painter.setPen(label_pen)
                 label_rect = QRectF(0, y - 7, _MARGIN_LEFT - 8, 14)
                 painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, f"{axis_max * frac:.0f}")
+
+    def _draw_reference(self, painter: QPainter, plot: QRectF) -> None:
+        """Ligne pointillée du plafond d'exécutions simultanées (A6, "Pipelines en cours"
+        uniquement — set_reference() reste inerte/None pour CPU et RAM). Reprend exactement le
+        style de la maquette (Ressources.html) : trait text_dim en tirets, libellé « plafond N »
+        en Plex Sans (pas Mono, contrairement au reste du graphique) juste au-dessus."""
+        if self._reference_value is None:
+            return
+        y = plot.bottom() - (self._reference_value / self._max_value()) * plot.height()
+        dash_pen = QPen(QColor(COLORS["text_dim"]), 1)
+        dash_pen.setDashPattern([4, 4])
+        painter.setPen(dash_pen)
+        painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
+        if self._reference_label:
+            painter.setPen(QColor(COLORS["text_dim"]))
+            painter.setFont(QFont(FONT_UI, 8))
+            label_rect = QRectF(plot.right() - 120, y - 16, 120, 14)
+            painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, self._reference_label)
 
     # ── Survol ─────────────────────────────────────
 
@@ -546,6 +565,7 @@ class ResourcesView(QWidget):
         # core.pipeline._active_runs_lock, juste utilisé ici pour affichage.
         running_now = len(pipeline_module._active_runs)
         max_concurrent = db.get_app_settings().max_concurrent_runs
+        self._chart_count.set_reference(max_concurrent, f"plafond {max_concurrent}")
         self._card_running.set_value(f"{running_now} / {max_concurrent}")
         self._card_peak_cpu.set_value(f"{max(cpu_values, default=0):.0f} %")
         self._card_memory.set_value(f"{ram_values[-1]:.0f} Mo" if ram_values else "—")
