@@ -59,6 +59,18 @@ _BADGE_INFO = {
 }
 
 
+def _hide_before_first_show(widget):
+    """setVisible(False) sans danger sur un widget jamais encore affiché. Un widget masqué avant
+    d'avoir jamais traversé une passe de mise en page garde la géométrie par défaut de Qt
+    (0,0,640,480) — un layout n'y touche plus une fois masqué, il ne la corrigera jamais tout
+    seul. QWidget.grab() a été constaté fuyant ce rectangle resté par défaut dans la capture
+    malgré isVisible()==False (bug réel, reproduit et corrigé, pas une supposition). Un
+    redimensionnement minimal avant le masquage suffit : une fois rendu visible plus tard, le
+    layout reprend la main et lui donne sa vraie taille normalement."""
+    widget.resize(1, 1)
+    widget.setVisible(False)
+
+
 def _highlight(text: str, query: str) -> str:
     """Rich text (A5, Parametres-recherche.html) : entoure chaque occurrence de `query` (recherche
     insensible à la casse, casse d'origine du texte préservée) d'un <mark>. Sans query, renvoie le
@@ -167,7 +179,8 @@ class SettingsView(QWidget):
         rail_footer = QLabel(
             "Réglages enregistrés pour ce poste, dans la base locale de Kulu.")
         rail_footer.setWordWrap(True)
-        rail_footer.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11.5px;")
+        rail_footer.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 11.5px; background: transparent;")
         rail_layout.addWidget(rail_footer)
         return rail
 
@@ -184,16 +197,23 @@ class SettingsView(QWidget):
         layout.setContentsMargins(10, 0, 10, 0)
         layout.setSpacing(10)
 
+        # background: transparent sur chaque QLabel : sans lui, la règle globale `QWidget {
+        # background-color: bg_main }` (widgets.py::GLOBAL_STYLE) peint un rectangle opaque
+        # bg_main derrière le texte, visible comme un encart sombre dès que la ligne elle-même a
+        # un fond différent (bg_active ici) — bug constaté à l'écran, reproduit isolément.
         icon_lbl = QLabel()
         icon_lbl.setFixedWidth(18)
+        icon_lbl.setStyleSheet("background: transparent;")
         layout.addWidget(icon_lbl, alignment=Qt.AlignVCenter)
 
         text_col = QVBoxLayout(); text_col.setSpacing(1)
         name_lbl = QLabel(cat["label"])
-        name_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13.5px; font-weight: 600;")
+        name_lbl.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 13.5px; font-weight: 600; "
+            f"background: transparent;")
         text_col.addWidget(name_lbl)
         sub_lbl = QLabel()
-        sub_lbl.setStyleSheet(f"color: {COLORS['text_dim']};")
+        sub_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; background: transparent;")
         sub_font = sub_lbl.font(); sub_font.setPixelSize(12)
         sub_lbl.setFont(sub_font)
         sub_lbl.setFixedWidth(_CATEGORY_SUB_WIDTH)
@@ -204,8 +224,16 @@ class SettingsView(QWidget):
         layout.addLayout(text_col, 1)
 
         count_lbl = QLabel("")
+        # Taille fixe explicite : un QLabel masqué via setVisible(False) avant d'avoir jamais été
+        # affiché garde sa géométrie Qt par défaut (0,0,640,480) — un vrai bug de rendu Qt/
+        # plateforme offscreen a été constaté avec QWidget.grab() : ce widget masqué "depuis sa
+        # naissance" fuyait un rectangle visible dans la capture malgré isVisible()==False. Une
+        # taille raisonnable fixée dès la construction élimine le problème (vérifié).
+        count_lbl.setFixedSize(26, 16)
+        count_lbl.setAlignment(Qt.AlignCenter)
         count_lbl.setStyleSheet(
-            f"color: {COLORS['signal_pale']}; font-size: 11px; font-family: {FONT_MONO_STACK};"
+            f"color: {COLORS['signal_pale']}; font-size: 11px; font-family: {FONT_MONO_STACK}; "
+            f"background: transparent;"
         )
         count_lbl.setVisible(False)
         layout.addWidget(count_lbl, alignment=Qt.AlignVCenter)
@@ -231,13 +259,20 @@ class SettingsView(QWidget):
         col.setSpacing(0)
 
         title_wrap = QWidget()
-        title_wrap.setStyleSheet(f"border-bottom: 1px solid {COLORS['border']};")
+        title_wrap.setObjectName("settings_title_wrap")
+        # Sélecteur d'ID, pas une règle nue : une règle `widget.setStyleSheet("...")` sans
+        # sélecteur se propage à TOUS les descendants pour les propriétés qu'ils ne fixent pas
+        # eux-mêmes (confirmé isolément) — ici "border-bottom" aurait pu déteindre, et ailleurs
+        # (footer_wrap) une règle nue a bien écrasé le fond du bouton Enregistrer (bug constaté).
+        title_wrap.setStyleSheet(
+            f"QWidget#settings_title_wrap {{ border-bottom: 1px solid {COLORS['border']}; }}")
         self._detail_title = QLabel()
         self._detail_title.setStyleSheet(
             f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['panel_title']}px; font-weight: 600; "
-            f"border: none;")
+            f"border: none; background: transparent;")
         self._detail_sub = QLabel()
-        self._detail_sub.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12.5px; border: none;")
+        self._detail_sub.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12.5px; border: none; background: transparent;")
         self._detail_sub.setWordWrap(True)
 
         title_block = QVBoxLayout(title_wrap)
@@ -249,9 +284,10 @@ class SettingsView(QWidget):
 
         self._search_help_lbl = QLabel("")
         self._search_help_lbl.setTextFormat(Qt.RichText)
-        self._search_help_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._search_help_lbl.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent;")
         self._search_help_lbl.setContentsMargins(20, 0, 20, 6)
-        self._search_help_lbl.setVisible(False)
+        _hide_before_first_show(self._search_help_lbl)
         col.addWidget(self._search_help_lbl)
 
         self._failure_banner = self._build_failure_banner()
@@ -281,22 +317,28 @@ class SettingsView(QWidget):
         self._rows_layout.addStretch()
 
         footer_wrap = QWidget()
+        footer_wrap.setObjectName("settings_footer")
+        # Sélecteur d'ID, pas une règle nue : confirmé isolément qu'une règle nue ("background: ...")
+        # posée sur ce conteneur écrasait le fond accent du QPushButton#Enregistrer (règle globale
+        # `QPushButton { background-color: accent }` de widgets.py) — le bouton rendait plat, sans
+        # son fond orange, exactement le bug signalé à l'écran.
         footer_wrap.setStyleSheet(
-            f"background: {COLORS['bg_panel']}; border-top: 1px solid {COLORS['border']}; "
-            f"border-radius: 0 0 10px 10px;"
+            f"QWidget#settings_footer {{ background: {COLORS['bg_panel']}; "
+            f"border-top: 1px solid {COLORS['border']}; border-radius: 0 0 10px 10px; }}"
         )
         footer = QHBoxLayout(footer_wrap)
         footer.setContentsMargins(20, 10, 20, 10)
         footer.setSpacing(12)
         self._save_status_lbl = QLabel("")
         self._save_status_lbl.setStyleSheet(
-            f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; border: none;")
+            f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; border: none; "
+            f"background: transparent;")
         footer.addWidget(self._save_status_lbl)
         footer.addStretch()
         ctrl_s_hint = QLabel("Ctrl S")
         ctrl_s_hint.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 11px; font-family: {FONT_MONO_STACK}; "
-            f"border: none;")
+            f"border: none; background: transparent;")
         footer.addWidget(ctrl_s_hint)
         btn_save = QPushButton("Enregistrer")
         btn_save.setFixedHeight(34); btn_save.setMinimumWidth(140)
@@ -324,7 +366,7 @@ class SettingsView(QWidget):
             "créer une tâche planifiée à l'ouverture de session.",
             actions=btn_fermer,
         )
-        banner.setVisible(False)
+        _hide_before_first_show(banner)
         return banner
 
     def _add_row(self, category: str, label: str, desc: str, widget, badge: str | None = None):
@@ -336,7 +378,7 @@ class SettingsView(QWidget):
         text_col = QVBoxLayout(); text_col.setSpacing(3)
         chip = make_info_pill(next(c["label"] for c in _CATEGORIES if c["key"] == category),
                                variant="info")
-        chip.setVisible(False)
+        _hide_before_first_show(chip)
         # alignment=Qt.AlignLeft : sans lui, QVBoxLayout étire le QLabel (fond plein) sur toute
         # la largeur de la colonne — invisible avec l'ancien style (pas de fond), mais flagrant
         # avec le fond de make_info_pill (bug révélé, pas introduit, par ce changement).
@@ -346,7 +388,8 @@ class SettingsView(QWidget):
         lbl = QLabel(label)
         lbl.setTextFormat(Qt.RichText)
         lbl.setStyleSheet(
-            f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['row_label']}px; font-weight: 600;")
+            f"color: {COLORS['text_main']}; font-size: {FONT_SIZES['row_label']}px; font-weight: 600; "
+            f"background: transparent;")
         label_row.addWidget(lbl)
         if badge:
             variant, tooltip = _BADGE_INFO[badge]
@@ -363,7 +406,8 @@ class SettingsView(QWidget):
             desc_lbl = QLabel(desc)
             desc_lbl.setTextFormat(Qt.RichText)
             desc_lbl.setWordWrap(True)
-            desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12.5px;")
+            desc_lbl.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 12.5px; background: transparent;")
             text_col.addWidget(desc_lbl)
 
         row_layout.addLayout(text_col, stretch=1)
@@ -445,7 +489,8 @@ class SettingsView(QWidget):
         self.lbl_worker_status = QLabel("Sans objet en mode « Dans l'application seulement »")
         self.lbl_worker_status.setTextFormat(Qt.RichText)
         self.lbl_worker_status.setWordWrap(True)   # texte plus long que "—" : ne pas le tronquer
-        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
+        self.lbl_worker_status.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 12px; background: transparent;")
         self._add_row("scheduler", "État du worker en arrière-plan",
                        "Déduit du dernier échantillon de ressources, que le worker écrit en "
                        "continu.", self.lbl_worker_status)
@@ -626,7 +671,8 @@ class SettingsView(QWidget):
         settings = db.get_app_settings()
         if settings.execution_mode != "BACKGROUND":
             self.lbl_worker_status.setText("Sans objet en mode « Dans l'application seulement »")
-            self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
+            self.lbl_worker_status.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: 12px; background: transparent;")
             return
 
         sample = db.get_latest_resource_sample()
@@ -646,7 +692,8 @@ class SettingsView(QWidget):
         """Point coloré en rich text (A6) — même patron que
         dashboard_view.py::_set_legend_text, pas un nouveau composant."""
         self.lbl_worker_status.setText(f'<span style="color:{color};">●</span>&nbsp;{text}')
-        self.lbl_worker_status.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 12px;")
+        self.lbl_worker_status.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; background: transparent;")
 
     # ── Navigation catégories / recherche ─────
 
@@ -722,9 +769,18 @@ class SettingsView(QWidget):
 
         total = sum(counts.values())
         n_categories = sum(1 for c in counts.values() if c)
+        # background-color, pas border : le sous-ensemble de rich text de Qt (QLabel) n'applique
+        # pas "border" sur un <span> inline (confirmé isolément, même famille de limite que <mark>
+        # non supporté) — un fond discret rend la même intention de "touche" que la bordure de la
+        # maquette, sans la garder invisible à l'écran.
+        # Attribut style en quotes simples : FONT_MONO_STACK contient des guillemets doubles
+        # ("JetBrains Mono", "Consolas", monospace) qui, dans un attribut style="..." en
+        # guillemets doubles, terminaient l'attribut prématurément après `font-family:"` — tout le
+        # reste (dont background-color) devenait du texte d'attribut invalide, jamais appliqué.
+        # Confirmé en isolant le rendu (fond invisible malgré une balise correcte en apparence).
         escape_hint = (
-            f'<span style="font-family:{FONT_MONO_STACK}; font-size:10.5px; '
-            f'border:1px solid {COLORS["border"]}; border-radius:4px; padding:0 5px;">Échap</span>'
+            f"<span style='font-family:{FONT_MONO_STACK}; font-size:10.5px; "
+            f"background-color:{COLORS['border']}; border-radius:4px; padding:1px 5px;'>Échap</span>"
         )
         self._search_help_lbl.setText(
             f"{total} réglage{'s' if total > 1 else ''} dans {n_categories} "
@@ -854,7 +910,8 @@ class SettingsView(QWidget):
         # tout risque de blocage en environnement offscreen (tests) où rien ne clique le bouton.
         if background_activation_failed:
             self._save_status_lbl.setStyleSheet(
-                f"color: {COLORS['danger']}; font-size: 12px; font-weight: 600;")
+                f"color: {COLORS['danger']}; font-size: 12px; font-weight: 600; "
+                f"border: none; background: transparent;")
             self._save_status_lbl.setText(
                 "Échec de l'activation du mode arrière-plan (accès refusé) — contactez votre "
                 "support informatique. Le mode « Dans l'application seulement » reste actif."
@@ -862,7 +919,8 @@ class SettingsView(QWidget):
             QTimer.singleShot(10000, lambda: self._save_status_lbl.setText(""))
         else:
             self._save_status_lbl.setStyleSheet(
-                f"color: {COLORS['success']}; font-size: 12px; font-weight: 600;")
+                f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; "
+                f"border: none; background: transparent;")
             self._save_status_lbl.setText(
                 "Enregistré ✓ — certains réglages ne prennent effet qu'au prochain redémarrage.")
             QTimer.singleShot(4000, lambda: self._save_status_lbl.setText(""))

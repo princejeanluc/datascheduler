@@ -97,9 +97,26 @@ commits de ce lot, aucune migration à défaire.
    `role="switch"` sur la maquette, sans badge « proposé ») — construit dans ce lot
    (`ui/components/switch.py`), contrairement à la lecture initiale qui l'avait classé « sans
    consommateur, différé ».
-7. **Artefact visuel résiduel** : un très léger changement de teinte est visible au zoom sur le
-   bord droit de la ligne de catégorie active (capture au-delà de la résolution native). Investigué
-   en profondeur (geométrie de widgets masqués, `border-radius`, règles `:hover`, dépassement de
-   largeur du contenu, cache de style Qt, effets graphiques, tooltips — tous exclus un par un,
-   chacun confirmé non responsable par un test isolé) sans en trouver la cause exacte. Non bloquant
-   (REGLES.md : pixel-exact non exigé), signalé pour trace plutôt que masqué.
+7. **Artefact visuel résiduel (corrigé après relecture utilisateur)** : la première version de la
+   PR laissait un encart sombre visible derrière le texte de la ligne de catégorie active
+   (icône, nom, sous-titre) — signalé par l'utilisateur avec une capture, en plus d'un bouton
+   « Enregistrer » sans son fond accent. Cause racine identifiée et reproduite isolément (script
+   jetable, pixel-sampling) : la règle globale `QWidget { background-color: bg_main }`
+   (`widgets.py::GLOBAL_STYLE`) peint un rectangle opaque derrière CHAQUE `QLabel` qui ne déclare
+   pas son propre `background: transparent` — invisible tant que le label est posé sur `bg_main`
+   ou une teinte proche (`bg_panel`), flagrant dès qu'il est posé sur une teinte contrastée
+   (`bg_active`, le rail actif). Deuxième mécanisme trouvé par la même méthode : une règle QSS
+   posée via `setStyleSheet()` SANS sélecteur sur un conteneur (`footer_wrap`, `title_wrap`) se
+   propage à ses descendants pour les propriétés qu'ils ne fixent pas eux-mêmes — `footer_wrap`
+   écrasait ainsi le fond accent du bouton Enregistrer (règle globale `QPushButton { background-
+   color: accent }`, de spécificité pourtant plus précise mais d'origine plus basse). Corrigé en
+   ajoutant `background: transparent` à chaque `QLabel` du rail et du panneau, et en scopant
+   `footer_wrap`/`title_wrap` à un sélecteur d'ID (même traitement que `settings_panel`/
+   `category_row` au lot précédent). Troisième bug trouvé par la même relecture : l'indice
+   « Échap » de la ligne d'aide de recherche (A5) restait invisible malgré un `<span
+   style="background-color:...">` apparemment correct — `FONT_MONO_STACK` contient des guillemets
+   doubles intégrés, qui terminaient prématurément l'attribut `style="..."` lui-même en
+   guillemets doubles ; corrigé en guillemets simples pour cet attribut HTML. L'« artefact visuel
+   résiduel » documenté précédemment comme non résolu (bord droit de la ligne active) était la
+   même cause racine que le premier bug — confirmé disparu une fois la correction appliquée,
+   plutôt qu'une limite de rendu Qt distincte comme supposé initialement.
