@@ -31,6 +31,19 @@ def test_export_dialog_opens_without_error(qapp):
     assert dlg.inp_password.text() == ""
 
 
+def test_export_dialog_shows_surtitle_name_and_intro_text(qapp):
+    """A12 : surtitre "EXPORTER" + nom seul (pas "Exporter « nom »" en un seul label) + texte
+    d'aide de la maquette — pas de section "LE FICHIER CONTIENDRA" (C11, gated)."""
+    from PySide6.QtWidgets import QLabel
+
+    dlg = PipelineExportDialog(None, pipeline=_FakePipeline())
+    labels = [lbl.text() for lbl in dlg.findChildren(QLabel)]
+    assert "EXPORTER" in labels
+    assert "Mon pipeline" in labels
+    assert "Un fichier .dspipeline à rouvrir dans un autre Kulu." in labels
+    assert not any("LE FICHIER CONTIENDRA" in t for t in labels)
+
+
 def test_import_password_dialog_opens_without_error(qapp):
     dlg = PipelineImportPasswordDialog(None)
     assert dlg.windowTitle()
