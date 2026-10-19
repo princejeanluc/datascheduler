@@ -12,9 +12,10 @@ from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
 from ui.time_display import fmt_datetime_local
+from ui.components import make_page_header
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
-    _make_empty_label, _make_title, _make_subtitle, _STATUS_BADGE, _status_str,
+    _make_empty_label, _make_button_with_hint, _STATUS_BADGE, _status_str,
     _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail,
 )
 
@@ -43,29 +44,37 @@ class PipelinesView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        header = QHBoxLayout()
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(_make_title("Pipelines"))
-        title_col.addWidget(_make_subtitle("Orchestration flexible par étapes"))
-        header.addLayout(title_col); header.addStretch()
-        self.inp_search = _make_search_input("Rechercher un pipeline…  (Ctrl+N : nouveau)")
-        self.inp_search.textChanged.connect(self._on_search_changed)
-        header.addWidget(self.inp_search)
+        # A1 : en-tête via make_page_header (cohérence avec Paramètres/Ressources/Aujourd'hui) —
+        # surtitre dynamique "N PIPELINES · M ACTIFS" tenu à jour dans refresh() (make_page_header
+        # ne renvoie pas de référence à son surtitre, cherché une fois ici par objectName — même
+        # patron que dashboard_view.py).
         btn_import = QPushButton("  Importer"); btn_import.setObjectName("secondary")
         btn_import.setFixedHeight(36)
         btn_import.setIcon(_icon("fa5s.file-import", COLORS["text_main"]))
         btn_import.setIconSize(QSize(13, 13))
         btn_import.clicked.connect(self._on_import_pipeline)
-        header.addWidget(btn_import)
-        btn_new = QPushButton("  Nouveau pipeline"); btn_new.setFixedHeight(36)
-        btn_new.setIcon(_icon("fa5s.plus", "#000000")); btn_new.setIconSize(QSize(13, 13))
+
+        # Le raccourci "Ctrl N" quitte le placeholder de la recherche (A1) pour s'afficher
+        # directement sur le bouton — QPushButton ne pouvant pas mélanger deux styles de texte
+        # dans un seul widget, voir _make_button_with_hint (widgets.py).
+        btn_new = _make_button_with_hint(
+            "+ Nouveau pipeline", "Ctrl N", on_click=self._on_new_pipeline,
+        )
         btn_new.setToolTip(
             "Juste un nom, puis directement l'éditeur graphique — planification/déclenchement/"
             "actif restent modifiables ensuite via « Paramètres »."
         )
-        btn_new.clicked.connect(self._on_new_pipeline)
-        header.addWidget(btn_new)
-        layout.addLayout(header)
+
+        header = make_page_header("", "Pipelines", actions=[btn_import, btn_new])
+        self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
+        layout.addWidget(header)
+
+        self.inp_search = _make_search_input("Rechercher un pipeline…")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.inp_search)
+        search_row.addStretch()
+        layout.addLayout(search_row)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -129,6 +138,13 @@ class PipelinesView(QWidget):
         ordered = _ordered_with_chains(pipelines)
         step_labels = db.get_running_step_labels()
         self._pipeline_ids = [p.id for p, _depth in ordered]
+
+        n_total = len(pipelines)
+        n_active = sum(1 for p in pipelines if p.is_active)
+        self._eyebrow_lbl.setText(
+            f"{n_total} PIPELINE{'S' if n_total != 1 else ''} · "
+            f"{n_active} ACTIF{'S' if n_active != 1 else ''}"
+        )
         self.table.setVisible(bool(pipelines))
         self._empty_label.setVisible(not pipelines)
         self.table.setRowCount(len(ordered))
