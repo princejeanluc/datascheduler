@@ -24,7 +24,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QDialog
 
 from ui.fonts import register_app_fonts
 from ui.main_window.widgets import GLOBAL_STYLE
@@ -128,8 +128,141 @@ def _resources_view_7j():
 
 
 def _dashboard_view():
+    """Capturée avant toute création de pipeline dans le registre (ordre ci-dessous) : base
+    encore vide -> état "Aujourdhui-premier" (A12)."""
     from ui.main_window.dashboard_view import DashboardView
     return DashboardView()
+
+
+def _dashboard_seed_main_state():
+    """Échec actif + pipeline manqué + run réussi du jour (Aujourdhui, critère d'acceptation :
+    "avec un échec, un manqué et des runs du jour"). Pipelines dédiés à cette fabrique (noms
+    "-capture"), jamais réutilisés par les fabriques suivantes — même principe d'indépendance que
+    les fabriques ressources* (chacune ajoute ses propres échantillons)."""
+    from datetime import datetime, timedelta
+    from database.models import Pipeline
+    from core import missed_runs
+
+    failing = db.create_pipeline(name="export-ventes-quotidien")
+    db.save_steps(failing.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire les ventes",
+        "config": {"_step_key": "step-1"}, "retry_count": 2,
+    }])
+    run = db.create_run(failing.id)
+    db.finish_run(run.id, "FAILED", error_message="ORA-12541: TNS:no listener",
+                   failed_step_key="step-1")
+    with db.get_session() as s:
+        s.get(Pipeline, failing.id).last_status = "FAILED"
+
+    missed_pipeline = db.create_pipeline(name="synchro-stock-matinale")
+    missed_runs._pending[missed_pipeline.id] = {
+        "pipeline_id": missed_pipeline.id, "name": missed_pipeline.name,
+        "expected_at": datetime.utcnow() - timedelta(hours=3), "late_minutes": 180,
+    }
+
+    healthy = db.create_pipeline(name="depot-rapport-mensuel")
+    ok_run = db.create_run(healthy.id)
+    db.finish_run(ok_run.id, "SUCCESS")
+    with db.get_session() as s:
+        s.get(Pipeline, healthy.id).last_status = "SUCCESS"
+
+
+def _dashboard_view_avec_donnees():
+    from ui.main_window.dashboard_view import DashboardView
+    _dashboard_seed_main_state()
+    return DashboardView()
+
+
+def _settle_side_panel(view):
+    """Même technique que tests/test_side_panel.py (voir son historique) : saute à la fin de
+    l'animation de glissement plutôt que d'attendre en temps réel, pour une capture déterministe
+    du panneau déjà ouvert plutôt que mi-course."""
+    app = QApplication.instance()
+    view._side_panel._anim.setCurrentTime(view._side_panel._anim.duration())
+    app.processEvents()
+
+
+def _dashboard_view_execution():
+    """A9 : panneau latéral d'une exécution en échec (Aujourdhui-execution)."""
+    from database.models import Pipeline
+    from ui.main_window.dashboard_view import DashboardView
+
+    pipeline = db.create_pipeline(name="export-devises-capture")
+    db.save_steps(pipeline.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire les taux",
+        "config": {"_step_key": "step-1"}, "retry_count": 1,
+    }])
+    run = db.create_run(pipeline.id)
+    db.finish_run(run.id, "FAILED", error_message="ConnectionError: délai dépassé (30s)",
+                   failed_step_key="step-1")
+    with db.get_session() as s:
+        s.get(Pipeline, pipeline.id).last_status = "FAILED"
+
+    view = DashboardView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._open_failure_panel(pipeline.id)
+    _settle_side_panel(view)
+    return view
+
+
+def _dashboard_view_encours():
+    """A10 : panneau latéral d'une exécution en cours (Aujourdhui-encours). `_active_runs` posé
+    avant la construction de la vue, pour que le rail MAINTENANT la reflète aussi (même ordre que
+    tests/test_dashboard_treat_column.py::test_open_running_panel_populates_and_opens_side_panel),
+    retiré en sortie de fabrique pour ne pas fausser les fabriques suivantes qui construisent
+    elles aussi une DashboardView."""
+    import threading
+    import core.pipeline as pipeline_module
+    from ui.main_window.dashboard_view import DashboardView
+
+    pipeline = db.create_pipeline(name="synchro-stock-capture")
+    run = db.create_run(pipeline.id)
+    db.update_run_progress(
+        run.id, "Étape 2/4 : Appeler l'API", "14:04:23 Démarrage requête…", "step-2",
+    )
+
+    pipeline_module._active_runs[pipeline.id] = threading.Event()
+    try:
+        view = DashboardView()
+        view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+        view.show()
+        QApplication.instance().processEvents()
+        view._open_running_panel(pipeline.id)
+        _settle_side_panel(view)
+    finally:
+        pipeline_module._active_runs.pop(pipeline.id, None)
+    return view
+
+
+def _dashboard_view_tout():
+    """Fenêtre flottante de confirmation de "Tout exécuter" (Aujourdhui-tout) : reconstruite
+    directement (même contenu que le QMessageBox.question() de _on_run_all), jamais via .exec()
+    qui bloquerait ce script — QMessageBox est un QDialog, capture_all() ne force donc pas sa
+    taille à 1440x900 (voir le test isinstance), même traitement que la fenêtre de rattrapage."""
+    from PySide6.QtWidgets import QMessageBox
+    return QMessageBox(
+        QMessageBox.Question, "Tout exécuter",
+        "Lancer 3 pipeline(s) actif(s) maintenant ?",
+        QMessageBox.Yes | QMessageBox.No,
+    )
+
+
+def _dashboard_view_rattrapage():
+    """Fenêtre de rattrapage au démarrage (Aujourdhui-rattrapage), A11 — QDialog construit
+    directement avec une liste de pipelines manqués, jamais via .exec() (bloquerait ce script).
+    Indépendante de la base (liste littérale), donc insensible à l'ordre du registre."""
+    from datetime import datetime, timedelta
+    from ui.dialogs.missed_pipelines_dialog import MissedPipelinesDialog
+
+    missed = [
+        {"pipeline_id": 1, "name": "export-ventes-quotidien",
+         "expected_at": datetime.utcnow() - timedelta(hours=3), "late_minutes": 180},
+        {"pipeline_id": 2, "name": "synchro-stock-matinale",
+         "expected_at": datetime.utcnow() - timedelta(hours=1), "late_minutes": 60},
+    ]
+    return MissedPipelinesDialog(None, missed)
 
 
 # (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue/état capturable.
@@ -152,7 +285,14 @@ REGISTRY = [
     ("ressources-7j", _resources_view_7j),
     ("ressources", _resources_view),
     ("ressources-survol", _resources_view_survol),
-    ("aujourdhui", _dashboard_view),
+    # "aujourdhui-premier" doit passer avant toute création de pipeline dans ce registre (base
+    # encore vide à ce moment -> état A12), "aujourdhui" ajoute ensuite les siens.
+    ("aujourdhui-premier", _dashboard_view),
+    ("aujourdhui", _dashboard_view_avec_donnees),
+    ("aujourdhui-execution", _dashboard_view_execution),
+    ("aujourdhui-encours", _dashboard_view_encours),
+    ("aujourdhui-tout", _dashboard_view_tout),
+    ("aujourdhui-rattrapage", _dashboard_view_rattrapage),
 ]
 
 
@@ -175,7 +315,11 @@ def capture_all(out_dir: Path) -> list[Path]:
     produced = []
     for name, build_view in REGISTRY:
         view = build_view()
-        view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+        # Aujourdhui-tout/-rattrapage (QMessageBox/QDialog, jamais des vues plein écran) :
+        # forcer 1440x900 laisserait une grande zone vide autour d'une fenêtre flottante conçue
+        # pour sa taille naturelle (REGLES.md section 6, point 3 — reste une capture "propre").
+        if not isinstance(view, QDialog):
+            view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
         view.show()
         app.processEvents()
         # show() sur une fenêtre top-level sans parent donne le focus clavier au premier widget
