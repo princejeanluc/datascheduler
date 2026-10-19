@@ -29,6 +29,27 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.50.0] - 2026-10-19
+
+### Modifié
+- **Refonte, Lot A-Pipelines** — l'écran Pipelines est aligné sur sa maquette validée : en-tête
+  avec surtitre dynamique (« N pipelines · M actifs ») et bouton « + Nouveau pipeline » affichant
+  son raccourci Ctrl N, colonne Pipeline avec description, colonne État enrichie d'une ligne de
+  détail par état (échec, réussi, en cours, manqué, inactif), colonne Forme avec les 8 dernières
+  exécutions, colonne Planification montrant la relation de déclenchement, colonne Prochaine au
+  format relatif (« demain HH:MM »), premier bouton de ligne qui s'adapte à l'état (reprendre,
+  interrompre ou lancer), menu « ⋯ » réordonné et complété (« Exécuter depuis le début »), pied de
+  liste avec légende et horodatage relatif, validation à blanc déplacée dans un panneau latéral,
+  fenêtre d'import avec bandeau à 4 étapes, nouvelle fenêtre de suppression avec dépendants et
+  historique, état vide en trois cartes.
+
+### Ajouté
+- `database/db_manager.py::count_runs` — nombre d'exécutions d'un pipeline, utilisé par la
+  nouvelle fenêtre de suppression.
+- `ui/dialogs/pipeline_delete_dialog.py` — fenêtre de confirmation de suppression dédiée.
+- `SidePanel.set_close_guard` — garde-fou optionnel bloquant la fermeture du panneau latéral
+  pendant un traitement en cours (validation à blanc).
+
 ## [0.49.0] - 2026-10-19
 
 ### Ajouté
