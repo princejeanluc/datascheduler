@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.47.0] - 2026-10-19
+
+### Modifié
+- **Refonte, Lot A-Paramètres (écran pilote)** — l'écran Paramètres est aligné sur sa maquette
+  validée : rail de gauche restylé (icône, nom, sous-titre par catégorie), interrupteurs à la
+  place des cases à cocher sur les réglages booléens, panneau de contenu en carte à bord arrondi,
+  pastille de prise d'effet sur chaque réglage (immédiat / à la prochaine ouverture / au
+  redémarrage), recherche enrichie (compteur par catégorie, catégories sans résultat estompées,
+  terme cherché surligné), bandeau persistant en cas d'échec d'activation du mode arrière-plan
+  (remplace la disparition automatique après 10s). Aucun changement de base.
+
+### Ajouté
+- Composants partagés de la refonte : pastille d'information, bandeau, interrupteur
+  (`ui/components/`).
+
 ## [0.46.7] - 2026-10-18
 
 ### Corrigé
