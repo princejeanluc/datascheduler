@@ -699,9 +699,14 @@ class DashboardView(QWidget):
     @staticmethod
     def _treat_card_frame() -> tuple[QFrame, QVBoxLayout]:
         card = QFrame()
+        # Sélecteur d'ID, pas une règle nue sur le type QFrame : QLabel hérite de QFrame en Qt,
+        # une règle nue se serait propagée à chaque QLabel enfant sans bordure propre (bug
+        # constaté sur le patron jumeau de missed_pipelines_dialog.py::_make_row — même défaut,
+        # corrigé ici avant qu'il ne se manifeste à l'écran, REGLES.md section 3).
+        card.setObjectName("treat_card")
         card.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: 10px; }}"
+            f"QFrame#treat_card {{ background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 10px; }}"
         )
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(14, 12, 14, 12)

@@ -187,3 +187,18 @@ def test_table_header_renamed_to_8_dernieres(qapp, test_db):
     headers = [view.table.horizontalHeaderItem(i).text() for i in range(view.table.columnCount())]
     assert "8 dernières" in headers
     assert "Historique" not in headers
+
+
+def test_treat_card_style_is_id_scoped_not_a_bare_rule(qapp, test_db):
+    """Régression : même bug que missed_pipelines_dialog.py::_make_row (voir son test dédié) —
+    QLabel hérite de QFrame en Qt, une règle QSS nue sur le type QFrame se propage à chaque
+    QLabel enfant. Corrigé en même temps, par précaution, avant qu'il ne se manifeste ici aussi."""
+    from ui.main_window.dashboard_view import DashboardView
+
+    pipeline, run = _fail_pipeline()
+    view = DashboardView()
+    view.refresh()
+
+    card = view._treat_cards_layout.itemAt(0).widget()
+    assert card.objectName() == "treat_card"
+    assert "QFrame#treat_card" in card.styleSheet()
