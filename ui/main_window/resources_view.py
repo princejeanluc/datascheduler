@@ -12,6 +12,7 @@ un axe temporel (jamais un seul graphique à deux échelles), curseur synchronis
 corrélation en pastilles.
 """
 
+import math
 from datetime import datetime, timedelta
 
 from PySide6.QtWidgets import (
@@ -48,7 +49,24 @@ def _interval_label(seconds: int) -> str:
 _HINT_HOVER = "Survolez un graphique pour voir le détail d'un instant."
 _HINT_NO_PIPELINE = "Aucun pipeline en cours à cet instant."
 
-_MARGIN_LEFT, _MARGIN_RIGHT, _MARGIN_TOP, _MARGIN_BOTTOM = 4, 4, 6, 6
+# _MARGIN_LEFT élargi (4px à l'origine) pour loger les 2 graduations de valeur à gauche de
+# chaque graphique (A2) — partagé par _TimeAxis (A3) pour que ses libellés de temps restent
+# alignés en x avec les points des 3 graphiques.
+_MARGIN_LEFT, _MARGIN_RIGHT, _MARGIN_TOP, _MARGIN_BOTTOM = 34, 4, 6, 6
+
+
+def _nice_ceiling(value: float) -> float:
+    """Plus petite valeur « ronde » (1, 2 ou 5 × une puissance de 10) au-dessus de `value` — pour
+    des graduations d'axe lisibles plutôt qu'un maximum brut (ex. « 200 »/« 100 » plutôt que
+    « 182 »/« 91 »)."""
+    if value <= 0:
+        return 1.0
+    magnitude = 10 ** math.floor(math.log10(value))
+    for mult in (1, 2, 5, 10):
+        step = mult * magnitude
+        if step >= value:
+            return step
+    return 10 * magnitude
 
 
 class _TimeSeriesChart(QWidget):
@@ -69,12 +87,22 @@ class _TimeSeriesChart(QWidget):
         self._color = color
         self._fixed_max = max_value
         self._crosshair_index: int | None = None
+        # Ligne de référence optionnelle (A6 — plafond d'exécutions simultanées sur le graphique
+        # "Pipelines en cours" uniquement) : posée ici pour que _max_value() en tienne compte dès
+        # ce commit, câblée (valeur + libellé réels, tracé) dans le commit A6.
+        self._reference_value: float | None = None
+        self._reference_label: str = ""
         self.setMinimumHeight(70)
         self.setMouseTracking(True)
         self.setCursor(Qt.CrossCursor)
 
     def set_data(self, values: list[float]) -> None:
         self._values = values
+        self.update()
+
+    def set_reference(self, value: float | None, label: str = "") -> None:
+        self._reference_value = value
+        self._reference_label = label
         self.update()
 
     def set_crosshair(self, index: int | None) -> None:
@@ -94,7 +122,10 @@ class _TimeSeriesChart(QWidget):
     def _max_value(self) -> float:
         if self._fixed_max is not None:
             return self._fixed_max
-        return max(self._values, default=1) * 1.15 or 1
+        raw = max(self._values, default=0)
+        if self._reference_value is not None:
+            raw = max(raw, self._reference_value)
+        return _nice_ceiling(raw * 1.15) if raw > 0 else 1.0
 
     def _point_at(self, index: int) -> QPointF:
         plot = self._plot_rect()
@@ -120,9 +151,7 @@ class _TimeSeriesChart(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
         plot = self._plot_rect()
 
-        grid_pen = QPen(QColor(COLORS["border"])); grid_pen.setWidthF(1)
-        painter.setPen(grid_pen)
-        painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
+        self._draw_grid(painter, plot)
 
         if len(self._values) >= 2:
             points = [self._point_at(i) for i in range(len(self._values))]
@@ -151,6 +180,22 @@ class _TimeSeriesChart(QWidget):
             painter.drawEllipse(pt, 4, 4)
 
         painter.end()
+
+    def _draw_grid(self, painter: QPainter, plot: QRectF) -> None:
+        """Grille + 2 graduations de valeur à gauche (A2) : mi-hauteur et sommet de l'échelle —
+        jamais « 0 » (ligne de base implicite, pas étiquetée sur la maquette)."""
+        grid_pen = QPen(QColor(COLORS["bg_hover"])); grid_pen.setWidthF(1)
+        label_pen = QPen(QColor(COLORS["text_dim"]))
+        painter.setFont(QFont(FONT_MONO, 8))
+        axis_max = self._max_value()
+        for frac in (0.0, 0.5, 1.0):
+            y = plot.bottom() - frac * plot.height()
+            painter.setPen(grid_pen)
+            painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
+            if frac > 0.0:
+                painter.setPen(label_pen)
+                label_rect = QRectF(0, y - 7, _MARGIN_LEFT - 8, 14)
+                painter.drawText(label_rect, Qt.AlignRight | Qt.AlignVCenter, f"{axis_max * frac:.0f}")
 
     # ── Survol ─────────────────────────────────────
 
