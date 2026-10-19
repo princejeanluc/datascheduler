@@ -132,6 +132,18 @@ def capture_all(out_dir: Path) -> list[Path]:
         view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
         view.show()
         app.processEvents()
+        # show() sur une fenêtre top-level sans parent donne le focus clavier au premier widget
+        # focusable (le champ de recherche, premier ajouté au rail) dès que rien d'autre ne l'a
+        # déjà pris — un artefact du script, pas l'état par défaut réel (dans l'app, la vue est
+        # intégrée à une fenêtre déjà active, ce changement de focus n'a pas lieu). Sans ce
+        # nettoyage, la capture montrait à tort une bordure de focus (accent) sur le champ de
+        # recherche même sur les états qui ne simulent aucune saisie utilisateur. Seule la
+        # capture "recherche" doit garder ce focus (une recherche en cours a le curseur dedans,
+        # Parametres-recherche.html).
+        search_box = getattr(view, "inp_search", None)
+        if search_box is not None and name != "parametres-recherche":
+            search_box.clearFocus()
+            app.processEvents()
         out_path = out_dir / f"{name}.png"
         view.grab().save(str(out_path))
         produced.append(out_path)

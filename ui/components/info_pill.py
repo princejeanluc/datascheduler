@@ -19,11 +19,15 @@ _VARIANTS = {
 }
 
 
-def make_info_pill(text: str, variant: str = "neutral", tooltip: str = "") -> QLabel:
+def make_info_pill(text: str, variant: str = "neutral", tooltip: str = "", icon: str = "") -> QLabel:
     color, border, bg = _VARIANTS[variant]
     border_rule = f"border: 1px solid {border};" if border else "border: none;"
     bg_rule = f"background: {bg};" if bg else "background: transparent;"
-    lbl = QLabel(text)
+    # `icon` : un unique caractère prépendu au texte (ex. "↻" pour "au redémarrage",
+    # Parametres.html — seule la variante "au redémarrage" en a un sur la maquette). Un simple
+    # caractère plutôt qu'une icône qtawesome : la pastille reste un QLabel texte nu, pas un
+    # widget composite (risque de sizeHint déjà rencontré sur ce composant, voir plus bas).
+    lbl = QLabel(f"{icon} {text}" if icon else text)
     # border-radius: 9px, pas la valeur "999px" vue sur la maquette (convention web pour "toujours
     # complètement arrondi, quelle que soit la hauteur") — le moteur QSS de Qt, lui, calcule le
     # sizeHint d'un widget à partir de la valeur numérique du rayon, et une valeur aussi grande

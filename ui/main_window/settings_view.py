@@ -28,16 +28,28 @@ from ui.components import make_page_header, make_info_pill, make_banner, make_sw
 from .widgets import _icon, _make_search_input
 
 _CATEGORIES = [
+    # "sub" (rail, court) et "desc" (panneau de détail, plus long) sont deux textes distincts sur
+    # la maquette (Parametres.html : "Planification, rattrapages, exécution en arrière-plan" au
+    # rail vs "Comportement du planificateur : fuseau, rattrapages, exécution en arrière-plan."
+    # en détail) — une relecture avait fusionné les deux en un seul texte, repris tel quel aux
+    # deux endroits. "desc" pour Journalisation/Interface/Ressources n'a pas d'équivalent sur une
+    # maquette (seuls Ordonnanceur et Notifications ont leur panneau de détail capturé) : gardé
+    # tel que déjà écrit, faute de référence à reprendre.
     {"key": "scheduler",     "label": "Ordonnanceur",    "icon": "fa5s.clock",
-     "sub": "Comportement du planificateur APScheduler."},
+     "sub": "Planification, rattrapages, exécution en arrière-plan",
+     "desc": "Comportement du planificateur : fuseau, rattrapages, exécution en arrière-plan."},
     {"key": "logging",       "label": "Journalisation",  "icon": "fa5s.file-alt",
-     "sub": "Fichier de logs (%APPDATA%/DataScheduler/logs)."},
+     "sub": "Fichiers de logs et niveau de détail",
+     "desc": "Fichier de logs (%APPDATA%/DataScheduler/logs)."},
     {"key": "interface",     "label": "Interface",       "icon": "fa5s.sync-alt",
-     "sub": "Fréquences de rafraîchissement automatique."},
+     "sub": "Fréquences de rafraîchissement",
+     "desc": "Fréquences de rafraîchissement automatique."},
     {"key": "notifications", "label": "Notifications",   "icon": "fa5s.bell",
-     "sub": "Résumé périodique des exécutions par email."},
+     "sub": "Résumé périodique par email",
+     "desc": "Résumé périodique des exécutions par email."},
     {"key": "resources",     "label": "Ressources",      "icon": "fa5s.chart-line",
-     "sub": "Échantillonnage CPU/mémoire de la vue Ressources."},
+     "sub": "Échantillonnage CPU et mémoire",
+     "desc": "Échantillonnage CPU/mémoire de la vue Ressources."},
 ]
 
 # Liste complète des fuseaux IANA réels (via tzdata, déjà une dépendance du projet pour
@@ -51,11 +63,13 @@ _LOG_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 _CATEGORY_SUB_WIDTH = 150   # px — largeur dispo connue d'avance (rail 240px, largeur fixe)
 
 # Pastille de prise d'effet (A4, docs/refonte/ecrans/Parametres.md) : variante + infobulle par
-# texte exact, pour que _add_row() n'ait qu'à recevoir le texte déjà écrit dans la fiche.
+# texte exact, pour que _add_row() n'ait qu'à recevoir le texte déjà écrit dans la fiche. Seule
+# "au redémarrage" porte une icône sur la maquette (petite flèche de rechargement) ; les deux
+# autres variantes n'en ont pas (confirmé sur Parametres.html et Parametres-recherche.html).
 _BADGE_INFO = {
-    "au redémarrage": ("neutral", "Prend effet au prochain démarrage de Kulu"),
-    "à la prochaine ouverture": ("neutral", "Prend effet à la prochaine ouverture de l'écran"),
-    "immédiat": ("success", "Prend effet immédiatement"),
+    "au redémarrage": ("neutral", "Prend effet au prochain démarrage de Kulu", "↻"),
+    "à la prochaine ouverture": ("neutral", "Prend effet à la prochaine ouverture de l'écran", ""),
+    "immédiat": ("success", "Prend effet immédiatement", ""),
 }
 
 
@@ -329,11 +343,12 @@ class SettingsView(QWidget):
         footer = QHBoxLayout(footer_wrap)
         footer.setContentsMargins(20, 10, 20, 10)
         footer.setSpacing(12)
+        # Texte par défaut "Aucune modification" repris de Parametres.html (pas de pastille
+        # "proposé" dessus, contrairement au compteur dynamique "N réglages modifiés" de la même
+        # zone sur Parametres-arriere-plan.html — celui-là est C1, gated par la décision P1).
         self._save_status_lbl = QLabel("")
-        self._save_status_lbl.setStyleSheet(
-            f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; border: none; "
-            f"background: transparent;")
         footer.addWidget(self._save_status_lbl)
+        self._reset_save_status_lbl()
         footer.addStretch()
         ctrl_s_hint = QLabel("Ctrl S")
         ctrl_s_hint.setStyleSheet(
@@ -392,8 +407,8 @@ class SettingsView(QWidget):
             f"background: transparent;")
         label_row.addWidget(lbl)
         if badge:
-            variant, tooltip = _BADGE_INFO[badge]
-            pill = make_info_pill(badge, variant=variant, tooltip=tooltip)
+            variant, tooltip, icon = _BADGE_INFO[badge]
+            pill = make_info_pill(badge, variant=variant, tooltip=tooltip, icon=icon)
             # alignment=AlignVCenter : sans lui, QHBoxLayout étire le QLabel sur toute la hauteur
             # de la ligne (son texte reste ancré en haut, la bordure/le fond de make_info_pill
             # peint tout le rectangle étiré — même bug que le chip ci-dessus, autre axe).
@@ -707,7 +722,7 @@ class SettingsView(QWidget):
         self._active_category = key
         cat = next(c for c in _CATEGORIES if c["key"] == key)
         self._detail_title.setText(cat["label"])
-        self._detail_sub.setText(cat["sub"])
+        self._detail_sub.setText(cat["desc"])
         self._search_help_lbl.setVisible(False)
         for row in self._category_rows.values():
             row["count_lbl"].setVisible(False)
@@ -808,6 +823,16 @@ class SettingsView(QWidget):
             return 0 <= int(h) <= 23 and 0 <= int(m) <= 59
         except (ValueError, AttributeError):
             return False
+
+    def _reset_save_status_lbl(self):
+        """État de repos du texte à gauche du pied (A8) — "Aucune modification", maquette
+        Parametres.html. Pas une vraie détection de modification (ce serait C1, gated) : affiché
+        tant qu'aucun enregistrement n'est en cours de confirmation, qu'un champ ait été touché
+        ou non."""
+        self._save_status_lbl.setText("Aucune modification")
+        self._save_status_lbl.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 12.5px; font-weight: 400; border: none; "
+            f"background: transparent;")
 
     def _on_save(self):
         digest_enabled = self.chk_digest_enabled.isChecked()
@@ -910,17 +935,21 @@ class SettingsView(QWidget):
         # tout risque de blocage en environnement offscreen (tests) où rien ne clique le bouton.
         if background_activation_failed:
             self._save_status_lbl.setStyleSheet(
-                f"color: {COLORS['danger']}; font-size: 12px; font-weight: 600; "
+                f"color: {COLORS['danger']}; font-size: 12.5px; font-weight: 600; "
                 f"border: none; background: transparent;")
+            # "● " : petit point plein devant le texte, repris de Parametres-refus.html (même
+            # couleur que le texte, pas une icône séparée — un simple caractère suffit).
             self._save_status_lbl.setText(
-                "Échec de l'activation du mode arrière-plan (accès refusé) — contactez votre "
+                "● Échec de l'activation du mode arrière-plan (accès refusé) — contactez votre "
                 "support informatique. Le mode « Dans l'application seulement » reste actif."
             )
-            QTimer.singleShot(10000, lambda: self._save_status_lbl.setText(""))
+            QTimer.singleShot(10000, self._reset_save_status_lbl)
         else:
             self._save_status_lbl.setStyleSheet(
-                f"color: {COLORS['success']}; font-size: 12px; font-weight: 600; "
+                f"color: {COLORS['success']}; font-size: 12.5px; font-weight: 600; "
                 f"border: none; background: transparent;")
-            self._save_status_lbl.setText(
-                "Enregistré ✓ — certains réglages ne prennent effet qu'au prochain redémarrage.")
-            QTimer.singleShot(4000, lambda: self._save_status_lbl.setText(""))
+            # Texte simplifié à "Enregistré" (Parametres-enregistre.html) : la mention de ce qui
+            # attend un redémarrage appartient au bandeau de succès détaillé de C4 (gated, pas
+            # construit dans ce lot) — pas un texte de repli inventé à sa place.
+            self._save_status_lbl.setText("✓ Enregistré")
+            QTimer.singleShot(4000, self._reset_save_status_lbl)

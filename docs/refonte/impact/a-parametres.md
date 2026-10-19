@@ -120,3 +120,50 @@ commits de ce lot, aucune migration à défaire.
    résiduel » documenté précédemment comme non résolu (bord droit de la ligne active) était la
    même cause racine que le premier bug — confirmé disparu une fois la correction appliquée,
    plutôt qu'une limite de rendu Qt distincte comme supposé initialement.
+8. **Relecture complète contre les 7 maquettes (sur demande explicite)** : après le point 7,
+   l'utilisateur a demandé une nouvelle relecture intégrale des `Parametres-*.png` et de la fiche,
+   estimant qu'« il y a encore des éléments qui manquent ». Comparaison HTML brut (pas seulement
+   visuelle) de chaque maquette contre le code, catégorie par catégorie :
+   - Les éléments manquants repérés portent tous un badge « proposé » visible sur la maquette
+     (encart « Ce qui se passe à l'enregistrement » C2, compteur « N réglages modifiés » + liseré/
+     point par ligne + « Annuler les modifications » C1, bandeau de succès détaillé C4, « testé
+     hier »/aperçu du résumé C5-C6, « Copier le détail » C8) — tous gated par la décision P1
+     (`DECISIONS.md`, toujours « à trancher » : réponse par défaut « oui, comme lots C, après les
+     lots A de tous les écrans »). Confirmé hors périmètre de ce lot, pas une omission.
+   - Trois écarts réels, sans rapport avec P1, ont en revanche été trouvés et corrigés :
+     a. Le sous-titre du rail (`_CATEGORIES[].sub`) et la description du panneau de détail
+        réutilisaient le même texte, alors que la maquette distingue un texte court au rail
+        (« Planification, rattrapages, exécution en arrière-plan ») d'un texte plus long en
+        détail (« Comportement du planificateur : fuseau, rattrapages, exécution en
+        arrière-plan. ») — confirmé par lecture du HTML brut des 5 catégories (rail) et des 2
+        panneaux de détail capturés par une maquette (Ordonnanceur, Notifications). `_CATEGORIES`
+        gagne un champ `desc` distinct de `sub` ; Journalisation/Interface/Ressources n'ont pas de
+        panneau de détail capturé par une maquette, leur `desc` garde le texte déjà en place,
+        faute de référence à reprendre (REGLES.md section 1, le code actuel fait foi à défaut de
+        maquette).
+     b. La pastille « au redémarrage » perdait sa petite icône de rechargement (SVG sur la
+        maquette, confirmée absente des deux autres variantes) — `make_info_pill` gagne un
+        paramètre `icon` optionnel (un caractère préfixé au texte, pas un widget composite, pour
+        ne pas toucher au calcul de sizeHint déjà documenté comme fragile sur ce composant).
+     c. Le texte par défaut du pied « Aucune modification » (Parametres.html, sans badge
+        « proposé ») n'était jamais affiché (le label restait vide hors confirmation d'enregistre-
+        ment) ; les messages de succès/échec n'avaient pas l'icône de la maquette (point plein
+        rouge devant le texte d'échec, coche verte devant « Enregistré ») et utilisaient 12px au
+        lieu de 12,5px. Le texte de succès contenait aussi une clause inventée (« certains
+        réglages ne prennent effet qu'au prochain redémarrage ») qui empiète sur le territoire du
+        bandeau détaillé de C4 (gated) — simplifié à « ✓ Enregistré », conforme à
+        Parametres-enregistre.html.
+   - Effet de bord trouvé pendant cette relecture, sans rapport avec la demande initiale : chaque
+     capture officielle montrait à tort le champ de recherche avec sa bordure de focus (accent),
+     y compris sur les états qui ne simulent aucune saisie — `scripts/capture_views.py` appelle
+     `view.show()` sur une fenêtre top-level sans parent, qui donne par défaut le focus clavier au
+     premier widget focusable (le champ de recherche) ; ça ne reproduit pas l'app réelle, où la
+     vue est intégrée à une fenêtre déjà active. Corrigé en vidant ce focus après `show()`, sauf
+     pour l'état "recherche" qui doit le garder (Parametres-recherche.html).
+   - Les 7 maquettes ont aussi servi à vérifier, sans rien changer, que des écarts déjà tranchés
+     dans ce document restaient corrects : absence de pastilles « immédiat » sur certaines lignes
+     de la maquette (la fiche prime, déjà couvert par ce point avant ce lot), absence du chip
+     « Ctrl F » dans la recherche (C7, gated — seul A8/« Ctrl S » au pied est explicitement listé
+     hors C7 par la fiche), icônes de catégorie du rail visuellement différentes des SVG de la
+     maquette (aucune des deux sources de priorité — fiche, REGLES.md section 3 — n'exige une
+     correspondance pixel près des icônes, contrairement aux couleurs/tailles/espacements/textes).
