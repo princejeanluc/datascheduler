@@ -30,6 +30,8 @@ Les maquettes sont en HTML pour être lisibles. Elles ne sont pas une structure 
 - Polices : IBM Plex Sans et JetBrains Mono sont déjà embarquées (`ui/fonts.py`). N'en ajoute pas.
 - Composants : utilise ceux de `FONDATIONS.md`. Si un écran a besoin d'une pièce qui n'y figure pas, ajoute-la au module partagé plutôt que dans la vue.
 - Les textes affichés sont en français, et repris tels quels de la maquette sauf indication contraire de la fiche.
+- Un même élément (catégorie, ligne…) peut avoir deux textes différents sur la maquette selon l'endroit où il apparaît (ex. un sous-titre court dans une liste de navigation vs. une description plus longue dans le panneau qu'elle ouvre). Vérifie le HTML brut de chaque emplacement avant de réutiliser une seule chaîne aux deux endroits — comparer seulement le PNG peut masquer des textes tronqués identiques en apparence mais différents dans le code source (leçon du lot A-Paramètres, point 8 de sa note d'impact).
+- Pièges connus du moteur QSS de Qt (PySide6), à vérifier systématiquement sur tout nouveau conteneur/label : une règle globale `QWidget { background-color: ... }` (`widgets.py::GLOBAL_STYLE`) peint un fond opaque derrière tout `QLabel` qui ne déclare pas lui-même `background: transparent` ; un `setStyleSheet()` sans sélecteur posé sur un conteneur se propage à ses descendants et peut écraser une règle globale pourtant plus spécifique (ex. un `QPushButton` enfant). Toujours scoper le style d'un conteneur à un sélecteur d'ID (`objectName` + `QWidget#nom { ... }`) plutôt qu'une règle nue.
 
 ## 4. Avant d'écrire du code : la note d'impact
 
@@ -57,6 +59,6 @@ Un lot est terminé quand :
 
 1. tous les critères d'acceptation de la fiche sont cochés dans la description de la PR ;
 2. `python -m pytest tests -q` passe, avec des tests ajoutés pour les comportements nouveaux ;
-3. une capture de chaque état listé dans la fiche est jointe à la PR, à côté de la maquette correspondante. Pour la produire sans affichage : `QT_QPA_PLATFORM=offscreen`, puis `widget.grab().save("capture.png")` sur la vue à 1440×900 ;
+3. une capture de chaque état listé dans la fiche est jointe à la PR, à côté de la maquette correspondante. Pour la produire sans affichage : `QT_QPA_PLATFORM=offscreen`, puis `widget.grab().save("capture.png")` sur la vue à 1440×900. `scripts/capture_views.py` appelle `.show()` sur chaque vue comme fenêtre top-level sans parent : Qt donne alors le focus clavier par défaut au premier widget focusable (ex. un champ de recherche), ce qui ne reflète pas l'app réelle (vue intégrée à une fenêtre déjà active) et fait apparaître à tort une bordure de focus sur la capture — à nettoyer explicitement dans le script pour les états qui ne simulent pas une saisie en cours ;
 4. les écarts volontaires avec la maquette sont listés dans la PR, avec leur raison ;
 5. `docs/refonte/manquements.md` est mis à jour : les lignes traitées sont marquées « fait (lot X) ».
