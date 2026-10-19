@@ -18,7 +18,7 @@ from ui.time_display import fmt_time, fmt_time_local, fmt_relative, to_display
 from ui.components import make_page_header, SidePanel
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
-    _make_empty_label, _make_button_with_hint, _STATUS_BADGE, _status_str,
+    _make_button_with_hint, _STATUS_BADGE, _status_str,
     _make_status_badge, _ordered_with_chains, PipelineStepDagThumbnail, RunHistoryDots,
     FONT_MONO_STACK,
 )
@@ -186,21 +186,11 @@ class PipelinesView(QWidget):
         footer.addWidget(self._footer_refreshed_lbl)
         layout.addLayout(footer)
 
-        # Modèle de démarrage (chantier UX éditeur, Lot 1, C1) — dupliquer/adapter un squelette
-        # réaliste plutôt que partir d'une toile blanche, visible uniquement tant qu'aucun
-        # pipeline n'existe (même condition que le label lui-même, voir refresh() ci-dessous).
-        btn_template = QPushButton("  Commencer avec un modèle")
-        btn_template.setObjectName("secondary")
-        btn_template.setFixedHeight(34)
-        btn_template.setIcon(_icon("fa5s.magic", COLORS["text_main"]))
-        btn_template.setIconSize(QSize(13, 13))
-        btn_template.clicked.connect(self._on_start_from_template)
-
-        self._empty_label = _make_empty_label(
-            "Aucun pipeline configuré — assurez-vous d'abord d'avoir vos connexions et requêtes "
-            "SQL (voir Connexions / Requêtes SQL), puis cliquez sur « Nouveau pipeline ».",
-            button=btn_template,
-        )
+        # A14 : état vide en trois cartes (Pipelines-vide.html) — _empty_label garde son nom
+        # d'attribut (À garder tel quel, test_onboarding_empty_states.py) même si son contenu
+        # change entièrement : la phrase d'intro existante reste verbatim en premier enfant
+        # (le test cherche "Connexions"/"Requêtes SQL" dans findChild(QLabel), le premier trouvé).
+        self._empty_label = self._build_pipelines_empty_state()
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
 
@@ -502,6 +492,97 @@ class PipelinesView(QWidget):
         self._on_search_changed(self.inp_search.text())
         self._last_refresh_at = datetime.utcnow()
         self._refresh_footer_label()
+
+    def _build_pipelines_empty_state(self) -> QWidget:
+        container = QWidget()
+        col = QVBoxLayout(container)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(16)
+
+        # Phrase d'intro existante, verbatim (À garder tel quel — premier QLabel du conteneur,
+        # cherché par test_onboarding_empty_states.py::test_pipelines_empty_state_mentions_
+        # connections_and_queries via findChild(QLabel)).
+        intro = QLabel(
+            "Aucun pipeline configuré — assurez-vous d'abord d'avoir vos connexions et requêtes "
+            "SQL (voir Connexions / Requêtes SQL), puis cliquez sur « Nouveau pipeline »."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        col.addWidget(intro)
+
+        cards = QHBoxLayout(); cards.setSpacing(14)
+        cards.addWidget(self._make_empty_state_card(
+            eyebrow="LE PLUS RAPIDE", title="Partir du modèle",
+            text="Extraction d'une base puis dépôt dans un dossier, planifié à 06:00. Il reste "
+                 "le profil, la requête et le dossier à remplir.",
+            button_text="Commencer avec un modèle", primary=True,
+            on_click=self._on_start_from_template,
+        ))
+        cards.addWidget(self._make_empty_state_card(
+            eyebrow="LIBRE", title="Toile vierge",
+            text="Ouvre l'Atelier vide et sa bibliothèque d'étapes.",
+            button_text="Nouveau pipeline", primary=False,
+            on_click=self._on_new_pipeline,
+        ))
+        cards.addWidget(self._make_empty_state_card(
+            eyebrow="DEPUIS UN AUTRE POSTE", title="Importer un .dspipeline",
+            text="Kulu propose de réutiliser les connexions que tu as déjà.",
+            button_text="Importer", primary=False,
+            on_click=self._on_import_pipeline,
+        ))
+        col.addLayout(cards)
+
+        return container
+
+    @staticmethod
+    def _make_empty_state_card(*, eyebrow: str, title: str, text: str, button_text: str,
+                                primary: bool, on_click) -> QFrame:
+        # Sélecteur d'ID (objectName), pas une règle nue — QLabel hérite de QFrame en Qt
+        # (REGLES.md section 3), déjà vu à plusieurs reprises dans la refonte.
+        card = QFrame()
+        # Identifiant sans espace (un sélecteur QSS #id avec espace serait lu comme un
+        # combinateur de descendance, pas comme un seul identifiant).
+        slug = title.replace(" ", "_").replace(".", "")
+        card.setObjectName(f"empty_card_{slug}")
+        border = COLORS["accent"] if primary else COLORS["border"]
+        card.setStyleSheet(
+            f"QFrame#empty_card_{slug} {{ background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {border}; border-radius: 10px; }}"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+
+        eyebrow_lbl = QLabel(eyebrow)
+        eyebrow_lbl.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 11px; font-weight: 600; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(eyebrow_lbl)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 15px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(title_lbl)
+
+        desc_lbl = QLabel(text)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;"
+        )
+        layout.addWidget(desc_lbl, 1)
+
+        btn = QPushButton(button_text)
+        if not primary:
+            btn.setObjectName("secondary")
+        btn.setFixedHeight(34)
+        btn.clicked.connect(on_click)
+        btn_row = QHBoxLayout(); btn_row.addWidget(btn); btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        return card
 
     def _on_new_pipeline(self):
         """Un seul point d'entrée de création (chantier fusion des éditeurs — l'ancien dialogue
