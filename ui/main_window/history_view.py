@@ -166,7 +166,10 @@ class HistoryView(QWidget):
         self._refresh_frequency(search=text.strip())
 
     def set_status_filter(self, status: str):
-        idx = self.cb_status.findData(status)
+        # "" (chaîne vide) -> None : "Tous les statuts" est stocké avec la donnée None dans
+        # _STATUS_FILTER_OPTIONS, pas "" — nécessaire pour le lien "Tout l'historique" d'Aujourd'hui
+        # (A7, refonte), qui émet navigate_to_history("") via un signal typé str (pas object).
+        idx = self.cb_status.findData(status or None)
         if idx >= 0:
             self.cb_status.setCurrentIndex(idx)
         else:

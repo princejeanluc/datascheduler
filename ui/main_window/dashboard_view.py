@@ -6,13 +6,13 @@ Vue Dashboard : état des pipelines + dernières exécutions.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QGridLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QSizePolicy, QScrollArea,
+    QMessageBox, QSizePolicy, QScrollArea, QStackedLayout, QProgressBar, QPlainTextEdit,
 )
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from ui.time_display import fmt_datetime, fmt_datetime_local, fmt_time_local, to_display
-from ui.components import make_page_header
+from ui.time_display import fmt_datetime, fmt_datetime_local, fmt_time, fmt_time_local, to_display
+from ui.components import make_page_header, SidePanel
 from .widgets import (
     _icon, _configure_columns, _make_empty_label, StatCard, _status_str,
     FONT_MONO, FONT_MONO_STACK, _apply_pulse, HealthRingWidget,
@@ -37,6 +37,30 @@ def _today_eyebrow() -> str:
     return f"{day} {now_local.day} {month} · {now_local.strftime('%H:%M')}"
 
 
+def _step_key_of(step) -> str | None:
+    """`_step_key` stable assigné par l'Atelier, stocké dans `config_json` (pas une colonne de
+    `PipelineStep`) — même lecture que core/pipeline.py (`config.get("_step_key")`)."""
+    import json
+    try:
+        config = json.loads(step.config_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    return config.get("_step_key")
+
+
+def _resolve_step_label(pipeline, step_key: str | None) -> str | None:
+    """Étape fautive -> libellé lisible (A4) : `failed_step_key` ne correspond à aucune colonne
+    affichable directement, seulement au `_step_key` interne d'une étape — même repli que
+    core/pipeline.py (`step.label or step_type`) si l'étape n'a pas de libellé personnalisé."""
+    if not step_key:
+        return None
+    for step in pipeline.steps:
+        if _step_key_of(step) == step_key:
+            step_type = str(step.step_type).replace("StepType.", "")
+            return step.label or step_type
+    return None
+
+
 def _cap_topology_preview(ordered: list, max_chains: int = 6) -> list:
     """Plafonne l'aperçu du Dashboard à `max_chains` chaînes racines — chaque chaîne (racine +
     descendants) reste groupée, jamais coupée en plein milieu. Fonction pure, testable sans Qt."""
@@ -57,6 +81,10 @@ class DashboardView(QWidget):
     # A1 : "+ Nouveau pipeline" — même patron que PipelinesView.open_atelier_requested, câblé
     # dans window.py vers PipelinesView._on_new_pipeline (seul point d'entrée de création).
     new_pipeline_requested = Signal()
+    # A9 : "Ouvrir dans l'Atelier" depuis le panneau latéral d'une exécution en échec — même
+    # signature que PipelinesView.open_atelier_requested, câblé dans window.py vers
+    # MainWindow.open_atelier (point d'entrée unique déjà utilisé par Pipelines/Historique).
+    open_atelier_requested = Signal(int, object, bool)
 
     def __init__(self):
         super().__init__()
@@ -132,55 +160,6 @@ class DashboardView(QWidget):
         self._onboarding_banner.setVisible(False)
         layout.addWidget(self._onboarding_banner)
 
-        # Bandeau "pipelines manqués" (chantier rattrapage au démarrage) — même patron que
-        # _onboarding_banner ci-dessus, accent warning au lieu de accent. Ce que le dialogue de
-        # démarrage (MissedPipelinesDialog) n'a pas résolu (décoché, ou "Plus tard") atterrit
-        # ici, une puce par pipeline, jusqu'à lancement ou "Ignorer" explicite — jamais un
-        # simple masquage qui laisserait le bandeau réapparaître au prochain refresh().
-        self._missed_banner = QFrame()
-        self._missed_banner.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
-            f"border-left: 3px solid {COLORS['warning']}; border-radius: 6px; }}"
-        )
-        missed_outer = QVBoxLayout(self._missed_banner)
-        missed_outer.setContentsMargins(16, 12, 16, 12)
-        missed_outer.setSpacing(8)
-
-        missed_head = QHBoxLayout()
-        missed_head.setSpacing(4)
-        self._lbl_missed_title = QLabel("")
-        self._lbl_missed_title.setStyleSheet(
-            f"color: {COLORS['text_main']}; font-size: 12px; font-weight: 700; "
-            f"background: transparent; border: none;"
-        )
-        missed_head.addWidget(self._lbl_missed_title)
-        missed_head.addStretch()
-
-        btn_missed_launch_all = self._link_button("Lancer tout", COLORS["accent"])
-        btn_missed_launch_all.clicked.connect(self._on_missed_launch_all)
-        missed_head.addWidget(btn_missed_launch_all)
-
-        btn_missed_ignore_all = self._link_button("Ignorer tout", COLORS["text_muted"])
-        btn_missed_ignore_all.clicked.connect(self._on_missed_ignore_all)
-        missed_head.addWidget(btn_missed_ignore_all)
-
-        btn_missed_dismiss = self._link_button("✕", COLORS["text_muted"])
-        btn_missed_dismiss.setToolTip("Ignorer tout — même effet que \"Ignorer tout\"")
-        # Même sémantique que "Ignorer tout" (résout tout), jamais un simple masquage — sinon le
-        # bandeau réapparaîtrait au prochain refresh() tant que les pipelines restent en attente.
-        btn_missed_dismiss.clicked.connect(self._on_missed_ignore_all)
-        missed_head.addWidget(btn_missed_dismiss)
-        missed_outer.addLayout(missed_head)
-
-        self._missed_chips = QWidget()
-        self._missed_chips_layout = QVBoxLayout(self._missed_chips)
-        self._missed_chips_layout.setContentsMargins(0, 0, 0, 0)
-        self._missed_chips_layout.setSpacing(6)
-        missed_outer.addWidget(self._missed_chips)
-
-        self._missed_banner.setVisible(False)
-        layout.addWidget(self._missed_banner)
-
         # Rail "Prochaines & en cours" — remplace la carte isolée "Prochaine exéc." : les
         # pipelines sont planifiés, ce qui tourne/va tourner mérite d'être vu en premier plutôt
         # que noyé dans une case au même rang que les autres (chantier identité, vague 1).
@@ -190,16 +169,103 @@ class DashboardView(QWidget):
         self._rail_layout.setSpacing(10)
         layout.addWidget(self._rail)
 
-        # Bloc santé asymétrique — casse la grille de cartes identiques (chantier identité,
-        # vague 2, idée 4) : un anneau de santé (hero) + une grille compacte de stats
-        # secondaires, au lieu de N rectangles de même poids visuel.
-        health_row = QHBoxLayout(); health_row.setSpacing(16)
+        # Corps en 2 colonnes (A3-A8) : une colonne étroite à gauche ("À traiter" + santé), une
+        # large à droite (bloc à onglets) — pas un simple empilement comme avant ce lot
+        # (Aujourdhui.html). La ligne du temps "journée des pipelines" qui s'intercalerait en
+        # haut de la colonne de droite est C4, gated : la colonne de droite démarre directement
+        # sur le bloc à onglets, sans réserver de place vide pour elle (REGLES.md section 2).
+        body = QHBoxLayout(); body.setSpacing(20)
+
+        left_col = QVBoxLayout(); left_col.setSpacing(20)
+        left_wrap = QWidget(); left_wrap.setLayout(left_col)
+        left_wrap.setFixedWidth(370)
+        left_col.addWidget(self._build_treat_column())
+        left_col.addWidget(self._build_health_block())
+        body.addWidget(left_wrap)
+
+        body.addWidget(self._build_tabs_block(), stretch=1)
+
+        layout.addLayout(body, stretch=1)
+
+        # Panneau latéral (A9/A10) : un seul SidePanel réutilisé, son contenu remplacé selon ce
+        # qui l'a ouvert (carte ÉCHEC -> A9, puce MAINTENANT -> A10) — voir _open_failure_panel/
+        # _open_running_panel. Attaché à `self` (toute la vue), pas à une sous-colonne, pour
+        # glisser sur toute la hauteur/largeur disponible.
+        self._side_panel = SidePanel(self)
+
+        self.refresh()
+
+    # ── A3 + A4 : colonne "À traiter" ──────────────
+
+    def _build_treat_column(self) -> QWidget:
+        col = QWidget()
+        col_layout = QVBoxLayout(col)
+        col_layout.setContentsMargins(0, 0, 0, 0)
+        col_layout.setSpacing(10)
+
+        head = QHBoxLayout(); head.setSpacing(8)
+        title = QLabel("À traiter")
+        title.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
+        head.addWidget(title)
+        subtitle = QLabel("du plus urgent au moins urgent")
+        subtitle.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px;")
+        head.addWidget(subtitle)
+        head.addStretch()
+        col_layout.addLayout(head)
+
+        # Mini-barre groupée (décision utilisateur, question ouverte 6 de la fiche — pas de
+        # recommandation écrite) : visible seulement si ≥ 2 cartes MANQUÉE, réutilise les
+        # actions groupées existantes telles quelles.
+        self._missed_bulk_bar = QWidget()
+        bulk_layout = QHBoxLayout(self._missed_bulk_bar)
+        bulk_layout.setContentsMargins(0, 0, 0, 0)
+        bulk_layout.setSpacing(6)
+        self._lbl_missed_bulk = QLabel("")
+        self._lbl_missed_bulk.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 11px; background: transparent; border: none;"
+        )
+        bulk_layout.addWidget(self._lbl_missed_bulk)
+        bulk_layout.addStretch()
+        btn_bulk_launch = self._link_button("Lancer tout", COLORS["accent"])
+        btn_bulk_launch.clicked.connect(self._on_missed_launch_all)
+        bulk_layout.addWidget(btn_bulk_launch)
+        btn_bulk_ignore = self._link_button("Ignorer tout", COLORS["text_muted"])
+        btn_bulk_ignore.clicked.connect(self._on_missed_ignore_all)
+        bulk_layout.addWidget(btn_bulk_ignore)
+        self._missed_bulk_bar.setVisible(False)
+        col_layout.addWidget(self._missed_bulk_bar)
+
+        self._treat_cards = QWidget()
+        self._treat_cards_layout = QVBoxLayout(self._treat_cards)
+        self._treat_cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._treat_cards_layout.setSpacing(10)
+        col_layout.addWidget(self._treat_cards)
+
+        self._treat_empty = QLabel("Rien à traiter pour l'instant.")
+        self._treat_empty.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 12px; font-style: italic; "
+            f"background: transparent; border: none;"
+        )
+        self._treat_empty.setVisible(False)
+        col_layout.addWidget(self._treat_empty)
+
+        return col
+
+    # ── A5 + A6 : bloc santé ────────────────────────
+
+    def _build_health_block(self) -> QWidget:
+        """Anneau + légende au-dessus d'une rangée de 4 StatCard — empilés, pas côte à côte
+        comme l'ancienne disposition (Aujourdhui.html : les deux blocs partagent la colonne
+        étroite de gauche avec "À traiter", pas toute la largeur de la page)."""
+        wrap = QWidget()
+        wrap_layout = QVBoxLayout(wrap)
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.setSpacing(12)
 
         hero = QFrame(); hero.setObjectName("card")
-        hero.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         hero_layout = QHBoxLayout(hero)
-        hero_layout.setContentsMargins(20, 16, 26, 16)
-        hero_layout.setSpacing(18)
+        hero_layout.setContentsMargins(20, 16, 20, 16)
+        hero_layout.setSpacing(16)
         self._health_ring = HealthRingWidget()
         hero_layout.addWidget(self._health_ring)
 
@@ -216,57 +282,80 @@ class DashboardView(QWidget):
         hero_text_col.addWidget(self._lbl_health_success)
         hero_text_col.addWidget(self._lbl_health_danger)
         hero_text_col.addWidget(self._lbl_health_idle)
-        hero_layout.addLayout(hero_text_col)
-        # Centre le bloc de texte verticalement à côté de l'anneau (taille fixe, donc déjà
-        # centré par défaut par le QHBoxLayout) — sans ça, `hero_text_col` s'accroche en haut et
-        # laisse un vide en bas, désalignant visuellement les deux colonnes (repéré sur une
-        # capture réelle une fois la carte agrandie pour s'aligner sur la grille secondaire).
+        hero_layout.addLayout(hero_text_col, stretch=1)
         hero_layout.setAlignment(hero_text_col, Qt.AlignVCenter)
-        health_row.addWidget(hero)
+        wrap_layout.addWidget(hero)
 
-        secondary_grid = QGridLayout()
-        secondary_grid.setContentsMargins(0, 0, 0, 0)
-        secondary_grid.setSpacing(10)
+        # padding_h réduit (20px par défaut -> 10px) : 4 cartes sur une seule rangée dans la
+        # colonne étroite de gauche (360px) laissent trop peu de place pour "SUCCÈS (30J)" avec
+        # les marges par défaut (texte rogné, constaté à l'écran) — StatCard garde son padding
+        # par défaut partout ailleurs, ce lot ne change que ces 4 instances.
+        stats_row = QHBoxLayout(); stats_row.setSpacing(8)
         self._card_success = StatCard("Succès (30j)", "—", "exécutions", COLORS["success"],
-                                       clickable=True, border_accent=COLORS["success"])
+                                       clickable=True, border_accent=COLORS["success"],
+                                       value_font_size=20, padding_h=10)
         self._card_failed  = StatCard("Échecs (30j)", "—", "exécutions", COLORS["danger"],
-                                       clickable=True, border_accent=COLORS["danger"])
-        self._card_active  = StatCard("Pipelines actifs", "—", "configurés")
-        self._card_avg_duration = StatCard("Durée moy.", "—", "30 derniers jours")
+                                       clickable=True, border_accent=COLORS["danger"],
+                                       value_font_size=20, padding_h=10)
+        self._card_active  = StatCard("Pipelines actifs", "—", "configurés",
+                                       value_font_size=20, padding_h=10)
+        self._card_avg_duration = StatCard("Durée moy.", "—", "30 derniers jours",
+                                            value_font_size=20, padding_h=10)
         self._card_success.setToolTip("Voir les exécutions réussies dans l'Historique")
         self._card_failed.setToolTip("Voir les échecs dans l'Historique")
         self._card_success.clicked.connect(lambda: self.navigate_to_history.emit("SUCCESS"))
         self._card_failed.clicked.connect(lambda: self.navigate_to_history.emit("FAILED"))
-        secondary_grid.addWidget(self._card_success, 0, 0)
-        secondary_grid.addWidget(self._card_failed, 0, 1)
-        secondary_grid.addWidget(self._card_active, 1, 0)
-        secondary_grid.addWidget(self._card_avg_duration, 1, 1)
-        secondary_wrap = QWidget(); secondary_wrap.setLayout(secondary_grid)
-        health_row.addWidget(secondary_wrap, stretch=1)
+        for card in (self._card_success, self._card_failed, self._card_active, self._card_avg_duration):
+            stats_row.addWidget(card)
+        wrap_layout.addLayout(stats_row)
 
-        layout.addLayout(health_row)
+        return wrap
 
-        layout.addWidget(_make_motif_separator())
+    # ── A7 + A8 : bloc à onglets ────────────────────
 
-        # Mini-topologie — remplace le graphique d'activité en barres sur cette vue (décision
-        # confirmée avec l'utilisateur, suit la maquette validée ; le graphique lui-même reste
-        # utilisé tel quel dans PipelineDetailDialog, chantier identité, vague 3, idée 5).
-        topo_hd = QWidget()
-        topo_hd_layout = QHBoxLayout(topo_hd)
-        topo_hd_layout.setContentsMargins(0, 0, 0, 0)
-        lbl_topo = QLabel("Vue d'ensemble des pipelines")
-        lbl_topo.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
-        topo_hd_layout.addWidget(lbl_topo)
-        topo_hd_layout.addStretch()
-        # Lien "voir plus" — l'aperçu du Dashboard est plafonné (voir refresh()), ce lien ouvre
-        # le dialogue dédié qui montre tous les pipelines, sans plafond, dans le même style.
-        self._btn_see_all_topology = QPushButton("Voir tous les pipelines →")
-        self._btn_see_all_topology.setObjectName("secondary")
-        self._btn_see_all_topology.setFixedHeight(28)
-        self._btn_see_all_topology.setVisible(False)
-        self._btn_see_all_topology.clicked.connect(self._on_open_topology_dialog)
-        topo_hd_layout.addWidget(self._btn_see_all_topology)
-        layout.addWidget(topo_hd)
+    def _build_tabs_block(self) -> QWidget:
+        wrap = QWidget()
+        wrap_layout = QVBoxLayout(wrap)
+        wrap_layout.setContentsMargins(0, 0, 0, 0)
+        wrap_layout.setSpacing(10)
+
+        tabs_head = QHBoxLayout(); tabs_head.setSpacing(18)
+        self._tab_btn_runs = self._make_tab_button("Dernières exécutions")
+        self._tab_btn_runs.clicked.connect(lambda: self._set_active_tab(0))
+        tabs_head.addWidget(self._tab_btn_runs)
+        self._tab_btn_deps = self._make_tab_button("Dépendances entre pipelines")
+        self._tab_btn_deps.clicked.connect(lambda: self._set_active_tab(1))
+        tabs_head.addWidget(self._tab_btn_deps)
+        tabs_head.addStretch()
+        btn_all_history = self._link_button("Tout l'historique →", COLORS["accent"])
+        btn_all_history.clicked.connect(lambda: self.navigate_to_history.emit(""))
+        tabs_head.addWidget(btn_all_history)
+        wrap_layout.addLayout(tabs_head)
+
+        self._tabs_stack = QStackedLayout()
+        stack_host = QWidget()
+        stack_host.setLayout(self._tabs_stack)
+
+        runs_page = QWidget()
+        runs_layout = QVBoxLayout(runs_page)
+        runs_layout.setContentsMargins(0, 0, 0, 0)
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["Pipeline", "8 dernières", "Lignes", "Durée", "Date", "Fichier déposé"])
+        self.table.verticalHeader().setVisible(False)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        _configure_columns(self.table, stretch_cols={0, 5})
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
+        self.table.setColumnWidth(1, 130)
+        self.table.setAlternatingRowColors(False)
+        self.table.setShowGrid(False)
+        runs_layout.addWidget(self.table)
+        self._empty_label = _make_empty_label(
+            "Aucune exécution pour l'instant — les runs planifiés ou manuels apparaîtront ici."
+        )
+        self._empty_label.setVisible(False)
+        runs_layout.addWidget(self._empty_label)
+        self._tabs_stack.addWidget(runs_page)
 
         # Carte englobante (fond + bordure fine) — la zone de la mini-topologie doit être
         # délimitée comme la maquette, les nœuds ressortant nettement plus sombres à l'intérieur
@@ -283,38 +372,38 @@ class DashboardView(QWidget):
         topo_card_layout.setContentsMargins(20, 18, 20, 18)
         self._topology = PipelineTopologyWidget()
         topo_card_layout.addWidget(self._topology)
-        layout.addWidget(topo_card)
+        self._btn_see_all_topology = QPushButton("Voir tous les pipelines →")
+        self._btn_see_all_topology.setObjectName("secondary")
+        self._btn_see_all_topology.setFixedHeight(28)
+        self._btn_see_all_topology.setVisible(False)
+        self._btn_see_all_topology.clicked.connect(self._on_open_topology_dialog)
+        topo_card_layout.addWidget(self._btn_see_all_topology, alignment=Qt.AlignRight)
+        self._tabs_stack.addWidget(topo_card)
 
-        layout.addWidget(_make_motif_separator())
+        wrap_layout.addWidget(stack_host, stretch=1)
+        self._set_active_tab(0)
+        return wrap
 
-        lbl_recent = QLabel("Dernières exécutions")
-        lbl_recent.setStyleSheet(f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']};")
-        layout.addWidget(lbl_recent)
+    def _make_tab_button(self, text: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFlat(True)
+        return btn
 
-        self.table = QTableWidget(0, 6)
-        self.table.setHorizontalHeaderLabels(["Pipeline", "Historique", "Lignes", "Durée", "Date", "Fichier déposé"])
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        _configure_columns(self.table, stretch_cols={0, 5})
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table.setColumnWidth(1, 130)
-        self.table.setAlternatingRowColors(False)
-        self.table.setShowGrid(False)
-        self.table.setFixedHeight(200)
-        layout.addWidget(self.table)
-
-        self._empty_label = _make_empty_label(
-            "Aucune exécution pour l'instant — les runs planifiés ou manuels apparaîtront ici."
-        )
-        self._empty_label.setFixedHeight(200)
-        self._empty_label.setVisible(False)
-        layout.addWidget(self._empty_label)
-
-        self.refresh()
+    def _set_active_tab(self, index: int) -> None:
+        self._tabs_stack.setCurrentIndex(index)
+        for i, btn in enumerate((self._tab_btn_runs, self._tab_btn_deps)):
+            active = i == index
+            btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid "
+                f"{COLORS['accent'] if active else 'transparent'}; border-radius: 0; "
+                f"padding: 0 0 8px 0; color: {COLORS['text_main'] if active else COLORS['text_dim']}; "
+                f"font-size: 14px; font-weight: {600 if active else 500}; }}"
+            )
 
     def _make_legend_line(self, color: str) -> QLabel:
         lbl = QLabel()
+        lbl.setWordWrap(True)   # la carte santé vit désormais dans la colonne étroite de gauche
         lbl.setStyleSheet(
             f"font-size: 11.5px; color: {COLORS['text_dim']}; background: transparent; border: none;"
         )
@@ -338,7 +427,6 @@ class DashboardView(QWidget):
         active_pipelines = [p for p in pipelines if p.is_active]
         self._card_active.set_value(str(len(active_pipelines)))
         self._onboarding_banner.setVisible(not pipelines)
-        self._refresh_missed_banner()
 
         cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
         all_runs = db.get_recent_runs(limit=500)
@@ -350,7 +438,7 @@ class DashboardView(QWidget):
         if durations:
             avg_s = sum(durations) / len(durations)
             m, s = divmod(int(avg_s), 60)
-            self._card_avg_duration.set_value(f"{m}m {s:02d}s")
+            self._card_avg_duration.set_value(f"{m}:{s:02d}")   # A5 : "3:08", pas "3m 08s"
         else:
             self._card_avg_duration.set_value("—")
 
@@ -358,6 +446,7 @@ class DashboardView(QWidget):
         # (voir HealthRingWidget : un pipeline jamais exécuté n'est ni sain ni en échec).
         healthy = [p for p in active_pipelines if _status_str(p.last_status) == "SUCCESS"]
         unhealthy = [p for p in active_pipelines if _status_str(p.last_status) == "FAILED"]
+        self._refresh_treat_column(unhealthy)
         self._health_ring.set_data(len(healthy), len(unhealthy))
         self._set_legend_text(
             self._lbl_health_success,
@@ -412,7 +501,8 @@ class DashboardView(QWidget):
             dur   = "—"
             if run.duration_seconds is not None:
                 m, s = divmod(int(run.duration_seconds), 60)
-                dur  = f"{m}m {s:02d}s"
+                # A8 : "2 min 04" si des minutes, "38 s" sinon (Aujourdhui.html).
+                dur = f"{m} min {s:02d}" if m else f"{s} s"
             date_s = fmt_datetime(run.started_at)
             rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
             cells  = [pname, None, rows_s, dur, date_s, run.remote_path or "—"]
@@ -471,6 +561,7 @@ class DashboardView(QWidget):
             now_chips.append(self._make_rail_chip(
                 running=True, dot_color=COLORS["signal"],
                 main_text=p.name, main_mono=False, sub_text=f"{step}{elapsed}",
+                on_click=lambda pid=p.id: self._open_running_panel(pid),
             ))
 
         upcoming = sorted(
@@ -513,7 +604,7 @@ class DashboardView(QWidget):
         return lbl
 
     def _make_rail_chip(self, *, running: bool, dot_color: str, main_text: str,
-                         main_mono: bool, sub_text: str) -> QFrame:
+                         main_mono: bool, sub_text: str, on_click=None) -> QFrame:
         chip = QFrame()
         chip.setFixedHeight(30)   # hauteur fixe indispensable : border-radius ne forme une
                                   # vraie pilule que si le rayon (15px) vaut la moitié exacte
@@ -524,6 +615,12 @@ class DashboardView(QWidget):
         chip.setStyleSheet(
             f"QFrame {{ background: {bg}; border: 1px solid {border}; border-radius: 15px; }}"
         )
+        # A10 : la puce MAINTENANT ouvre le panneau latéral "en cours" — même patron que les
+        # cartes cliquables ailleurs dans la refonte (QFrame + mouseReleaseEvent assigné, pas de
+        # QPushButton : la puce a déjà sa propre mise en forme interne).
+        if on_click is not None:
+            chip.setCursor(Qt.PointingHandCursor)
+            chip.mouseReleaseEvent = lambda event, cb=on_click: cb()
         hl = QHBoxLayout(chip)
         hl.setContentsMargins(12, 0, 14, 0)
         hl.setSpacing(8)
@@ -564,78 +661,186 @@ class DashboardView(QWidget):
         )
         return btn
 
-    def _refresh_missed_banner(self):
-        """Bascule la visibilité du bandeau + reconstruit ses puces à chaque refresh() (même
-        réflexe que _refresh_rail ci-dessus et HistoryView._refresh_frequency : vider puis
-        repeupler plutôt que de tenter un diff)."""
+    def _refresh_treat_column(self, unhealthy_pipelines):
+        """Colonne "À traiter" (A3 + A4) : une carte ÉCHEC par pipeline actif dont le dernier
+        statut est FAILED, puis une carte MANQUÉE par pipeline en attente de rattrapage — triées
+        ÉCHEC avant MANQUÉE ("du plus urgent au moins urgent"). Reconstruite à chaque refresh()
+        (même réflexe que _refresh_rail/HistoryView._refresh_frequency : vider puis repeupler
+        plutôt que de tenter un diff)."""
         from core.missed_runs import get_pending
+        from database import db_manager as db
 
-        pending = get_pending()
-        self._missed_banner.setVisible(bool(pending))
-        if not pending:
-            return
-
-        while self._missed_chips_layout.count():
-            item = self._missed_chips_layout.takeAt(0)
+        while self._treat_cards_layout.count():
+            item = self._treat_cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        plural = "s" if len(pending) > 1 else ""
-        self._lbl_missed_title.setText(
-            f"{len(pending)} pipeline{plural} manqué{plural} son{plural} exécution pendant "
-            f"l'arrêt de l'application"
-        )
-        for m in pending:
-            self._missed_chips_layout.addWidget(self._make_missed_chip(m))
+        cards = []
+        for p in unhealthy_pipelines:
+            runs = db.get_runs(p.id, 1)
+            if runs:
+                cards.append(self._make_failure_card(p, runs[0]))
 
-    def _make_missed_chip(self, missed: dict) -> QFrame:
+        pending = get_pending()
+        for m in pending:
+            cards.append(self._make_missed_card(m))
+
+        self._treat_empty.setVisible(not cards)
+        for card in cards:
+            self._treat_cards_layout.addWidget(card)
+
+        # Mini-barre groupée (décision utilisateur, question ouverte 6 de la fiche) : seulement
+        # à partir de 2 cartes MANQUÉE — avec une seule, son propre "Lancer maintenant"/"Ignorer"
+        # suffit, rien à grouper.
+        self._missed_bulk_bar.setVisible(len(pending) >= 2)
+        if len(pending) >= 2:
+            self._lbl_missed_bulk.setText(f"{len(pending)} manquées")
+
+    @staticmethod
+    def _treat_card_frame() -> tuple[QFrame, QVBoxLayout]:
+        card = QFrame()
+        card.setStyleSheet(
+            f"QFrame {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 10px; }}"
+        )
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(14, 12, 14, 12)
+        card_layout.setSpacing(6)
+        return card, card_layout
+
+    @staticmethod
+    def _treat_card_header(dot_style: str, label_text: str, label_color: str) -> QHBoxLayout:
+        head = QHBoxLayout(); head.setSpacing(8)
+        dot = QLabel()
+        dot.setFixedSize(8, 8)
+        dot.setStyleSheet(dot_style)
+        head.addWidget(dot)
+        head_lbl = QLabel(label_text)
+        head_lbl.setStyleSheet(
+            f"color: {label_color}; font-size: 11px; font-weight: 700; letter-spacing: 0.06em; "
+            f"background: transparent; border: none;"
+        )
+        head.addWidget(head_lbl)
+        head.addStretch()
+        return head
+
+    def _make_missed_card(self, missed: dict) -> QFrame:
         from ui.dialogs.missed_pipelines_dialog import _format_late
 
-        chip = QFrame()
-        chip.setStyleSheet(
-            f"QFrame {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: 6px; }}"
-        )
-        hl = QHBoxLayout(chip)
-        hl.setContentsMargins(10, 6, 10, 6)
-        hl.setSpacing(8)
-
-        dot = QLabel("●")
-        dot.setStyleSheet(f"color: {COLORS['warning']}; font-size: 9px; background: transparent; border: none;")
-        hl.addWidget(dot)
+        card, card_layout = self._treat_card_frame()
+        card_layout.addLayout(self._treat_card_header(
+            f"background: transparent; border: 2px dashed {COLORS['warning']}; border-radius: 4px;",
+            f"MANQUÉE · {fmt_time_local(missed['expected_at'])}", COLORS["warning"],
+        ))
 
         name_lbl = QLabel(missed["name"])
         name_lbl.setStyleSheet(
-            f"color: {COLORS['text_main']}; font-size: 12px; font-weight: 600; "
+            f"color: {COLORS['text_main']}; font-size: 14px; font-weight: 600; "
             f"background: transparent; border: none;"
         )
-        hl.addWidget(name_lbl)
+        card_layout.addWidget(name_lbl)
 
-        when_lbl = QLabel(
-            f"prévu à {fmt_time_local(missed['expected_at'])} — manqué depuis "
-            f"{_format_late(missed['late_minutes'])}"
+        desc_lbl = QLabel(
+            "Le poste était éteint à l'heure prévue. En retard de "
+            f"{_format_late(missed['late_minutes'])}."
         )
-        when_lbl.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 10.5px; font-family: {FONT_MONO_STACK}; "
-            f"background: transparent; border: none;"
-        )
-        hl.addWidget(when_lbl, stretch=1)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; background: transparent; border: none;")
+        card_layout.addWidget(desc_lbl)
 
-        btn_launch = QPushButton("▶")
-        btn_launch.setFixedSize(24, 24)
-        btn_launch.setCursor(Qt.PointingHandCursor)
-        btn_launch.setToolTip(f"Lancer {missed['name']} maintenant")
-        btn_launch.setStyleSheet(
-            f"QPushButton {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: 12px; color: {COLORS['accent']}; font-size: 10px; }}"
-            f"QPushButton:hover {{ background: {COLORS['accent']}; color: #000000; }}"
-        )
+        actions = QHBoxLayout(); actions.setSpacing(8)
+        btn_launch = self._treat_action_button(
+            "Lancer maintenant", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
         btn_launch.clicked.connect(
-            lambda checked=False, pid=missed["pipeline_id"]: self._on_missed_launch_one(pid)
-        )
-        hl.addWidget(btn_launch)
+            lambda checked=False, pid=missed["pipeline_id"]: self._on_missed_launch_one(pid))
+        actions.addWidget(btn_launch)
+        btn_ignore = self._treat_action_button("Ignorer")
+        btn_ignore.clicked.connect(
+            lambda checked=False, pid=missed["pipeline_id"]: self._on_missed_ignore_one(pid))
+        actions.addWidget(btn_ignore)
+        actions.addStretch()
+        card_layout.addLayout(actions)
 
-        return chip
+        return card
+
+    def _make_failure_card(self, pipeline, run) -> QFrame:
+        card, card_layout = self._treat_card_frame()
+        card_layout.addLayout(self._treat_card_header(
+            f"background: {COLORS['danger']}; border-radius: 4px;",
+            f"ÉCHEC · {fmt_time(run.started_at)}", COLORS["danger"],
+        ))
+
+        name_lbl = QLabel(pipeline.name)
+        name_lbl.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 14px; font-weight: 600; "
+            f"background: transparent; border: none;"
+        )
+        card_layout.addWidget(name_lbl)
+
+        step_label = _resolve_step_label(pipeline, run.failed_step_key)
+        retries = 0
+        if run.failed_step_key:
+            retries = next(
+                (s.retry_count for s in pipeline.steps
+                 if _step_key_of(s) == run.failed_step_key), 0
+            )
+        if step_label:
+            desc_lbl = QLabel(f"Arrêté à l'étape <b>{step_label}</b> après {retries} réessais.")
+        else:
+            desc_lbl = QLabel(f"Arrêté après {retries} réessais.")
+        desc_lbl.setTextFormat(Qt.RichText)
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; background: transparent; border: none;")
+        card_layout.addWidget(desc_lbl)
+
+        if run.error_message:
+            err_lbl = QLabel(run.error_message)
+            err_lbl.setWordWrap(True)
+            err_lbl.setStyleSheet(
+                f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 11px; "
+                f"background: {COLORS['bg_main']}; border: 1px solid {COLORS['bg_hover']}; "
+                f"border-radius: 4px; padding: 6px 8px;"
+            )
+            card_layout.addWidget(err_lbl)
+
+        actions = QHBoxLayout(); actions.setSpacing(8)
+        from database import db_manager as db
+        if db.get_last_resumable_run(pipeline.id) is not None:
+            btn_resume = self._treat_action_button(
+                "Reprendre depuis l'échec", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
+            btn_resume.clicked.connect(lambda checked=False, pid=pipeline.id: self._on_resume_run(pid))
+            actions.addWidget(btn_resume)
+        btn_details = self._treat_action_button("Détails")
+        btn_details.clicked.connect(lambda checked=False, pid=pipeline.id: self._open_failure_panel(pid))
+        actions.addWidget(btn_details)
+        actions.addStretch()
+        card_layout.addLayout(actions)
+
+        return card
+
+    @staticmethod
+    def _treat_action_button(text: str, outline: str = None, text_color: str = None) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFixedHeight(30)
+        border = outline or COLORS["border"]
+        color = text_color or COLORS["text_main"]
+        btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px solid {border}; "
+            f"border-radius: 6px; color: {color}; font-weight: 600; padding: 0 12px; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_hover']}; }}"
+        )
+        return btn
+
+    def _on_resume_run(self, pipeline_id: int):
+        from database import db_manager as db
+        from ui.dialogs.run_progress_dialog import RunProgressDialog
+        resumable = db.get_last_resumable_run(pipeline_id)
+        if resumable is None:
+            return
+        pipeline = db.get_pipeline(pipeline_id)
+        name = pipeline.name if pipeline else str(pipeline_id)
+        RunProgressDialog(pipeline_id, name, self, resume_from_run_id=resumable.id).exec()
+        self.refresh()
 
     def _on_missed_launch_one(self, pipeline_id: int):
         from core.missed_runs import resolve
@@ -644,6 +849,11 @@ class DashboardView(QWidget):
             get_scheduler().trigger_now(pipeline_id)
         except RuntimeError:
             pass
+        resolve(pipeline_id)
+        self.refresh()
+
+    def _on_missed_ignore_one(self, pipeline_id: int):
+        from core.missed_runs import resolve
         resolve(pipeline_id)
         self.refresh()
 
@@ -673,6 +883,211 @@ class DashboardView(QWidget):
         from database import db_manager as db
         from ui.dialogs import PipelineTopologyDialog
         PipelineTopologyDialog(self, db.get_pipelines()).exec()
+
+    # ── A9 : panneau latéral d'une exécution en échec ──
+
+    def _open_failure_panel(self, pipeline_id: int):
+        from database import db_manager as db
+        pipeline = db.get_pipeline(pipeline_id)
+        runs = db.get_runs(pipeline_id, 8)
+        if not pipeline or not runs:
+            return
+        self._side_panel.set_content(self._build_failure_panel_content(pipeline, runs[0], runs))
+        self._side_panel.open()
+
+    def _build_failure_panel_content(self, pipeline, run, runs) -> QWidget:
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 4, 24, 20)
+        layout.setSpacing(12)
+
+        eyebrow = QLabel(f"EXÉCUTION #{run.id} · ÉCHEC")
+        eyebrow.setStyleSheet(
+            f"color: {COLORS['danger']}; font-family: {FONT_MONO_STACK}; font-size: 11px; "
+            f"font-weight: 700; letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(eyebrow)
+
+        title = QLabel(pipeline.name)
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 20px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        dur = "—"
+        if run.duration_seconds is not None:
+            m, s = divmod(int(run.duration_seconds), 60)
+            dur = f"{m} min {s:02d}" if m else f"{s} s"
+        info_bits = [f"Partie à {fmt_time(run.started_at)}"]
+        if run.finished_at:
+            info_bits.append(f"Arrêtée à {fmt_time(run.finished_at)}")
+        info_bits.append(dur)
+        info = QLabel(" · ".join(info_bits))
+        info.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(info)
+
+        history = [_status_str(r.status) for r in runs[:8]][::-1]
+        layout.addWidget(RunHistoryDots(history), alignment=Qt.AlignLeft)
+
+        if run.error_message:
+            err = QLabel(run.error_message)
+            err.setWordWrap(True)
+            err.setStyleSheet(
+                f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 11.5px; "
+                f"background: {COLORS['bg_main']}; border: 1px solid {COLORS['bg_hover']}; "
+                f"border-radius: 6px; padding: 10px;"
+            )
+            layout.addWidget(err)
+
+        layout.addStretch()
+
+        from database import db_manager as db
+        footer = QHBoxLayout(); footer.setSpacing(8)
+        if db.get_last_resumable_run(pipeline.id) is not None:
+            btn_resume = self._treat_action_button(
+                "Reprendre depuis l'échec", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
+            btn_resume.clicked.connect(lambda: self._on_resume_from_panel(pipeline.id))
+            footer.addWidget(btn_resume)
+        btn_atelier = self._treat_action_button("Ouvrir dans l'Atelier")
+        btn_atelier.clicked.connect(
+            lambda: self.open_atelier_requested.emit(pipeline.id, run.failed_step_key, False))
+        footer.addWidget(btn_atelier)
+        btn_journal = self._treat_action_button("Journal")
+        btn_journal.clicked.connect(lambda: self._on_open_run_log(run.id))
+        footer.addWidget(btn_journal)
+        footer.addStretch()
+        layout.addLayout(footer)
+
+        return content
+
+    def _on_resume_from_panel(self, pipeline_id: int):
+        self._side_panel.close()
+        self._on_resume_run(pipeline_id)
+
+    def _on_open_run_log(self, run_id: int):
+        from ui.main_window.run_log_dialog import open_run_log_dialog
+        open_run_log_dialog(self, run_id)
+
+    # ── A10 : panneau latéral d'une exécution en cours ──
+
+    def _open_running_panel(self, pipeline_id: int):
+        from database import db_manager as db
+        pipeline = db.get_pipeline(pipeline_id)
+        runs = db.get_runs(pipeline_id, 1)
+        if not pipeline or not runs:
+            return
+        self._side_panel.set_content(self._build_running_panel_content(pipeline, runs[0]))
+        self._side_panel.open()
+
+    def _build_running_panel_content(self, pipeline, run) -> QWidget:
+        from database import db_manager as db
+        from database.models import PipelineRun
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 4, 24, 20)
+        layout.setSpacing(12)
+
+        eyebrow = QLabel(f"EN COURS · DÉPART {fmt_time(run.started_at)}")
+        eyebrow.setStyleSheet(
+            f"color: {COLORS['signal_pale']}; font-family: {FONT_MONO_STACK}; font-size: 11px; "
+            f"font-weight: 700; letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(eyebrow)
+
+        title = QLabel(pipeline.name)
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 20px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        # Indéterminée (0, 0), pas un pourcentage : PipelineRun ne stocke pas d'avancement
+        # numérique (seulement current_step_label/log_text, voir update_run_progress) — un run en
+        # arrière-plan n'a d'ailleurs aucune notion fiable de "pourcentage" à relire depuis la
+        # base, contrairement à RunProgressDialog qui reçoit pct en direct du thread qu'il lance.
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.setTextVisible(False)
+        progress.setFixedHeight(6)
+        layout.addWidget(progress)
+
+        lbl_step = QLabel(run.current_step_label or "Étape en cours…")
+        lbl_step.setWordWrap(True)
+        lbl_step.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(lbl_step)
+
+        lbl_journal = QLabel("JOURNAL EN DIRECT")
+        lbl_journal.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-weight: 700; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(lbl_journal)
+
+        log_box = QPlainTextEdit()
+        log_box.setReadOnly(True)
+        log_box.setFont(QFont(FONT_MONO, 10))
+        log_box.setStyleSheet(
+            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 6px;"
+        )
+        log_box.setPlainText(run.log_text or "")
+        layout.addWidget(log_box, stretch=1)
+
+        footer = QHBoxLayout(); footer.setSpacing(8)
+        btn_stop = QPushButton("Arrêter")
+        btn_stop.setObjectName("danger")
+        btn_stop.setFixedHeight(34)
+        btn_stop.clicked.connect(lambda: self._on_stop_running(pipeline.id))
+        footer.addWidget(btn_stop)
+        btn_atelier = self._treat_action_button("Ouvrir dans l'Atelier")
+        btn_atelier.clicked.connect(
+            lambda: self.open_atelier_requested.emit(pipeline.id, None, False))
+        footer.addWidget(btn_atelier)
+        footer.addStretch()
+        layout.addLayout(footer)
+
+        # Rafraîchissement en direct (même patron que run_log_dialog.py::_refresh_live) —
+        # s'arrête de lui-même dès que le run quitte RUNNING, ou si le panneau se ferme.
+        run_id = run.id
+        timer = QTimer(content)
+
+        def _poll():
+            with db.get_session() as s:
+                fresh = s.get(PipelineRun, run_id)
+                if not fresh or _status_str(fresh.status) != "RUNNING":
+                    timer.stop()
+                    return
+                new_log = fresh.log_text or ""
+                if new_log != log_box.toPlainText():
+                    bar = log_box.verticalScrollBar()
+                    at_bottom = bar.value() >= bar.maximum() - 4
+                    log_box.setPlainText(new_log)
+                    if at_bottom:
+                        bar.setValue(bar.maximum())
+                lbl_step.setText(fresh.current_step_label or "Étape en cours…")
+
+        timer.setInterval(db.get_app_settings().live_log_refresh_s * 1000)
+        timer.timeout.connect(_poll)
+        timer.start()
+        self._side_panel.closed.connect(timer.stop)
+
+        return content
+
+    def _on_stop_running(self, pipeline_id: int):
+        # En mode arrière-plan, request_cancel() local (core.pipeline._active_runs, en mémoire)
+        # n'a aucun effet : c'est le worker détaché qui exécute réellement le pipeline, jamais
+        # l'appli desktop (correctif K5, même idiome que pipelines_view.py::_on_interrupt_pipeline).
+        from core.pipeline import request_cancel
+        from core.execution_mode import request_cancel_run
+        if not request_cancel_run(pipeline_id):
+            request_cancel(pipeline_id)
 
     def _on_run_all(self):
         try:

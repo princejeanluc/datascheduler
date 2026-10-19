@@ -122,6 +122,8 @@ class MainWindow(QMainWindow):
         # création de PipelinesView (QInputDialog puis open_atelier_requested, déjà câblé
         # ci-dessous) — pas de duplication de logique.
         self._views[0].new_pipeline_requested.connect(self._views[1]._on_new_pipeline)
+        # A9/A10 : "Ouvrir dans l'Atelier" depuis les panneaux latéraux d'Aujourd'hui.
+        self._views[0].open_atelier_requested.connect(self.open_atelier)
         self._views[1].open_atelier_requested.connect(self.open_atelier)
         self._views[4].open_atelier_requested.connect(self.open_atelier)
         self._views[8].back_requested.connect(lambda: self._navigate(1))
