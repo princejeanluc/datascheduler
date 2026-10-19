@@ -35,8 +35,11 @@ cartes MANQUÉE.
 | `ui/main_window/widgets.py` | `StatCard` gagne `value_font_size` optionnel (rétrocompatible) |
 | `ui/dialogs/missed_pipelines_dialog.py` | A11 : cartes, `_format_late` étendu aux jours, texte |
 | `ui/main_window/window.py` | câblage des nouveaux signaux (nouveau pipeline, ouverture Atelier depuis Aujourd'hui, accueil) |
+| `ui/main_window/history_view.py` | `set_status_filter` accepte une chaîne vide (question ouverte 2 ci-dessous) |
+| `scripts/capture_views.py` | 6 nouvelles fabriques (Aujourdhui-premier/-execution/-encours/-tout/-rattrapage + Aujourdhui avec données), `capture_all` ne force plus le redimensionnement d'un `QDialog` |
+| `CHANGELOG.md`, `version.py` | 0.49.0 (MINOR) |
 | `tests/test_side_panel.py` (nouveau) | tests du composant partagé |
-| `tests/test_dashboard_*.py`, `tests/test_missed_*.py` | extensions pour les nouveaux éléments |
+| `tests/test_dashboard_*.py`, `tests/test_missed_*.py`, `tests/test_onboarding_empty_states.py` | extensions pour les nouveaux éléments |
 
 ## Base de données
 - Changement de schéma : aucun.
@@ -59,8 +62,9 @@ dans l'exécutable packagé), basé sur l'heure courante déjà dans le fuseau r
 (attribut, testé par `test_onboarding_empty_states.py`), `_format_late` (importable depuis
 `missed_pipelines_dialog.py`) gardent exactement leur nom et comportement — vérifiés par grep.
 Nouveaux signaux ajoutés (jamais de renommage) : `new_pipeline_requested`,
-`open_atelier_requested` (même signature que `PipelinesView.open_atelier_requested`), signaux de
-l'accueil A12.
+`open_atelier_requested` (même signature que `PipelinesView.open_atelier_requested`), et pour
+l'accueil A12 : `open_connections_requested`, `open_sql_editor_requested`,
+`start_from_template_requested`, `import_pipeline_requested`, `open_help_requested`.
 
 ## Tests
 - Concernés : `test_dashboard_active_pipelines_count.py`, `test_dashboard_missed_banner.py`,
@@ -87,10 +91,30 @@ Retour arrière : revert des commits de ce lot, aucune migration à défaire.
    `resumable_state_json`). Aucune recommandation écrite dans la fiche sur un bouton de repli
    (« Relancer ») dans ce cas — comportement actuel conservé à l'identique (le bouton
    n'apparaît que si `get_last_resumable_run` désigne un run), rien inventé.
-2. **Lien « Tout l'historique » (A7) sans filtre de statut** : à vérifier en implémentation si
-   `HistoryView`/`navigate_to_history` supporte déjà un argument vide pour « tout afficher » ;
-   sinon petite extension côté `HistoryView`, documentée ici si nécessaire.
-3. **Points d'entrée de `PipelinesView`** (`_on_new_pipeline`, `_on_start_from_template`,
-   `_on_import_pipeline`) appelés depuis `window.py` via les nouveaux signaux d'Aujourd'hui : à
-   confirmer en implémentation s'ils restent appelables tels quels (convention Python, pas
-   d'encapsulation stricte dans ce projet) ou si un alias public est ajouté — sans les renommer.
+2. **Lien « Tout l'historique » (A7) sans filtre de statut** — résolu en implémentation :
+   `HistoryView.set_status_filter` ne supportait pas une chaîne vide (seule `None`, via
+   `cb_status.findData`, sélectionnait « Tous les statuts »). Corrigé par
+   `findData(status or None)` (`ui/main_window/history_view.py`), pour que
+   `navigate_to_history.emit("")` réinitialise bien le filtre au lieu de ne rien faire.
+3. **Points d'entrée de `PipelinesView`** (`_on_start_from_template`, `_on_import_pipeline`)
+   appelés depuis `window.py` via les nouveaux signaux d'Aujourd'hui — résolu en implémentation :
+   appelés directement sans renommage, même patron déjà en place pour `_on_new_pipeline`
+   (`window.py` ligne ~124, antérieure à ce lot), qui établit que l'appel externe direct d'une
+   méthode privée de vue est une convention acceptée dans ce projet.
+
+## Écarts volontaires avec la maquette
+- Le titre de la page (A1, « Aujourd'hui ») reste statique même dans l'état Aujourdhui-premier,
+  où la maquette affiche « Bienvenue dans Kulu » — la fiche (A1) ne mentionne qu'un titre
+  statique « Aujourd'hui tant que C1 n'est pas livré », sans condition liée à l'accueil ; aucune
+  ligne de la fiche ne demande ce changement de titre (REGLES.md section 1 : la fiche prime sur
+  la maquette), donc rien n'a été ajouté pour le reproduire.
+- La ligne du temps vide « Ici, la journée de tes pipelines » visible en bas de la maquette
+  Aujourdhui-premier.html n'est pas construite : elle appartient à C4 (gated), qui ne liste cette
+  frame que comme destination, jamais comme exception à son propre gating.
+
+## Hors périmètre repéré pendant l'implémentation
+- `MissedPipelinesDialog.__init__` construit son titre de fenêtre avec
+  `f"... manqué{plural} son{plural} exécution"`, qui donne « manqués sons exécution » au pluriel
+  (grammaticalement incorrect) — bug préexistant à ce lot (commit `5ea21b6`, phase 3 originale,
+  jamais touché par A11), repéré en relisant une capture `Aujourdhui-rattrapage`. Pas corrigé ici
+  (hors périmètre de ce lot, REGLES.md section 5) ; à traiter dans un correctif dédié.

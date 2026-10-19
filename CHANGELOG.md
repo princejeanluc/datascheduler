@@ -29,6 +29,24 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.49.0] - 2026-10-19
+
+### Ajouté
+- **Refonte, Lot A-Aujourd'hui** — composant partagé `SidePanel` (glisse depuis la droite,
+  ombre, se ferme par Échap), premier écran à l'utiliser.
+
+### Modifié
+- **Refonte, Lot A-Aujourd'hui** — l'écran Aujourd'hui (Dashboard) est aligné sur sa maquette
+  validée : en-tête restructuré (surtitre date/heure en français, bouton « + Nouveau pipeline »),
+  rail en deux groupes MAINTENANT/ENSUITE avec libellé d'étape en cours, nouvelle colonne
+  « À traiter » qui remplace le bandeau des pipelines manqués par une carte par pipeline en
+  échec ou manqué (triées par urgence, actions groupées en mini-barre à partir de 2 cartes
+  manquées), bloc santé recomposé (anneau au-dessus d'une rangée de 4 cartes), bloc à onglets
+  « Dernières exécutions »/« Dépendances entre pipelines », panneaux latéraux de détail pour une
+  exécution en échec et pour une exécution en cours (journal en direct, arrêt), fenêtre de
+  rattrapage restylée (cartes, retard affiché en jours), accueil « premier pipeline » en trois
+  cartes et deux liens vers Connexions/Requêtes SQL/Pipelines/Aide.
+
 ## [0.48.0] - 2026-10-19
 
 ### Modifié
