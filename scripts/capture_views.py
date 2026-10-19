@@ -85,9 +85,46 @@ def _settings_view_enregistre():
     return view
 
 
-def _resources_view():
+def _resources_view_vide():
     from ui.main_window.resources_view import ResourcesView
     return ResourcesView()
+
+
+def _seed_resource_samples(count: int, step_minutes: int):
+    """Échantillons déterministes (pas de random — capture reproductible d'une exécution à
+    l'autre), une ondulation simple pour que les graphiques ne soient pas des droites plates."""
+    from datetime import datetime, timedelta
+    from database.models import ResourceSample
+    now = datetime.utcnow()
+    with db.get_session() as s:
+        for i in range(count):
+            ts = now - timedelta(minutes=(count - i) * step_minutes)
+            wave = abs((i % 20) - 10) / 10
+            s.add(ResourceSample(
+                timestamp=ts,
+                cpu_percent=min(8.0 + 35.0 * wave, 95.0),
+                memory_mb=180.0 + i * 1.2,
+            ))
+
+
+def _resources_view():
+    from ui.main_window.resources_view import ResourcesView
+    _seed_resource_samples(count=120, step_minutes=12)   # ~24h d'échantillons
+    return ResourcesView()
+
+
+def _resources_view_survol():
+    view = _resources_view()
+    view._on_chart_hover(60)
+    return view
+
+
+def _resources_view_7j():
+    from ui.main_window.resources_view import ResourcesView
+    _seed_resource_samples(count=168, step_minutes=60)   # un point par heure, 7 jours
+    view = ResourcesView()
+    view._on_range_changed(24 * 7)
+    return view
 
 
 def _dashboard_view():
@@ -98,6 +135,8 @@ def _dashboard_view():
 # (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue/état capturable.
 # Parametres-validation n'est pas capturé : son contenu distinctif (bandeau de validation en
 # ligne par champ) est C3, gated par la décision P1 — voir docs/refonte/impact/a-parametres.md.
+# Ressources-plage n'est pas capturé non plus : glisser pour choisir une plage est C2, gated —
+# voir docs/refonte/impact/a-ressources.md.
 REGISTRY = [
     ("parametres", _settings_view),
     ("parametres-recherche", _settings_view_recherche),
@@ -105,7 +144,14 @@ REGISTRY = [
     ("parametres-refus", _settings_view_refus),
     ("parametres-notifications", _settings_view_notifications_hebdomadaire),
     ("parametres-enregistre", _settings_view_enregistre),
+    # Ordre important : capture_all() partage une seule base pour tout le registre, et chaque
+    # fabrique "ressources*" y ajoute ses propres échantillons — "-vide" doit passer avant que
+    # quoi que ce soit n'en insère, "-7j" avant les échantillons plus denses de "ressources"/
+    # "-survol" (sinon les deux séries se superposent dans la même fenêtre 7j).
+    ("ressources-vide", _resources_view_vide),
+    ("ressources-7j", _resources_view_7j),
     ("ressources", _resources_view),
+    ("ressources-survol", _resources_view_survol),
     ("aujourdhui", _dashboard_view),
 ]
 
