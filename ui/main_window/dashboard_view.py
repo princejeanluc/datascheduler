@@ -85,6 +85,15 @@ class DashboardView(QWidget):
     # signature que PipelinesView.open_atelier_requested, câblé dans window.py vers
     # MainWindow.open_atelier (point d'entrée unique déjà utilisé par Pipelines/Historique).
     open_atelier_requested = Signal(int, object, bool)
+    # A12 (Aujourdhui-premier) : les 3 cartes/2 liens de l'accueil "premier pipeline" ne
+    # dupliquent aucune logique — ils naviguent vers une vue existante ou appellent une méthode
+    # déjà publique-par-l'usage de PipelinesView (même patron que new_pipeline_requested
+    # ci-dessus, déjà câblé vers une méthode privée de PipelinesView).
+    open_connections_requested = Signal()
+    open_sql_editor_requested = Signal()
+    start_from_template_requested = Signal()
+    import_pipeline_requested = Signal()
+    open_help_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -146,18 +155,12 @@ class DashboardView(QWidget):
         self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
         layout.addWidget(header)
 
-        self._onboarding_banner = QLabel(
-            "Bienvenue — commencez par créer vos connexions (Connexions), puis vos requêtes SQL "
-            "si besoin (Requêtes SQL), avant de créer votre premier pipeline (Pipelines). "
-            "Consultez la section Aide pour un guide pas à pas."
-        )
-        self._onboarding_banner.setWordWrap(True)
-        self._onboarding_banner.setStyleSheet(
-            f"color: {COLORS['text_main']}; font-size: 12px; background: {COLORS['bg_panel']}; "
-            f"border: 1px solid {COLORS['border']}; border-left: 3px solid {COLORS['accent']}; "
-            f"border-radius: 6px; padding: 12px 16px;"
-        )
-        self._onboarding_banner.setVisible(False)
+        # A12 (Aujourdhui-premier, maquette html/Aujourdhui-premier.html) : remplace l'ancienne
+        # phrase unique par 3 cartes de parcours + 2 liens. Garde le nom d'attribut
+        # `_onboarding_banner` (À garder tel quel, test_onboarding_empty_states.py) même si son
+        # contenu change entièrement — refresh() continue de faire .setVisible(not pipelines)
+        # sans aucun changement.
+        self._onboarding_banner = self._build_onboarding_block()
         layout.addWidget(self._onboarding_banner)
 
         # Rail "Prochaines & en cours" — remplace la carte isolée "Prochaine exéc." : les
@@ -660,6 +663,132 @@ class DashboardView(QWidget):
             f"QPushButton:hover {{ color: {COLORS['text_main']}; }}"
         )
         return btn
+
+    # ── A12 : accueil "premier pipeline" ────────────────────────────────────
+
+    def _build_onboarding_block(self) -> QWidget:
+        block = QWidget()
+        col = QVBoxLayout(block)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(14)
+
+        subtitle = QLabel(
+            "Trois pas suffisent pour qu'un premier pipeline tourne tout seul chaque matin."
+        )
+        subtitle.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 13px; background: transparent; border: none;"
+        )
+        col.addWidget(subtitle)
+
+        cards = QHBoxLayout(); cards.setSpacing(14)
+        cards.addWidget(self._make_onboarding_card(
+            step="1", active=True, title="Brancher une source", badge=None,
+            text="Oracle, Postgres, Hive, SFTP, SMTP… Kulu teste la connexion avant de "
+                 "l'enregistrer.",
+            button_text="Créer une connexion", primary=True,
+            on_click=self.open_connections_requested.emit,
+        ))
+        cards.addWidget(self._make_onboarding_card(
+            step="2", active=False, title="Écrire la requête", badge="facultatif",
+            text="Garde tes requêtes SQL en bibliothèque pour les réutiliser dans plusieurs "
+                 "pipelines.",
+            button_text="Ouvrir l'éditeur SQL", primary=False,
+            on_click=self.open_sql_editor_requested.emit,
+        ))
+        cards.addWidget(self._make_onboarding_card(
+            step="3", active=False, title="Assembler le pipeline", badge=None,
+            text="Pars du modèle « extraction puis dépôt local » : il ne reste que le profil, "
+                 "la requête et le dossier à remplir.",
+            button_text="Partir du modèle", primary=False,
+            on_click=self.start_from_template_requested.emit,
+        ))
+        col.addLayout(cards)
+
+        links = QHBoxLayout(); links.setSpacing(10)
+        lbl_has = QLabel("Tu as déjà un pipeline Kulu ?")
+        lbl_has.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 13px; background: transparent; border: none;"
+        )
+        links.addWidget(lbl_has)
+        btn_import = self._link_button("Importer un fichier .dspipeline", COLORS["accent"])
+        btn_import.clicked.connect(self.import_pipeline_requested.emit)
+        links.addWidget(btn_import)
+        sep = QLabel("·")
+        sep.setStyleSheet(f"color: {COLORS['text_muted']}; background: transparent; border: none;")
+        links.addWidget(sep)
+        btn_guide = self._link_button("Lire le guide pas à pas", COLORS["accent"])
+        btn_guide.clicked.connect(self.open_help_requested.emit)
+        links.addWidget(btn_guide)
+        links.addStretch()
+        col.addLayout(links)
+
+        return block
+
+    @staticmethod
+    def _make_onboarding_card(*, step: str, active: bool, title: str, badge: str | None,
+                               text: str, button_text: str, primary: bool, on_click) -> QFrame:
+        # Sélecteur d'ID par carte (pas une règle nue sur QFrame) : QLabel hérite de QFrame en
+        # Qt, voir REGLES.md section 3 — déjà vu deux fois dans ce lot sur des conteneurs
+        # similaires (cartes "À traiter", lignes de rattrapage).
+        card = QFrame()
+        card.setObjectName(f"onboarding_card_{step}")
+        border = COLORS["accent"] if active else COLORS["border"]
+        card.setStyleSheet(
+            f"QFrame#onboarding_card_{step} {{ background: {COLORS['bg_panel']}; "
+            f"border: 1px solid {border}; border-radius: 10px; }}"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(10)
+
+        head = QHBoxLayout(); head.setSpacing(10)
+        badge_lbl = QLabel(step)
+        badge_lbl.setFixedSize(26, 26)
+        badge_lbl.setAlignment(Qt.AlignCenter)
+        if active:
+            badge_lbl.setStyleSheet(
+                f"background: {COLORS['accent']}; color: #000000; border-radius: 13px; "
+                f"font-weight: 700; font-size: 12px;"
+            )
+        else:
+            badge_lbl.setStyleSheet(
+                f"background: transparent; border: 1.5px solid {COLORS['text_muted']}; "
+                f"color: {COLORS['text_dim']}; border-radius: 13px; font-weight: 700; "
+                f"font-size: 12px;"
+            )
+        head.addWidget(badge_lbl)
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"font-size: 15px; font-weight: 600; color: {COLORS['text_main']}; "
+            f"background: transparent; border: none;"
+        )
+        head.addWidget(title_lbl)
+        if badge:
+            badge_pill = QLabel(badge)
+            badge_pill.setStyleSheet(
+                f"color: {COLORS['text_dim']}; font-size: 11px; border: 1px solid "
+                f"{COLORS['border']}; border-radius: 999px; padding: 1px 8px; "
+                f"background: transparent;"
+            )
+            head.addWidget(badge_pill)
+        head.addStretch()
+        layout.addLayout(head)
+
+        desc = QLabel(text)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12.5px; background: transparent; "
+            f"border: none;"
+        )
+        layout.addWidget(desc, stretch=1)
+
+        btn = QPushButton(button_text) if primary else DashboardView._treat_action_button(button_text)
+        btn.setFixedHeight(34)
+        btn.clicked.connect(on_click)
+        btn_row = QHBoxLayout(); btn_row.addWidget(btn); btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        return card
 
     def _refresh_treat_column(self, unhealthy_pipelines):
         """Colonne "À traiter" (A3 + A4) : une carte ÉCHEC par pipeline actif dont le dernier
