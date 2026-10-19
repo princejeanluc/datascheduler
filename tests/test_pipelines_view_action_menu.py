@@ -219,6 +219,24 @@ def test_on_interrupt_pipeline_delegates_to_worker_in_background_mode(qapp, test
     assert local_calls == []
 
 
+def test_row_highlights_while_its_menu_is_open(qapp, test_db):
+    """Maquette (Pipelines-menu.html) : la ligne se teinte pendant que son menu "⋯" est ouvert."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="row-highlight-test")
+    view = PipelinesView()
+    name_cell = view.table.cellWidget(0, 0)
+
+    from ui.styles import COLORS
+
+    btn, menu = _get_more_button_and_menu(view, 0)
+    menu.aboutToShow.emit()
+    assert COLORS["bg_row_selected"] in name_cell.styleSheet()
+
+    menu.aboutToHide.emit()
+    assert "background: transparent" in name_cell.styleSheet()
+
+
 def test_overflow_menu_delete_action_triggers_callback(qapp, test_db, monkeypatch):
     from ui.main_window.pipelines_view import PipelinesView
 

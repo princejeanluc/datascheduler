@@ -483,6 +483,16 @@ class PipelinesView(QWidget):
             act_del = menu.addAction("Supprimer…")
             act_del.triggered.connect(lambda _, i=pid: self._on_delete_pipeline(i))
             btn_more.setMenu(menu)
+            # A8/A13 (maquette) : la ligne se teinte pendant que son menu "⋯" est ouvert — ne
+            # touche que la cellule Nom (ses enfants ont déjà leur propre style explicite,
+            # REGLES.md section 3 : rien à neutraliser côté cascade).
+            menu.aboutToShow.connect(
+                lambda w=name_w: w.setStyleSheet(
+                    f"background: {COLORS['bg_row_selected']}; "
+                    f"border-left: 3px solid {COLORS['accent']};"
+                )
+            )
+            menu.aboutToHide.connect(lambda w=name_w: w.setStyleSheet("background: transparent; border: none;"))
 
             al.addWidget(btn_run); al.addWidget(btn_open); al.addWidget(btn_settings)
             al.addWidget(btn_more); al.addStretch()
