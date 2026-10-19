@@ -62,6 +62,10 @@ COLORS = {
 
     # Refonte (lot A-Parametres) — surlignage du terme cherché (Parametres-recherche.html)
     "search_highlight":     "#5a3410",
+
+    # Refonte (lot A-Pipelines) — T2 : vues sur la maquette sans clé existante
+    "border_active":   "#6b4520",   # bordure du bouton d'action mis en avant, pendant de bg_active
+    "bg_row_selected": "#221a12",   # ligne de tableau ciblée par un menu/une fenêtre ouverte dessus
 }
 
 # ──────────────────────────────────────────────
