@@ -234,6 +234,21 @@ def test_run(test_db):
     assert runs[0].duration_seconds is not None
 
 
+def test_count_runs(test_db):
+    pipeline_id = db.create_pipeline(name="count-runs-test").id
+    assert db.count_runs(pipeline_id) == 0
+
+    for _ in range(3):
+        run = db.create_run(pipeline_id)
+        db.finish_run(run.id, status="SUCCESS")
+
+    assert db.count_runs(pipeline_id) == 3
+    # Un autre pipeline, même vide, ne doit pas compter dans le total du premier.
+    other_id = db.create_pipeline(name="count-runs-other").id
+    assert db.count_runs(other_id) == 0
+    assert db.count_runs(pipeline_id) == 3
+
+
 # ──────────────────────────────────────────────
 #  VISIBILITÉ DES RUNS EN COURS (chantier N)
 # ──────────────────────────────────────────────

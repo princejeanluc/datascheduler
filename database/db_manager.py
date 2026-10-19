@@ -1427,6 +1427,14 @@ def get_runs(pipeline_id: int, limit: int = 50) -> list[PipelineRun]:
         )
 
 
+def count_runs(pipeline_id: int) -> int:
+    """Nombre total d'exécutions d'un pipeline — lot A-Pipelines (A13, fenêtre de suppression :
+    « Les N exécutions de l'historique seront supprimées. »). Lecture seule, COUNT simple, aucun
+    objet chargé contrairement à get_runs()."""
+    with get_session() as s:
+        return s.query(PipelineRun).filter(PipelineRun.pipeline_id == pipeline_id).count()
+
+
 def get_runs_for_pipeline_on_day(pipeline_id: int, day) -> list[PipelineRun]:
     """Exécutions d'UN pipeline pour UNE journée précise — utilisé par le calendrier de
     fréquence de l'Historique (chantier identité, vague 4, idée 13) : cliquer une case doit
