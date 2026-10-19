@@ -441,3 +441,27 @@ def test_resources_view_hides_empty_state_once_a_sample_exists(qapp, test_db):
     assert view._empty_footer_hint.isHidden()
     assert not view._charts_frame.isHidden()
     assert not view._correlate_panel.isHidden()
+
+
+# ── Fond des cartes (signalé par l'utilisateur après la PR) ────────────────
+
+def test_resources_view_cards_use_the_maquette_background_not_the_shared_default(qapp, test_db):
+    """Régression : StatCard pose par défaut (ui/main_window/widgets.py) un fond bg_card, un
+    rayon de 6px et un liseré d'accent bleu — Ressources.html veut un fond bg_panel, un rayon de
+    10px et une bordure unie sans accent sur les 4 cartes ET les 2 encarts (graphiques,
+    corrélation). Signalé par une capture d'écran de l'app réelle montrant le mauvais fond."""
+    from ui.main_window.resources_view import ResourcesView, _card_style
+    from ui.styles import COLORS
+
+    view = ResourcesView()
+    style = _card_style()
+
+    assert COLORS["bg_panel"] in style
+    assert "border-radius: 10px" in style
+    assert COLORS["bg_card"] not in style   # le fond par défaut de StatCard, pas celui voulu ici
+
+    for widget in (
+        view._card_running, view._card_peak_cpu, view._card_memory, view._card_samples,
+        view._charts_frame, view._correlate_panel,
+    ):
+        assert widget.styleSheet() == style

@@ -46,6 +46,18 @@ def _interval_label(seconds: int) -> str:
         return "MINUTE" if minutes == 1 else f"{minutes} MINUTES"
     return f"{seconds} SECONDES"
 
+def _card_style() -> str:
+    """Fond/bordure/rayon des 4 cartes de stats et des 2 encarts (graphiques, corrélation) —
+    Ressources.html : bg_panel/border/10px, pas bg_card/6px (le `QFrame#card` global de
+    widgets.py, conçu pour d'autres écrans) ni le liseré d'accent bleu par défaut de StatCard,
+    absent de cette maquette. Sélecteur d'ID (QFrame#card), pas une règle nue — remplace celui
+    posé par StatCard.__init__ sans en changer la portée (REGLES.md section 3)."""
+    return (
+        f"QFrame#card {{ background: {COLORS['bg_panel']}; border: 1px solid {COLORS['border']}; "
+        f"border-radius: 10px; }}"
+    )
+
+
 _HINT_HOVER = "Survolez un graphique pour voir le détail d'un instant."
 _HINT_NO_PIPELINE = "Aucun pipeline en cours à cet instant."
 
@@ -426,10 +438,17 @@ class ResourcesView(QWidget):
         self._card_memory    = StatCard("Mémoire actuelle", "—")
         self._card_samples   = StatCard("Échantillons", "—")
         for card in (self._card_running, self._card_peak_cpu, self._card_memory, self._card_samples):
+            # Remplace le style par défaut de StatCard (fond bg_card, rayon 6px, liseré
+            # d'accent bleu) par celui de Ressources.html (fond bg_panel, rayon 10px, bordure
+            # unie sans accent) — StatCard.setStyleSheet() dans son __init__ pose déjà une règle
+            # scopée QFrame#card, remplacée ici par une autre tout aussi scopée, pas une règle
+            # nue (REGLES.md section 3).
+            card.setStyleSheet(_card_style())
             stats_row.addWidget(card)
         body.addLayout(stats_row)
 
         self._charts_frame = charts_frame = QFrame(); charts_frame.setObjectName("card")
+        charts_frame.setStyleSheet(_card_style())
         charts_layout = QVBoxLayout(charts_frame)
         charts_layout.setContentsMargins(20, 18, 20, 10)
         charts_layout.setSpacing(4)
@@ -455,16 +474,24 @@ class ResourcesView(QWidget):
 
         body.addWidget(charts_frame)
 
-        self._correlate_title = correlate_title = QLabel("Pipelines actifs à l'instant survolé")
-        correlate_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS['text_main']};")
-        body.addWidget(correlate_title)
-        self._correlate_sub = correlate_sub = QLabel(
-            "Survolez un point des graphiques ci-dessus pour voir précisément quels pipelines "
-            "tournaient à ce moment."
-        )
-        correlate_sub.setWordWrap(True)
-        correlate_sub.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 11.5px;")
-        body.addWidget(correlate_sub)
+        # Titre + description sur la MÊME ligne (align-items: baseline, Ressources.html) — pas
+        # deux lignes empilées comme avant ce lot (écart signalé après la première capture).
+        self._correlate_header = correlate_header = QWidget()
+        correlate_header_layout = QHBoxLayout(correlate_header)
+        correlate_header_layout.setContentsMargins(0, 0, 0, 0)
+        correlate_header_layout.setSpacing(12)
+        correlate_title = QLabel("Pipelines actifs à l'instant survolé")
+        correlate_title.setStyleSheet(
+            f"font-size: 13.5px; font-weight: 700; color: {COLORS['text_main']}; "
+            f"background: transparent;")
+        correlate_header_layout.addWidget(correlate_title, alignment=Qt.AlignVCenter)
+        correlate_sub = QLabel(
+            "Survolez un point des graphiques pour voir quels pipelines tournaient à ce moment.")
+        correlate_sub.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent;")
+        correlate_header_layout.addWidget(correlate_sub, alignment=Qt.AlignVCenter)
+        correlate_header_layout.addStretch()
+        body.addWidget(correlate_header)
 
         # Widgets construits UNE SEULE FOIS et toujours gardés dans le layout, jamais retirés/
         # recréés — seule leur visibilité/texte change. Un précédent essai qui les ré-ajoutait
@@ -474,6 +501,7 @@ class ResourcesView(QWidget):
         # en usage réel ("Internal C++ object already deleted"). Seuls les chips (nombre variable,
         # eux vraiment jetables) sont recréés à chaque survol, dans leur propre sous-layout dédié.
         self._correlate_panel = QFrame(); self._correlate_panel.setObjectName("card")
+        self._correlate_panel.setStyleSheet(_card_style())
         self._correlate_layout = QVBoxLayout(self._correlate_panel)
         self._correlate_layout.setContentsMargins(16, 16, 16, 16)
         self._correlate_layout.setSpacing(8)
@@ -578,8 +606,7 @@ class ResourcesView(QWidget):
         # (toujours visibles, à 0/—/0 % le cas échéant — Ressources-vide.html).
         has_samples = bool(self._samples)
         self._charts_frame.setVisible(has_samples)
-        self._correlate_title.setVisible(has_samples)
-        self._correlate_sub.setVisible(has_samples)
+        self._correlate_header.setVisible(has_samples)
         self._correlate_panel.setVisible(has_samples)
         self._empty_state.setVisible(not has_samples)
         self._empty_footer_hint.setVisible(not has_samples)

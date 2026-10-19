@@ -86,3 +86,16 @@ des commits de ce lot, aucune migration à défaire.
    démarrage) : présent dans `manquements.md` mais absent des tableaux Lot A/B/C de la fiche
    Ressources elle-même — par la règle T7 (`DECISIONS.md`), non traité ici, signalé dans la PR
    section « Hors périmètre repéré ».
+5. **Fond des cartes (corrigé après relecture utilisateur)** : la première version de la PR
+   laissait les 4 cartes de stats et les 2 encarts (graphiques, corrélation) avec le style par
+   défaut de `StatCard`/`QFrame#card` (`widgets.py::GLOBAL_STYLE`) — fond `bg_card`, rayon 6px,
+   liseré d'accent bleu — au lieu du fond `bg_panel`, rayon 10px, bordure unie sans accent que
+   montre `Ressources.html` sur ces 6 blocs. Signalé par une capture de l'app réelle. Corrigé en
+   surchargeant le style (scopé `QFrame#card`, pas une règle nue) spécifiquement sur ces
+   instances, sans toucher au `QFrame#card` global ni à `StatCard` (dont le rendu par défaut
+   reste inchangé pour tous les autres écrans qui l'utilisent). Même relecture : l'en-tête du
+   panneau de corrélation (« Pipelines actifs à l'instant survolé » + sa description) était
+   empilé sur deux lignes alors que la maquette les aligne sur une seule ligne
+   (`align-items: baseline`) — corrigé, texte de la description aussi repris plus fidèlement
+   (« Survolez un point des graphiques pour voir quels pipelines tournaient à ce moment. »,
+   sans les ajouts « ci-dessus »/« précisément » absents de la maquette).
