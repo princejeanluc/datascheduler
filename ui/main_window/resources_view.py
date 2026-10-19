@@ -631,7 +631,7 @@ class ResourcesView(QWidget):
         if 0 <= index < len(self._samples):
             sample = self._samples[index]
             self._show_hovered_chart_values(sample)
-            self._update_correlate_panel(sample.timestamp)
+            self._update_correlate_panel(sample)
 
     def _on_chart_hover_left(self):
         for chart in self._charts:
@@ -656,13 +656,22 @@ class ResourcesView(QWidget):
             if w:
                 w.deleteLater()
 
-    def _update_correlate_panel(self, instant: datetime):
+    def _update_correlate_panel(self, sample) -> None:
         self._clear_chips()
 
-        self._correlate_time_lbl.setText(fmt_datetime(instant))
+        instant = sample.timestamp
+        active = self._runs_active_at(instant)
+        # Ligne de résumé (A8, Ressources-survol.html) : date/heure déjà affichées, étendues ici
+        # avec le nombre de pipelines actifs, le CPU et la mémoire de l'échantillon survolé —
+        # toujours affichée pendant un survol, même sans pipeline actif (la fiche ne conditionne
+        # pas A8 à "active"). Porte un badge "proposé" sur la maquette, mais listée en Lot A (A8).
+        pipeline_word = "pipeline actif" if len(active) <= 1 else "pipelines actifs"
+        self._correlate_time_lbl.setText(
+            f"{fmt_datetime(instant)} · {len(active)} {pipeline_word} · "
+            f"CPU {sample.cpu_percent:.0f} % · mémoire {sample.memory_mb:.0f} Mo"
+        )
         self._correlate_time_lbl.setVisible(True)
 
-        active = self._runs_active_at(instant)
         if not active:
             self._correlate_empty.setText(_HINT_NO_PIPELINE)
             self._correlate_empty.setVisible(True)

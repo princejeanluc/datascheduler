@@ -377,3 +377,33 @@ def test_resources_view_peak_cpu_card_shows_subtitle_at_the_time_of_the_peak(qap
 
     assert view._card_peak_cpu._lbl_value.text() == "88 %"
     assert "aujourd'hui" in view._card_peak_cpu._lbl_sub.text()
+
+
+# ── A8 : ligne de résumé au survol ──────────────────────────────────────────
+
+def test_resources_view_hover_summary_line_includes_count_cpu_and_memory(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    pipeline = db.create_pipeline(name="summary-test-pipeline")
+    db.create_run(pipeline.id)   # en cours
+    db.record_resource_sample(cpu_percent=73.0, memory_mb=256.0)
+
+    view = ResourcesView()
+    view._on_chart_hover(0)
+
+    text = view._correlate_time_lbl.text()
+    assert "1 pipeline actif" in text
+    assert "CPU 73 %" in text
+    assert "mémoire 256 Mo" in text
+
+
+def test_resources_view_hover_summary_line_shown_even_with_no_active_pipeline(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=4.0, memory_mb=120.0)
+    view = ResourcesView()
+    view._on_chart_hover(0)
+
+    text = view._correlate_time_lbl.text()
+    assert "0 pipeline actif" in text
+    assert "CPU 4 %" in text
