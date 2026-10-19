@@ -13,7 +13,8 @@ déclenchement visible (plus seulement en infobulle), colonne PROCHAINE au forma
 désactivation), pied de liste (légende + « actualisé il y a N s »), validation à blanc déplacée
 dans un panneau latéral partagé (`SidePanel`), bandeau à 4 repères dans la fenêtre d'import,
 nouvelle fenêtre de suppression modale avec dépendants et bouton danger, état vide en trois
-cartes. **Aucun changement de base** (Lot B de la fiche — date de désactivation, déclenchements
+cartes, ligne teintée pendant que son menu « ⋯ » est ouvert (maquettes Pipelines-menu/
+-suppression). **Aucun changement de base** (Lot B de la fiche — date de désactivation, déclenchements
 dans l'export, pipeline sans planification propre — reste hors périmètre, comme pour tout lot A).
 
 Comme pour Aujourd'hui, aucune frame de cette maquette ne porte de pastille « proposé » (question
@@ -27,19 +28,28 @@ jamais par nom).
 ## Fichiers touchés
 | Fichier | Nature du changement |
 |---|---|
-| `ui/main_window/pipelines_view.py` | l'essentiel du lot (A1-A10, A14) |
-| `ui/main_window/widgets.py` | `_make_button_with_hint` (nouveau), `_action_btn` étendu (`object_name="accent_action"`), `GLOBAL_STYLE` |
+| `ui/main_window/pipelines_view.py` | l'essentiel du lot (A1-A14) |
+| `ui/main_window/widgets.py` | `_make_button_with_hint` (nouveau), `_action_btn` étendu (`object_name="accent_action"`), `GLOBAL_STYLE` (`#accent_action`, `badge_missed`) |
 | `ui/styles.py` | `border_active`, `bg_row_selected` (T2) |
 | `ui/components/side_panel.py` | `set_close_guard()` optionnel, rétrocompatible |
 | `ui/dialogs/pipeline_import_dialogs.py` | bandeau 4 repères, titre de collision (A11) |
 | `ui/dialogs/pipeline_export_dialog.py` | texte d'aide vérifié (A12) |
 | `ui/dialogs/pipeline_delete_dialog.py` (nouveau) | remplace le `QMessageBox` inline de `_on_delete_pipeline` (A13) |
+| `ui/dialogs/__init__.py` | réexporte `PipelineDeleteDialog` |
 | `database/db_manager.py` | `count_runs(pipeline_id)` (nouvelle fonction de lecture, A13) |
 | `docs/refonte/FONDATIONS.md` | nouvelles clés couleur, catalogue du bouton avec raccourci |
-| `scripts/capture_views.py` | nouveaux états Pipelines/-menu/-validation/-suppression/-vide |
-| `tests/test_pipelines_view_*.py` | revérifiés en premier, étendus/mis à jour (T1) |
-| `tests/test_export_dialog.py` | étendu (bandeau 4 repères, titre de collision) |
-| `tests/test_pipeline_delete_dialog.py` (nouveau) | |
+| `scripts/capture_views.py` | nouveaux états `pipelines-vide`/`pipelines`/`pipelines-menu`/`pipelines-validation`/`pipelines-suppression` |
+| `tests/test_pipelines_view_header.py` (nouveau) | A1 |
+| `tests/test_pipelines_view_columns.py` (nouveau) | A2-A6 |
+| `tests/test_pipelines_view_first_button.py` (nouveau) | A7 |
+| `tests/test_pipelines_view_footer.py` (nouveau) | A9 |
+| `tests/test_pipelines_view_validation_panel.py` (nouveau) | A10 |
+| `tests/test_pipelines_view_empty_state.py` (nouveau) | A14 |
+| `tests/test_pipeline_delete_dialog.py` (nouveau) | A13 |
+| `tests/test_pipelines_view_action_menu.py` | mis à jour (T1) + étendu (A8, teinte de ligne) |
+| `tests/test_pipeline_cancel_state.py` | mis à jour (T1 : colonnes Statut/Nom/Planification devenues des cell-widgets ; test de suppression déplacé vers `test_pipeline_delete_dialog.py`) |
+| `tests/test_export_dialog.py` | étendu (A11 : bandeau 4 repères, titre de collision ; A12 : texte d'export) |
+| `tests/test_db_manager.py` | étendu (`count_runs`) |
 | `tests/test_side_panel.py` | extension `set_close_guard` |
 
 `ui/dialogs/pipeline_dry_run_dialog.py` n'est pas modifié : la classe reste fonctionnelle et son
