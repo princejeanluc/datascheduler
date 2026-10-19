@@ -1,7 +1,8 @@
 """
 DataScheduler — tests/test_pipelines_view_columns.py
 Refonte, lot A-Pipelines : A2 (colonne PIPELINE, description), A3 (colonne ÉTAT, ligne de
-détail par état), A4 (colonne FORME · 8 DERNIERS, RunHistoryDots).
+détail par état), A4 (colonne FORME · 8 DERNIERS, RunHistoryDots), A5 (colonne PLANIFICATION,
+relation de déclenchement visible), A6 (colonne PROCHAINE, format relatif).
 """
 
 import os
@@ -190,3 +191,73 @@ def test_steps_column_includes_run_history_dots(qapp, test_db):
 
     cell = view.table.cellWidget(0, 2)
     assert cell.findChild(RunHistoryDots) is not None
+
+
+# ── A5 : relation de déclenchement visible ──────────────────────────────────
+
+def test_planning_column_shows_relation_line_when_triggered(qapp, test_db):
+    from ui.main_window.pipelines_view import PipelinesView
+
+    parent = db.create_pipeline(name="parent-test")
+    child = db.create_pipeline(name="child-test")
+    db.save_steps(child.id, [{"step_type": "DB_EXTRACT"}])
+    db.set_pipeline_trigger(child.id, parent.id, "SUCCESS")
+
+    view = PipelinesView()
+    view.refresh()
+
+    row = next(
+        r for r in range(view.table.rowCount())
+        if "child-test" in view.table.cellWidget(r, 0).findChildren(QLabel)[0].text()
+    )
+    cell = view.table.cellWidget(row, 3)
+    assert cell is not None
+    text = " ".join(lbl.text() for lbl in cell.findChildren(QLabel))
+    assert "après parent-test" in text
+    assert "si réussite" in text
+
+
+def test_planning_column_stays_plain_item_without_trigger(qapp, test_db):
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="no-trigger-test")
+
+    view = PipelinesView()
+    view.refresh()
+
+    assert view.table.cellWidget(0, 3) is None
+    assert view.table.item(0, 3) is not None
+
+
+# ── A6 : colonne PROCHAINE au format relatif ────────────────────────────────
+
+def test_next_run_same_day_shows_bare_time(qapp, test_db):
+    from ui.main_window.pipelines_view import _format_next_run
+    from ui.time_display import to_display
+
+    today = to_display(datetime.utcnow()).date()
+    next_run = datetime(today.year, today.month, today.day, 16, 0)
+    assert _format_next_run(next_run) == "16:00"
+
+
+def test_next_run_tomorrow_shows_demain_prefix(qapp, test_db):
+    from ui.main_window.pipelines_view import _format_next_run
+    from ui.time_display import to_display
+
+    tomorrow = to_display(datetime.utcnow()).date() + timedelta(days=1)
+    next_run = datetime(tomorrow.year, tomorrow.month, tomorrow.day, 7, 0)
+    assert _format_next_run(next_run) == "demain 07:00"
+
+
+def test_next_run_further_out_shows_date(qapp, test_db):
+    from ui.main_window.pipelines_view import _format_next_run
+
+    far = datetime.utcnow() + timedelta(days=10)
+    result = _format_next_run(datetime(far.year, far.month, far.day, 5, 0))
+    assert result == far.strftime("%d/%m 05:00")
+
+
+def test_next_run_none_shows_dash(qapp, test_db):
+    from ui.main_window.pipelines_view import _format_next_run
+
+    assert _format_next_run(None) == "—"

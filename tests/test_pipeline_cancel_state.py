@@ -150,8 +150,10 @@ def test_pipelines_view_plan_column_shows_trigger_tooltip(qapp, test_db):
     def _name_of(r):
         return view.table.cellWidget(r, 0).findChildren(QLabel)[0].text()
     row = next(r for r in range(view.table.rowCount()) if "B" in _name_of(r))
-    item = view.table.item(row, 3)
-    assert "A" in item.toolTip() and "Échec" in item.toolTip()
+    # A5 : avec un déclenchement configuré, la colonne Planification devient elle aussi un
+    # cell-widget (2e ligne visible "↳ après ... · condition"), l'infobulle reste sur ce widget.
+    cell = view.table.cellWidget(row, 3)
+    assert "A" in cell.toolTip() and "Échec" in cell.toolTip()
 
 
 def test_pipelines_view_plan_column_has_no_trigger_tooltip_without_configuration(qapp, test_db):

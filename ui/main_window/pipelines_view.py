@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QColor, QShortcut, QKeySequence
 from ui.styles import COLORS
-from ui.time_display import fmt_datetime_local, fmt_time, fmt_time_local
+from ui.time_display import fmt_time, fmt_time_local, to_display
 from ui.components import make_page_header
 from .widgets import (
     _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
@@ -44,6 +44,24 @@ def _format_duration_short(seconds) -> str:
         return "0 s"
     m, s = divmod(int(seconds), 60)
     return f"{m} min {s:02d}" if m else f"{s} s"
+
+
+def _format_next_run(next_run_at) -> str:
+    """A6 : « demain HH:MM » / « HH:MM » nu le même jour / « JJ/MM HH:MM » plus loin — jamais
+    converti (déjà dans le fuseau réglé, comme next_run_at partout ailleurs). Comparé au jour
+    local courant, lui aussi déjà dans le fuseau réglé (to_display(utcnow()))."""
+    if not next_run_at:
+        return "—"
+    today = to_display(datetime.utcnow()).date()
+    delta_days = (next_run_at.date() - today).days
+    if delta_days == 0:
+        return next_run_at.strftime("%H:%M")
+    if delta_days == 1:
+        return f"demain {next_run_at.strftime('%H:%M')}"
+    return next_run_at.strftime("%d/%m %H:%M")
+
+
+_TRIGGER_CONDITION_PHRASE = {"SUCCESS": "si réussite", "FAILURE": "si échec", "ALWAYS": "toujours"}
 
 
 def _pipeline_state_detail(p, status: str, last_run, running_label: str, missed) -> tuple:
@@ -205,7 +223,7 @@ class PipelinesView(QWidget):
         for r_idx, (p, depth) in enumerate(ordered):
             st       = _status_str(p.last_status)
             plan     = describe_schedule(p)
-            next_run = fmt_datetime_local(p.next_run_at)
+            next_run = _format_next_run(p.next_run_at)
 
             # Résumé des étapes
             step_types = [str(s.step_type).replace("StepType.", "") for s in (p.steps or [])]
@@ -329,6 +347,34 @@ class PipelinesView(QWidget):
                     steps_hl.addStretch()
                     steps_w.setToolTip(steps_str)
                     self.table.setCellWidget(r_idx, c_idx, steps_w)
+                elif c_idx == 3 and p.trigger_after_pipeline_id:
+                    # A5 : la relation de déclenchement, jusqu'ici seulement en infobulle,
+                    # devient une 2e ligne visible — garde aussi l'infobulle existante (inchangée)
+                    # sur le widget entier. Reste un QTableWidgetItem quand il n'y a pas de
+                    # déclenchement (cas très majoritaire, test_pipelines_view_schedule_display.py
+                    # compare .item(0, 3).text() directement).
+                    plan_w = QWidget()
+                    plan_vl = QVBoxLayout(plan_w)
+                    plan_vl.setContentsMargins(4, 0, 4, 0)
+                    plan_vl.setSpacing(2)
+                    plan_lbl = QLabel(cell)
+                    plan_lbl.setStyleSheet(
+                        f"color: {text_color}; background: transparent; border: none;"
+                    )
+                    plan_vl.addWidget(plan_lbl)
+                    parent_name = p.trigger_after_pipeline.name if p.trigger_after_pipeline else "?"
+                    cond_phrase = _TRIGGER_CONDITION_PHRASE.get(_status_str(p.trigger_condition), "—")
+                    relation_lbl = QLabel(
+                        f'<span style="color:{COLORS["relation"]}">↳ après {parent_name}</span> '
+                        f"· {cond_phrase}"
+                    )
+                    relation_lbl.setStyleSheet(
+                        f"color: {COLORS['text_dim']}; font-size: 11px; "
+                        f"background: transparent; border: none;"
+                    )
+                    plan_vl.addWidget(relation_lbl)
+                    plan_w.setToolTip(trigger_tooltip)
+                    self.table.setCellWidget(r_idx, c_idx, plan_w)
                 else:
                     item = QTableWidgetItem(cell)
                     item.setForeground(QColor(text_color))
