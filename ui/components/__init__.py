@@ -9,5 +9,8 @@ from ui.components.page_header import make_page_header
 from ui.components.info_pill import make_info_pill
 from ui.components.banner import make_banner
 from ui.components.switch import Switch, make_switch
+from ui.components.side_panel import SidePanel
 
-__all__ = ["make_page_header", "make_info_pill", "make_banner", "Switch", "make_switch"]
+__all__ = [
+    "make_page_header", "make_info_pill", "make_banner", "Switch", "make_switch", "SidePanel",
+]

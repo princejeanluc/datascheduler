@@ -118,6 +118,20 @@ class MainWindow(QMainWindow):
 
         self._views[0].navigate_to_history.connect(self._on_dashboard_navigate_to_history)
         self._views[0].navigate_to_settings.connect(self._on_dashboard_navigate_to_settings)
+        # A1 : "+ Nouveau pipeline" sur Aujourd'hui délègue directement au point d'entrée de
+        # création de PipelinesView (QInputDialog puis open_atelier_requested, déjà câblé
+        # ci-dessous) — pas de duplication de logique.
+        self._views[0].new_pipeline_requested.connect(self._views[1]._on_new_pipeline)
+        # A9/A10 : "Ouvrir dans l'Atelier" depuis les panneaux latéraux d'Aujourd'hui.
+        self._views[0].open_atelier_requested.connect(self.open_atelier)
+        # A12 : accueil "premier pipeline" — navigation directe (Connexions/Requêtes SQL/Aide)
+        # ou appel du même point d'entrée privé que leurs boutons respectifs dans PipelinesView
+        # (déjà le patron de new_pipeline_requested ci-dessus).
+        self._views[0].open_connections_requested.connect(lambda: self._navigate(2))
+        self._views[0].open_sql_editor_requested.connect(lambda: self._navigate(3))
+        self._views[0].start_from_template_requested.connect(self._views[1]._on_start_from_template)
+        self._views[0].import_pipeline_requested.connect(self._views[1]._on_import_pipeline)
+        self._views[0].open_help_requested.connect(lambda: self._navigate(7))
         self._views[1].open_atelier_requested.connect(self.open_atelier)
         self._views[4].open_atelier_requested.connect(self.open_atelier)
         self._views[8].back_requested.connect(lambda: self._navigate(1))

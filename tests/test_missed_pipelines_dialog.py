@@ -117,3 +117,34 @@ def test_launch_selected_works_without_an_initialized_scheduler(qapp, test_db, m
     dlg._on_launch_selected()   # ne doit pas lever
 
     assert missed_runs.get_pending() == []
+
+
+# ── A11 ──────────────────────────────────────────────────────────────────
+
+def test_format_late_extends_to_days():
+    from ui.dialogs.missed_pipelines_dialog import _format_late
+
+    assert _format_late(30) == "30 min"
+    assert _format_late(90) == "1 h 30"
+    assert _format_late(26 * 60) == "1 j 2 h"
+    assert _format_late(24 * 60) == "1 j"
+
+
+def test_format_expected_at_shows_french_weekday():
+    from ui.dialogs.missed_pipelines_dialog import _format_expected_at
+
+    # 2026-10-17 est un samedi.
+    assert _format_expected_at(datetime(2026, 10, 17, 7, 0)) == "samedi 07:00"
+
+
+def test_row_card_style_is_id_scoped_not_a_bare_rule(qapp):
+    """Régression : une première version posait le style de la carte via une règle QSS nue
+    (setStyleSheet("background: ...; border: ...") sans sélecteur sur le type QFrame) — QLabel
+    hérite de QFrame en Qt, la règle se propageait donc à chaque QLabel enfant sans bordure
+    propre, encadrant à tort la ligne "prévue..." séparément du reste de la carte (bug constaté
+    à l'écran, reproduit isolément par capture). Corrigé en scopant à un sélecteur d'ID."""
+    dlg = MissedPipelinesDialog(None, [_missed(1, "A")])
+    row = dlg._checkboxes[1].parentWidget()
+
+    assert row.objectName() == "missed_row"
+    assert "QFrame#missed_row" in row.styleSheet()

@@ -12,15 +12,29 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QWidget,
     QCheckBox, QScrollArea,
 )
-from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
+from ui.styles import COLORS, DIALOG_STYLE
 from ui.time_display import fmt_time_local
+
+# Jours en français écrits en dur (A11), même patron que dashboard_view.py::_DAYS_FR — pas de
+# dépendance à la locale système dans un exécutable packagé.
+_DAYS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 
 
 def _format_late(late_minutes: int) -> str:
-    hours, minutes = divmod(late_minutes, 60)
+    """Étendu aux jours (A11, « 1 j 2 h ») — au-delà de 24h, les minutes ne sont plus montrées
+    (précision inutile à cette échelle, maquette Aujourdhui-rattrapage.html)."""
+    days, remainder = divmod(late_minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+    if days:
+        return f"{days} j {hours} h" if hours else f"{days} j"
     if hours:
         return f"{hours} h {minutes:02d}"
     return f"{minutes} min"
+
+
+def _format_expected_at(expected_at) -> str:
+    """« prévue samedi 07:00 » (A11) — jour de la semaine complet, pas seulement l'heure."""
+    return f"{_DAYS_FR[expected_at.weekday()]} {fmt_time_local(expected_at)}"
 
 
 class MissedPipelinesDialog(QDialog):
@@ -111,9 +125,23 @@ class MissedPipelinesDialog(QDialog):
         self._refresh_selection_hint()
 
     def _make_row(self, missed: dict) -> QWidget:
-        row = QWidget()
-        layout = QVBoxLayout(row)
-        layout.setContentsMargins(4, 8, 4, 8)
+        # Carte (A11, Aujourdhui-rattrapage.html) — chaque ligne était du texte nu empilé avant
+        # ce lot, la maquette la montre en encart teinté (mêmes clés COLORS que les bandeaux
+        # d'avertissement ailleurs dans l'appli, pas les valeurs exactes de la maquette qui ne
+        # correspondent à aucune clé existante — REGLES.md section 3).
+        card = QFrame()
+        # Sélecteur d'ID, pas une règle nue : QLabel hérite de QFrame en Qt, une règle nue sur
+        # le type QFrame se propage à chaque QLabel enfant sans bordure propre — la ligne
+        # "prévue..." se retrouvait encadrée séparément du reste de la carte (bug constaté à
+        # l'écran, reproduit isolément). Même précaution que partout ailleurs dans la refonte
+        # (REGLES.md section 3).
+        card.setObjectName("missed_row")
+        card.setStyleSheet(
+            f"QFrame#missed_row {{ background: {COLORS['bg_warning']}; "
+            f"border: 1px solid {COLORS['border_warning']}; border-radius: 8px; }}"
+        )
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(3)
 
         cb = QCheckBox(missed["name"])
@@ -124,15 +152,14 @@ class MissedPipelinesDialog(QDialog):
         layout.addWidget(cb)
 
         when = QLabel(
-            f"Prévu à {fmt_time_local(missed['expected_at'])} — manqué depuis "
+            f"prévue {_format_expected_at(missed['expected_at'])} · en retard de "
             f"{_format_late(missed['late_minutes'])}"
         )
         when.setStyleSheet(
-            f"color: {COLORS['text_muted']}; font-size: 11px; font-family: {FONT_MONO_STACK}; "
-            f"margin-left: 24px;"
+            f"color: {COLORS['text_dim']}; font-size: 12px; margin-left: 24px;"
         )
         layout.addWidget(when)
-        return row
+        return card
 
     def _refresh_selection_hint(self):
         total = len(self._missed)

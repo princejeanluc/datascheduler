@@ -627,7 +627,7 @@ class StatCard(QFrame):
 
     def __init__(self, title: str, value: str = "—", subtitle: str = "",
                  color: str = None, clickable: bool = False, border_accent: str = None,
-                 height: int = 100):
+                 height: int = 100, value_font_size: int = 28, padding_h: int = 20):
         super().__init__()
         self.setObjectName("card")
         # setMinimumHeight, pas setFixedHeight : une hauteur figée plus petite que le contenu
@@ -649,15 +649,24 @@ class StatCard(QFrame):
         # (mauvaise estimation des métriques réelles de police). `height` ne fait plus que fixer
         # un plancher (setMinimumHeight) ; le contenu garde toujours la même respiration.
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 14, 20, 14)
+        layout.setContentsMargins(padding_h, 14, padding_h, 14)
         layout.setSpacing(4)
 
         lbl_title = QLabel(title.upper())
         lbl_title.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent; border: none;")
+        # setWordWrap : un titre plus long que la carte n'est ni rogné ni débordant, il passe sur
+        # 2 lignes — la carte peut déjà grandir pour s'adapter à son contenu (setMinimumHeight,
+        # pas setFixedHeight, voir plus haut) ; sans wrap, Qt rognait silencieusement le texte au
+        # lieu de laisser la carte grandir (constaté sur les 4 cartes compactes d'Aujourd'hui,
+        # padding_h réduit). Sans effet sur les cartes plus larges, où le titre tient déjà sur
+        # une ligne.
+        lbl_title.setWordWrap(True)
 
         self._lbl_value = QLabel(value)
         c = color or COLORS["text_main"]
-        self._lbl_value.setStyleSheet(f"color: {c}; font-size: 28px; font-weight: 700; background: transparent; border: none;")
+        self._lbl_value.setStyleSheet(
+            f"color: {c}; font-size: {value_font_size}px; font-weight: 700; "
+            f"background: transparent; border: none;")
 
         self._lbl_sub = QLabel(subtitle)
         self._lbl_sub.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; background: transparent; border: none;")

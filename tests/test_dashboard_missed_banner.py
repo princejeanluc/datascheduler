@@ -1,8 +1,9 @@
 """
 DataScheduler — tests/test_dashboard_missed_banner.py
-Bandeau "pipelines manqués" du Dashboard (chantier rattrapage au démarrage, phase 4) — ce que le
-dialogue de démarrage (MissedPipelinesDialog) n'a pas résolu doit rester visible ici jusqu'à
-lancement ou "Ignorer" explicite.
+Pipelines manqués du Dashboard (chantier rattrapage au démarrage, phase 4 ; refonte lot
+A-Aujourd'hui, A3 : cartes MANQUÉE individuelles dans la colonne "À traiter", remplace l'ancien
+bandeau unique) — ce que le dialogue de démarrage (MissedPipelinesDialog) n'a pas résolu doit
+rester visible ici jusqu'à lancement ou "Ignorer" explicite.
 """
 
 import os
@@ -44,7 +45,9 @@ def test_banner_hidden_when_nothing_pending(qapp, test_db):
     # isHidden(), pas isVisible() : ce dernier reflète aussi la visibilité des ancêtres et vaut
     # toujours False pour un widget jamais réellement affiché (offscreen, comme ici) — voir
     # PipelineImportPasswordDialog._clear_error() pour le même piège, déjà rencontré.
-    assert view._missed_banner.isHidden()
+    assert view._treat_cards_layout.count() == 0
+    assert not view._treat_empty.isHidden()
+    assert view._missed_bulk_bar.isHidden()
 
 
 def test_banner_visible_with_one_chip_per_pending_pipeline(qapp, test_db):
@@ -55,9 +58,11 @@ def test_banner_visible_with_one_chip_per_pending_pipeline(qapp, test_db):
 
     view = DashboardView()
 
-    assert not view._missed_banner.isHidden()
-    assert view._missed_chips_layout.count() == 2
-    assert "2 pipelines manqués" in view._lbl_missed_title.text()
+    assert view._treat_empty.isHidden()
+    assert view._treat_cards_layout.count() == 2
+    # Mini-barre groupée (décision utilisateur, question ouverte 6) : à partir de 2 cartes.
+    assert not view._missed_bulk_bar.isHidden()
+    assert "2 manquées" in view._lbl_missed_bulk.text()
 
 
 def test_individual_launch_triggers_resolves_and_hides_banner(qapp, test_db, monkeypatch):
@@ -75,7 +80,8 @@ def test_individual_launch_triggers_resolves_and_hides_banner(qapp, test_db, mon
 
     assert triggered == [1]
     assert missed_runs.get_pending() == []
-    assert view._missed_banner.isHidden()
+    assert view._treat_cards_layout.count() == 0
+    assert not view._treat_empty.isHidden()
 
 
 def test_launch_all_triggers_and_resolves_every_pending_pipeline(qapp, test_db, monkeypatch):
