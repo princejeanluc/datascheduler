@@ -24,7 +24,7 @@ from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
 from ui.styles import COLORS, FONT_MONO, FONT_UI
 from ui.time_display import fmt_datetime, fmt_time, to_display
 from ui.components import make_page_header
-from .widgets import StatCard
+from .widgets import StatCard, _make_empty_label
 
 # Hues catégorielles validées (kit dataviz — CVD/contraste/luminosité, --pairs all en dark) —
 # distinctes de COLORS['accent']/['signal'] (identité de marque/nav), jamais réutilisées pour
@@ -429,7 +429,7 @@ class ResourcesView(QWidget):
             stats_row.addWidget(card)
         body.addLayout(stats_row)
 
-        charts_frame = QFrame(); charts_frame.setObjectName("card")
+        self._charts_frame = charts_frame = QFrame(); charts_frame.setObjectName("card")
         charts_layout = QVBoxLayout(charts_frame)
         charts_layout.setContentsMargins(20, 18, 20, 10)
         charts_layout.setSpacing(4)
@@ -455,10 +455,10 @@ class ResourcesView(QWidget):
 
         body.addWidget(charts_frame)
 
-        correlate_title = QLabel("Pipelines actifs à l'instant survolé")
+        self._correlate_title = correlate_title = QLabel("Pipelines actifs à l'instant survolé")
         correlate_title.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {COLORS['text_main']};")
         body.addWidget(correlate_title)
-        correlate_sub = QLabel(
+        self._correlate_sub = correlate_sub = QLabel(
             "Survolez un point des graphiques ci-dessus pour voir précisément quels pipelines "
             "tournaient à ce moment."
         )
@@ -496,6 +496,26 @@ class ResourcesView(QWidget):
         self._correlate_layout.addWidget(self._correlate_chips)
 
         body.addWidget(self._correlate_panel)
+
+        # État vide (A9, Ressources-vide.html) : remplace charts_frame + le bloc corrélation
+        # (jamais les 4 cartes du haut, que la maquette montre à 0/—/0 % même sans échantillon).
+        # L'alerte "Aucune mesure depuis N min" de la même maquette porte un badge "proposé"
+        # (C4, gated) : pas construite ici.
+        self._empty_state = _make_empty_label(
+            f"Kulu mesure son CPU et sa mémoire toutes les {interval_s} secondes. Le premier "
+            "point apparaît dans moins d'une minute, et les graphiques deviennent utiles après "
+            "quelques exécutions de pipelines.",
+            icon="fa5s.chart-line", title="Pas encore de mesure",
+        )
+        self._empty_state.setMinimumHeight(420)
+        self._empty_state.setVisible(False)
+        body.addWidget(self._empty_state)
+
+        self._empty_footer_hint = QLabel(
+            "Intervalle et rétention se règlent dans Paramètres, catégorie Ressources.")
+        self._empty_footer_hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 12px;")
+        self._empty_footer_hint.setVisible(False)
+        body.addWidget(self._empty_footer_hint)
 
         outer.addWidget(scroll, stretch=1)
 
@@ -553,6 +573,16 @@ class ResourcesView(QWidget):
         since = datetime.utcnow() - timedelta(hours=self._range_hours)
         self._samples = db.get_resource_samples(since)
         self._runs = db.get_runs_overlapping_window(since, datetime.utcnow())
+
+        # État vide (A9) : remplace graphiques + corrélation, jamais les 4 cartes du haut
+        # (toujours visibles, à 0/—/0 % le cas échéant — Ressources-vide.html).
+        has_samples = bool(self._samples)
+        self._charts_frame.setVisible(has_samples)
+        self._correlate_title.setVisible(has_samples)
+        self._correlate_sub.setVisible(has_samples)
+        self._correlate_panel.setVisible(has_samples)
+        self._empty_state.setVisible(not has_samples)
+        self._empty_footer_hint.setVisible(not has_samples)
 
         cpu_values = [s.cpu_percent for s in self._samples]
         ram_values = [s.memory_mb for s in self._samples]

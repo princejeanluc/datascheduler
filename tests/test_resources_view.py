@@ -407,3 +407,37 @@ def test_resources_view_hover_summary_line_shown_even_with_no_active_pipeline(qa
     text = view._correlate_time_lbl.text()
     assert "0 pipeline actif" in text
     assert "CPU 4 %" in text
+
+
+# ── A9 : état vide ──────────────────────────────────────────────────────────
+
+def test_resources_view_shows_empty_state_without_any_sample(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    view = ResourcesView()
+
+    # isHidden() (pas isVisible()) : la vue n'est jamais .show()-ée dans ce test, isVisible()
+    # renverrait False pour tout le monde (ancêtre non affiché), comme déjà pratiqué par les
+    # autres tests de ce fichier (_correlate_time_lbl.isHidden() ci-dessus).
+    assert not view._empty_state.isHidden()
+    assert not view._empty_footer_hint.isHidden()
+    assert view._charts_frame.isHidden()
+    assert view._correlate_panel.isHidden()
+    # Les 4 cartes du haut restent visibles même sans échantillon (Ressources-vide.html).
+    assert not view._card_running.isHidden()
+    assert not view._card_samples.isHidden()
+
+
+def test_resources_view_hides_empty_state_once_a_sample_exists(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    view = ResourcesView()
+    assert not view._empty_state.isHidden()
+
+    db.record_resource_sample(cpu_percent=5.0, memory_mb=150.0)
+    view.refresh()
+
+    assert view._empty_state.isHidden()
+    assert view._empty_footer_hint.isHidden()
+    assert not view._charts_frame.isHidden()
+    assert not view._correlate_panel.isHidden()

@@ -82,13 +82,24 @@ def _make_search_input(placeholder: str) -> QLineEdit:
     return inp
 
 
-def _make_empty_label(text: str, button: QPushButton | None = None) -> QWidget:
+def _make_empty_label(text: str, button: QPushButton | None = None,
+                       icon: str = "", title: str = "") -> QWidget:
     """Message d'état vide, cohérent avec celui de l'éditeur de pipeline. `button` (chantier UX
     éditeur, Lot 1 — ex: "Commencer avec un modèle" sur l'état vide de PipelinesView) est
     optionnel et rétrocompatible : par défaut (None), retourne le QLabel nu exactement comme
     avant — tous les appelants existants n'utilisent que des méthodes QWidget génériques
     (setVisible/setFixedHeight), jamais rien de spécifique à QLabel, donc le conteneur composite
-    retourné quand un bouton est fourni reste un remplacement transparent."""
+    retourné quand un bouton est fourni reste un remplacement transparent.
+
+    `icon`/`title` (refonte, lot A-Ressources — A9) : variante FONDATIONS.md "icône, titre,
+    texte, action", pour un état vide plus riche qu'un seul message centré en italique
+    (Ressources-vide.html : icône 44px, titre 17px/600, texte normal, tout aligné à gauche dans
+    un bloc centré — pas le texte centré/italique des autres appelants). `title` seul déclenche
+    cette variante ; sans lui, rendu strictement identique à avant (7 appelants existants
+    vérifiés par grep : aucun ne passe ces 2 paramètres)."""
+    if title:
+        return _make_empty_state(icon, title, text, button)
+
     lbl = QLabel(text)
     lbl.setAlignment(Qt.AlignCenter)
     lbl.setWordWrap(True)
@@ -113,6 +124,53 @@ def _make_empty_label(text: str, button: QPushButton | None = None) -> QWidget:
     vl.addWidget(lbl)
     vl.addWidget(button, alignment=Qt.AlignCenter)
     return container
+
+
+def _make_empty_state(icon: str, title: str, text: str, button: QPushButton | None) -> QWidget:
+    """Bloc icône/titre/texte aligné à gauche, lui-même centré dans la carte — structure propre à
+    Ressources-vide.html, distincte du message centré/italique des autres états vides."""
+    frame = QFrame()
+    frame.setObjectName("empty_state")
+    # Sélecteur d'ID, pas une règle nue : une règle nue ("background: ...; border: ...") posée
+    # via setStyleSheet() sur un conteneur se propage à ses descendants pour les propriétés
+    # qu'ils ne fixent pas eux-mêmes — ici le "border-radius: 10px" du cadre se retrouvait peint
+    # autour de chaque QLabel enfant (icône, titre, texte), même avec leur propre
+    # "background: transparent" (bug déjà rencontré et documenté, REGLES.md section 3).
+    frame.setStyleSheet(
+        f"QFrame#empty_state {{ background: {COLORS['bg_panel']}; "
+        f"border: 1px solid {COLORS['border']}; border-radius: 10px; }}"
+    )
+    outer = QHBoxLayout(frame)
+    outer.addStretch()
+
+    column = QVBoxLayout(); column.setSpacing(10)
+    column.addStretch()
+
+    if icon:
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(_icon(icon, COLORS["text_muted"]).pixmap(QSize(40, 40)))
+        icon_lbl.setStyleSheet("background: transparent;")
+        column.addWidget(icon_lbl)
+
+    title_lbl = QLabel(title)
+    title_lbl.setStyleSheet(
+        f"color: {COLORS['text_main']}; font-size: 17px; font-weight: 600; "
+        f"background: transparent;")
+    column.addWidget(title_lbl)
+
+    text_lbl = QLabel(text)
+    text_lbl.setWordWrap(True)
+    text_lbl.setFixedWidth(480)
+    text_lbl.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 13px; background: transparent;")
+    column.addWidget(text_lbl)
+
+    if button is not None:
+        column.addWidget(button, alignment=Qt.AlignLeft)
+
+    column.addStretch()
+    outer.addLayout(column)
+    outer.addStretch()
+    return frame
 
 # ──────────────────────────────────────────────
 #  CONSTANTES
