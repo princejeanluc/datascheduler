@@ -11,12 +11,30 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from ui.time_display import fmt_datetime, fmt_datetime_local, fmt_time_local
+from ui.time_display import fmt_datetime, fmt_datetime_local, fmt_time_local, to_display
+from ui.components import make_page_header
 from .widgets import (
     _icon, _configure_columns, _make_empty_label, StatCard, _status_str,
     FONT_MONO, FONT_MONO_STACK, _apply_pulse, HealthRingWidget,
     _make_motif_separator, PipelineTopologyWidget, _ordered_with_chains, RunHistoryDots,
 )
+
+# Jours/mois en français écrits en dur (A1) : pas de dépendance à la locale système, qui peut
+# rester en anglais sur un poste Windows même francophone, surtout une fois packagé (PyInstaller).
+_DAYS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+_MONTHS_FR = [
+    "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+    "septembre", "octobre", "novembre", "décembre",
+]
+
+
+def _today_eyebrow() -> str:
+    """« DIMANCHE 18 OCTOBRE · 14:05 » — heure courante dans le fuseau réglé (A1)."""
+    from datetime import datetime
+    now_local = to_display(datetime.utcnow())
+    day = _DAYS_FR[now_local.weekday()].upper()
+    month = _MONTHS_FR[now_local.month - 1].upper()
+    return f"{day} {now_local.day} {month} · {now_local.strftime('%H:%M')}"
 
 
 def _cap_topology_preview(ordered: list, max_chains: int = 6) -> list:
@@ -36,6 +54,9 @@ def _cap_topology_preview(ordered: list, max_chains: int = 6) -> list:
 class DashboardView(QWidget):
     navigate_to_history = Signal(str)
     navigate_to_settings = Signal(str)
+    # A1 : "+ Nouveau pipeline" — même patron que PipelinesView.open_atelier_requested, câblé
+    # dans window.py vers PipelinesView._on_new_pipeline (seul point d'entrée de création).
+    new_pipeline_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -67,25 +88,34 @@ class DashboardView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        header = QWidget()
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Dashboard"); title.setObjectName("section_title")
-        sub   = QLabel("Vue d'ensemble des pipelines"); sub.setObjectName("subtitle")
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(title); title_col.addWidget(sub)
-        h_layout.addLayout(title_col); h_layout.addStretch()
-        btn_notifications = QPushButton("  Notifications"); btn_notifications.setObjectName("secondary")
-        btn_notifications.setFixedHeight(36)
+        # A1 : cloche icône seule (la pastille de notifications non lues est hors périmètre —
+        # aucun centre de notifications n'existe), "Tout exécuter" en secondaire, "+ Nouveau
+        # pipeline" en principal (nouveau signal, voir new_pipeline_requested).
+        btn_notifications = QPushButton(); btn_notifications.setObjectName("secondary")
+        btn_notifications.setFixedSize(36, 36)
         btn_notifications.setIcon(_icon("fa5s.bell", COLORS["text_main"]))
-        btn_notifications.setIconSize(QSize(13, 13))
+        btn_notifications.setIconSize(QSize(14, 14))
+        btn_notifications.setToolTip("Notifications")
         btn_notifications.clicked.connect(self._on_notifications)
-        h_layout.addWidget(btn_notifications)
+
         btn_run_all = QPushButton("  Tout exécuter"); btn_run_all.setObjectName("secondary")
         btn_run_all.setFixedHeight(36)
         btn_run_all.setIcon(_icon("fa5s.bolt", COLORS["text_main"])); btn_run_all.setIconSize(QSize(14, 14))
         btn_run_all.clicked.connect(self._on_run_all)
-        h_layout.addWidget(btn_run_all)
+
+        self._btn_new_pipeline = btn_new_pipeline = QPushButton("  Nouveau pipeline")
+        btn_new_pipeline.setFixedHeight(36)
+        btn_new_pipeline.setIcon(_icon("fa5s.plus", "#000000")); btn_new_pipeline.setIconSize(QSize(13, 13))
+        btn_new_pipeline.clicked.connect(self.new_pipeline_requested.emit)
+
+        header = make_page_header(
+            _today_eyebrow(), "Aujourd'hui",
+            actions=[btn_notifications, btn_run_all, btn_new_pipeline],
+        )
+        # make_page_header() ne renvoie pas de référence à son surtitre — recherché une fois ici
+        # par objectName (fiable : un seul en-tête de page dans cette vue) pour le tenir à jour
+        # dans refresh() (sinon l'heure affichée resterait figée à la construction de la vue).
+        self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
         layout.addWidget(header)
 
         self._onboarding_banner = QLabel(
@@ -298,6 +328,9 @@ class DashboardView(QWidget):
     def refresh(self):
         from database import db_manager as db
         from datetime import datetime, timedelta, timezone
+
+        if self._eyebrow_lbl is not None:
+            self._eyebrow_lbl.setText(_today_eyebrow())
 
         pipelines = db.get_pipelines()
         # Correctif K6 (docs/refonte/LOTS.md) : la carte "Pipelines actifs" comptait tous les
