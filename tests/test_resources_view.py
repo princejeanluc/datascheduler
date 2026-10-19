@@ -203,3 +203,265 @@ def test_resources_view_range_buttons_change_range_hours(qapp, test_db):
 
     view._on_range_changed(1)
     assert view._range_hours == 1
+
+
+# ── A2 : graduations verticales ────────────────────────────────────────────
+
+def test_nice_ceiling_rounds_up_to_a_round_step():
+    from ui.main_window.resources_view import _nice_ceiling
+
+    assert _nice_ceiling(182) == 200
+    assert _nice_ceiling(587) == 1000
+    assert _nice_ceiling(3) == 5
+    assert _nice_ceiling(0) == 1.0
+
+
+def test_chart_max_value_accounts_for_reference_line(qapp):
+    from ui.main_window.resources_view import _TimeSeriesChart
+
+    chart = _TimeSeriesChart("#d95926")
+    chart.set_data([1.0, 2.0])
+    chart.set_reference(6.0, "plafond 6")
+
+    # Sans la référence, le maximum "rond" serait ancré sur les données (2 * 1.15 -> 5) ; la
+    # ligne de plafond (6) doit rester visible même si les données ne l'atteignent jamais.
+    assert chart._max_value() >= 6.0
+
+
+# ── A3 : axe du temps commun ───────────────────────────────────────────────
+
+def _minutes_span(start: datetime, count: int, step_minutes: int) -> list[datetime]:
+    return [start + timedelta(minutes=i * step_minutes) for i in range(count)]
+
+
+def test_time_axis_ticks_every_3h_over_a_24h_span_without_adjacent_duplicates(qapp, test_db):
+    from ui.main_window.resources_view import _TimeAxis
+
+    axis = _TimeAxis()
+    start = datetime(2026, 10, 18, 14, 31)   # pas aligné sur une limite ronde, comme un vrai survol
+    axis.set_data(_minutes_span(start, 24 * 60, 1))
+
+    ticks = axis._tick_indices()
+    assert len(ticks) >= 6   # ~8 graduations attendues sur 24h au pas de 3h
+
+    # Régression : le premier échantillon ne doit jamais être une graduation forcée — sinon un
+    # libellé apparaissait collé au suivant, à quelques minutes d'écart (chevauchement constaté).
+    assert 0 not in ticks
+
+    # Deux graduations consécutives doivent rester à au moins ~2h d'écart (jamais quelques
+    # minutes), peu importe où tombe la première limite de case par rapport au départ.
+    local_times = [axis_dt for axis_dt in (axis._timestamps[i] for i in ticks)]
+    gaps = [
+        (local_times[i + 1] - local_times[i]).total_seconds() / 60
+        for i in range(len(local_times) - 1)
+    ]
+    assert all(gap >= 90 for gap in gaps)
+
+
+def test_time_axis_ticks_once_per_calendar_day_over_a_7_day_span(qapp, test_db):
+    from ui.main_window.resources_view import _TimeAxis
+
+    axis = _TimeAxis()
+    start = datetime(2026, 10, 12, 9, 17)
+    axis.set_data(_minutes_span(start, 7 * 24 * 6, 10))   # un point toutes les 10 min, 7 jours
+
+    ticks = axis._tick_indices()
+    labels = [axis._label_for(axis._timestamps[i]) for i in ticks]
+
+    assert len(ticks) in (6, 7)   # un par limite de jour traversée
+    assert all("h" not in label for label in labels)   # format "jour. N", pas "HH:MM"
+
+
+def test_resources_view_hover_syncs_time_axis_crosshair(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=5.0, memory_mb=150.0)
+    view = ResourcesView()
+
+    view._on_chart_hover(0)
+    assert view._time_axis._crosshair_index == 0
+
+    view._on_chart_hover_left()
+    assert view._time_axis._crosshair_index is None
+
+
+# ── A5 : titre de graphique, valeur survolée vs dernière valeur ────────────
+
+def test_resources_view_chart_title_shows_last_value_and_maintenant_at_rest(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=12.0, memory_mb=321.0)
+    view = ResourcesView()
+
+    assert view._lbl_latest_cpu.text() == "12 %"
+    assert view._lbl_latest_cpu_qual.text() == "maintenant"
+    assert view._lbl_latest_ram_qual.text() == "maintenant"
+    assert view._lbl_latest_count_qual.text() == "maintenant"
+
+
+def test_resources_view_chart_title_shows_hovered_value_while_hovering(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=12.0, memory_mb=321.0)
+    db.record_resource_sample(cpu_percent=77.0, memory_mb=410.0)
+    view = ResourcesView()
+
+    view._on_chart_hover(0)   # premier échantillon, pas le dernier
+
+    assert view._lbl_latest_cpu.text() == "12 %"
+    assert view._lbl_latest_cpu_qual.text() == "à l'instant survolé"
+
+
+def test_resources_view_chart_title_restores_maintenant_after_hover_left(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=12.0, memory_mb=321.0)
+    db.record_resource_sample(cpu_percent=77.0, memory_mb=410.0)
+    view = ResourcesView()
+
+    view._on_chart_hover(0)
+    view._on_chart_hover_left()
+
+    # Revient à la DERNIÈRE valeur (77 %), pas à celle qui était survolée (12 %).
+    assert view._lbl_latest_cpu.text() == "77 %"
+    assert view._lbl_latest_cpu_qual.text() == "maintenant"
+
+
+# ── A6 : ligne pointillée du plafond ────────────────────────────────────────
+
+def test_resources_view_sets_reference_line_from_max_concurrent_runs(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=5.0, memory_mb=150.0)
+    db.update_app_settings(max_concurrent_runs=9)
+
+    view = ResourcesView()
+    view.refresh()
+
+    assert view._chart_count._reference_value == 9
+    assert view._chart_count._reference_label == "plafond 9"
+    # Seul le graphique "pipelines en cours" porte la référence (A6) — jamais CPU/RAM.
+    assert view._chart_cpu._reference_value is None
+    assert view._chart_ram._reference_value is None
+
+
+# ── A7 : heure du pic sur la carte Pic CPU ──────────────────────────────────
+
+def test_format_peak_time_shows_aujourdhui_when_peak_is_today():
+    from ui.main_window.resources_view import _format_peak_time
+    from datetime import date
+
+    peak = datetime(2026, 10, 18, 7, 5)
+    assert _format_peak_time(peak, date(2026, 10, 18)) == "aujourd'hui 07:05"
+
+
+def test_format_peak_time_shows_date_when_peak_is_not_today():
+    from ui.main_window.resources_view import _format_peak_time
+    from datetime import date
+
+    peak = datetime(2026, 10, 15, 7, 5)
+    assert _format_peak_time(peak, date(2026, 10, 18)) == "15/10 07:05"
+
+
+def test_resources_view_peak_cpu_card_shows_subtitle_at_the_time_of_the_peak(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+    from database.models import ResourceSample
+
+    now = datetime.utcnow()
+    with db.get_session() as s:
+        s.add(ResourceSample(timestamp=now - timedelta(minutes=10), cpu_percent=5.0, memory_mb=100.0))
+        s.add(ResourceSample(timestamp=now - timedelta(minutes=5), cpu_percent=88.0, memory_mb=100.0))
+        s.add(ResourceSample(timestamp=now, cpu_percent=5.0, memory_mb=100.0))
+
+    view = ResourcesView()
+
+    assert view._card_peak_cpu._lbl_value.text() == "88 %"
+    assert "aujourd'hui" in view._card_peak_cpu._lbl_sub.text()
+
+
+# ── A8 : ligne de résumé au survol ──────────────────────────────────────────
+
+def test_resources_view_hover_summary_line_includes_count_cpu_and_memory(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    pipeline = db.create_pipeline(name="summary-test-pipeline")
+    db.create_run(pipeline.id)   # en cours
+    db.record_resource_sample(cpu_percent=73.0, memory_mb=256.0)
+
+    view = ResourcesView()
+    view._on_chart_hover(0)
+
+    text = view._correlate_time_lbl.text()
+    assert "1 pipeline actif" in text
+    assert "CPU 73 %" in text
+    assert "mémoire 256 Mo" in text
+
+
+def test_resources_view_hover_summary_line_shown_even_with_no_active_pipeline(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    db.record_resource_sample(cpu_percent=4.0, memory_mb=120.0)
+    view = ResourcesView()
+    view._on_chart_hover(0)
+
+    text = view._correlate_time_lbl.text()
+    assert "0 pipeline actif" in text
+    assert "CPU 4 %" in text
+
+
+# ── A9 : état vide ──────────────────────────────────────────────────────────
+
+def test_resources_view_shows_empty_state_without_any_sample(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    view = ResourcesView()
+
+    # isHidden() (pas isVisible()) : la vue n'est jamais .show()-ée dans ce test, isVisible()
+    # renverrait False pour tout le monde (ancêtre non affiché), comme déjà pratiqué par les
+    # autres tests de ce fichier (_correlate_time_lbl.isHidden() ci-dessus).
+    assert not view._empty_state.isHidden()
+    assert not view._empty_footer_hint.isHidden()
+    assert view._charts_frame.isHidden()
+    assert view._correlate_panel.isHidden()
+    # Les 4 cartes du haut restent visibles même sans échantillon (Ressources-vide.html).
+    assert not view._card_running.isHidden()
+    assert not view._card_samples.isHidden()
+
+
+def test_resources_view_hides_empty_state_once_a_sample_exists(qapp, test_db):
+    from ui.main_window.resources_view import ResourcesView
+
+    view = ResourcesView()
+    assert not view._empty_state.isHidden()
+
+    db.record_resource_sample(cpu_percent=5.0, memory_mb=150.0)
+    view.refresh()
+
+    assert view._empty_state.isHidden()
+    assert view._empty_footer_hint.isHidden()
+    assert not view._charts_frame.isHidden()
+    assert not view._correlate_panel.isHidden()
+
+
+# ── Fond des cartes (signalé par l'utilisateur après la PR) ────────────────
+
+def test_resources_view_cards_use_the_maquette_background_not_the_shared_default(qapp, test_db):
+    """Régression : StatCard pose par défaut (ui/main_window/widgets.py) un fond bg_card, un
+    rayon de 6px et un liseré d'accent bleu — Ressources.html veut un fond bg_panel, un rayon de
+    10px et une bordure unie sans accent sur les 4 cartes ET les 2 encarts (graphiques,
+    corrélation). Signalé par une capture d'écran de l'app réelle montrant le mauvais fond."""
+    from ui.main_window.resources_view import ResourcesView, _card_style
+    from ui.styles import COLORS
+
+    view = ResourcesView()
+    style = _card_style()
+
+    assert COLORS["bg_panel"] in style
+    assert "border-radius: 10px" in style
+    assert COLORS["bg_card"] not in style   # le fond par défaut de StatCard, pas celui voulu ici
+
+    for widget in (
+        view._card_running, view._card_peak_cpu, view._card_memory, view._card_samples,
+        view._charts_frame, view._correlate_panel,
+    ):
+        assert widget.styleSheet() == style

@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.48.0] - 2026-10-19
+
+### Modifié
+- **Refonte, Lot A-Ressources** — l'écran Ressources est aligné sur sa maquette validée :
+  en-tête avec surtitre dynamique sur l'intervalle d'échantillonnage, graduations et grille sur
+  les 3 graphiques, axe du temps commun avec heure survolée affichée, titre de graphique qui
+  montre la valeur à l'instant survolé (sinon la dernière, « maintenant »), ligne pointillée du
+  plafond d'exécutions simultanées sur le graphique « Pipelines en cours », heure du pic sur la
+  carte Pic CPU, ligne de résumé (pipelines actifs/CPU/mémoire) au survol, état vide dédié.
+  Aucun changement de base.
+
+### Ajouté
+- `ui/main_window/widgets.py::_make_empty_label` : variante icône + titre (rétrocompatible),
+  pour un état vide plus riche qu'un simple message centré.
+
 ## [0.47.0] - 2026-10-19
 
 ### Modifié
