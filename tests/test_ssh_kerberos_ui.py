@@ -23,6 +23,13 @@ def _cell_texts(table, row, col) -> list:
     return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
 
 
+def _cell_texts_from_widget(widget) -> list:
+    """Libellés texte visibles d'un widget quelconque (refonte, lot A-Connexions : le résultat
+    d'un test ou d'une erreur de sauvegarde s'affiche désormais dans un bandeau `make_banner`,
+    pas un QLabel `lbl_test_result` dédié)."""
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
+
+
 @pytest.fixture(scope="module")
 def qapp():
     app = QApplication.instance() or QApplication([])
@@ -138,7 +145,7 @@ def test_ssh_profile_dialog_rejects_cycle_and_shows_error(qapp, test_db):
     dlg._on_save()   # EDGE01 -> EDGE03 -> EDGE01 : doit être rejeté, pas planter
 
     assert db.get_ssh_profile(edge01.id).jump_via_id is None
-    assert "boucle" in dlg.lbl_test_result.text()
+    assert "boucle" in " ".join(_cell_texts_from_widget(dlg))
 
 
 # ──────────────────────────────────────────────

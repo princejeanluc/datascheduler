@@ -5,11 +5,12 @@ Dialogue de création / édition d'un profil SSH (nœud edge/master d'un cluster
 """
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QSpinBox, QComboBox, QPushButton, QFrame,
+    QDialog, QVBoxLayout, QFormLayout, QLabel,
+    QLineEdit, QSpinBox, QComboBox, QFrame,
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from ui.styles import COLORS, DIALOG_STYLE
+from ._profile_dialog_chrome import build_header, make_test_banner_container, test_result_title, build_footer
 
 
 # ──────────────────────────────────────────────
@@ -54,10 +55,8 @@ class SshProfileDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(20)
 
-        title = QLabel("Connexion SSH (nœud edge / master)")
-        title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")
-        root.addWidget(title)
-        root.addWidget(self._sep())
+        title = self._profile.name if self._profile else "Connexion SSH (nœud edge / master)"
+        root.addWidget(build_header("ssh", title, editing=self._profile is not None))
 
         form = QFormLayout()
         form.setSpacing(12)
@@ -97,28 +96,13 @@ class SshProfileDialog(QDialog):
         form.addRow(self._label("Via bastion (optionnel)"), self.cb_bastion)
         root.addLayout(form)
 
-        root.addWidget(self._build_test_zone())
+        banner_container, self._set_banner = make_test_banner_container()
+        root.addWidget(banner_container)
         root.addWidget(self._sep())
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(10); btn_row.addStretch()
-        self.btn_cancel = QPushButton("Annuler"); self.btn_cancel.setObjectName("secondary")
-        self.btn_cancel.setFixedHeight(36); self.btn_cancel.clicked.connect(self.reject)
-        self.btn_save = QPushButton("Enregistrer")
-        self.btn_save.setFixedHeight(36); self.btn_save.clicked.connect(self._on_save)
-        btn_row.addWidget(self.btn_cancel); btn_row.addWidget(self.btn_save)
-        root.addLayout(btn_row)
-
-    def _build_test_zone(self) -> QFrame:
-        frame = QFrame(); frame.setObjectName("card")
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(14, 10, 14, 10); layout.setSpacing(12)
-        self.btn_test = QPushButton("⚡  Tester la connexion")
-        self.btn_test.setObjectName("secondary"); self.btn_test.setFixedHeight(32)
-        self.btn_test.clicked.connect(self._on_test)
-        self.lbl_test_result = QLabel("—")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-        layout.addWidget(self.btn_test); layout.addWidget(self.lbl_test_result, stretch=1)
-        return frame
+        footer, self.btn_test, self.btn_cancel, self.btn_save = build_footer(
+            "⚡  Tester la connexion", self._on_test, self.reject, self._on_save)
+        root.addLayout(footer)
 
     # ── Logique ──────────────────────────────
 
@@ -127,22 +111,14 @@ class SshProfileDialog(QDialog):
         if config is None:
             return
         self.btn_test.setEnabled(False)
-        self.lbl_test_result.setText("Connexion en cours…")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._set_banner("info", "Connexion en cours…")
         self._test_thread = SshTestThread(config)
         self._test_thread.result_ready.connect(self._on_test_result)
         self._test_thread.start()
 
     def _on_test_result(self, success: bool, message: str):
         self.btn_test.setEnabled(True)
-        if success:
-            txt   = f"✅  {message}"
-            color = COLORS["success"]
-        else:
-            txt   = f"❌  {message}"
-            color = COLORS["danger"]
-        self.lbl_test_result.setText(txt)
-        self.lbl_test_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._set_banner("success" if success else "danger", test_result_title(success), message)
 
         if self._profile:
             from database import db_manager as db
@@ -168,8 +144,7 @@ class SshProfileDialog(QDialog):
                 db.create_ssh_profile(name=name, host=host, port=port, username=user,
                                        password=pwd, jump_via_id=jump_via_id)
         except ValueError as e:
-            self.lbl_test_result.setText(f"❌  {e}")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['danger']}; font-size: 12px;")
+            self._set_banner("danger", str(e))
             return
         self.accept()
 
@@ -194,8 +169,7 @@ class SshProfileDialog(QDialog):
         if not pwd and self._profile:
             pwd = crypto.decrypt(self._profile.password)
         if not host or not user or not pwd:
-            self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            self._set_banner("warning", "Remplir Hôte / Utilisateur / Mot de passe")
             return None
         jump_via = None
         bastion_id = self.cb_bastion.currentData()
