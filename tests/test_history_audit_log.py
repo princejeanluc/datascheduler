@@ -102,23 +102,17 @@ def test_on_frequency_day_clicked_opens_bubble_with_that_days_runs(qapp, test_db
     assert view._bubble.isVisible()
 
 
-def test_bubble_run_row_click_closes_bubble_and_opens_the_run_log(qapp, test_db, monkeypatch):
-    """A9 : cliquer une ligne de la bulle ferme la bulle et ouvre le détail du run (pour
-    l'instant run_log_dialog.py, inchangé — remplacé par le panneau latéral à l'étape A10 du même
-    lot, sans changer ce test)."""
+def test_bubble_run_row_click_closes_bubble_and_opens_the_run_panel(qapp, test_db):
+    """A9+A10 : cliquer une ligne de la bulle ferme la bulle et ouvre le panneau latéral de ce
+    run (pas run_log_dialog.py directement depuis cet écran, qui reste réservé à
+    PipelineDetailDialog — un chemin séparé, pas remplacé ici)."""
+    from PySide6.QtWidgets import QLabel
     from database import db_manager as db
-    from ui.main_window import run_log_dialog
     from ui.main_window.history_view import HistoryView
 
     p = db.create_pipeline(name="day-click-row-test")
     run = db.create_run(p.id)
     db.finish_run(run.id, status="SUCCESS")
-
-    captured = {}
-    monkeypatch.setattr(
-        run_log_dialog, "open_run_log_dialog",
-        lambda parent, run_id: captured.setdefault("run_id", run_id),
-    )
 
     view = HistoryView()
     view._on_frequency_day_clicked(p, run.started_at.date())
@@ -128,7 +122,9 @@ def test_bubble_run_row_click_closes_bubble_and_opens_the_run_log(qapp, test_db,
     view._on_bubble_run_clicked(run.id)
 
     assert not bubble.isVisible()
-    assert captured.get("run_id") == run.id
+    assert not view._side_panel.isHidden()
+    content_text = " ".join(lbl.text() for lbl in view._side_panel.findChildren(QLabel))
+    assert f"EXÉCUTION #{run.id}" in content_text
 
 
 def test_on_frequency_day_clicked_no_op_when_day_has_no_runs(qapp, test_db):

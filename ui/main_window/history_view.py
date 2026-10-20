@@ -3,15 +3,18 @@ DataScheduler — ui/main_window/history_view.py
 Vue Historique : journal complet des exécutions.
 """
 
+import re
+
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedLayout,
+    QPlainTextEdit,
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from ui.time_display import fmt_time, fmt_datetime, fmt_relative, to_display
-from ui.components import make_page_header, Bubble
+from ui.components import make_page_header, Bubble, SidePanel
 from .widgets import (
     _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label,
     _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
@@ -74,6 +77,68 @@ def _day_group_label(day, today) -> str:
     if day == today - timedelta(days=1):
         return "HIER"
     return f"{_DAYS_FR[day.weekday()].upper()} {day.day} {_MONTHS_FR[day.month - 1].upper()}"
+
+
+# A10 : eyebrow du panneau latéral de run, couleur selon le statut.
+_PANEL_EYEBROW_COLOR = {
+    "SUCCESS": "success", "FAILED": "danger", "RUNNING": "signal_pale", "CANCELLED": "text_dim",
+}
+
+
+def _step_key_of(step) -> str | None:
+    """Dupliqué de dashboard_view.py (A10) — même raison que _format_duration_short : convention
+    déjà suivie par ce module plutôt qu'un import inter-vues."""
+    import json
+    try:
+        config = json.loads(step.config_json or "{}")
+    except (TypeError, ValueError):
+        return None
+    return config.get("_step_key")
+
+
+def _resolve_step_label(pipeline, step_key: str | None) -> str | None:
+    """Étape fautive -> libellé lisible (A10), dupliqué de dashboard_view.py."""
+    if not step_key:
+        return None
+    for step in pipeline.steps:
+        if _step_key_of(step) == step_key:
+            step_type = str(step.step_type).replace("StepType.", "")
+            return step.label or step_type
+    return None
+
+
+_LOG_LINE_RE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\] (.*)$")
+
+
+def _convert_log_text_times(log_text: str, started_at) -> str:
+    """Reconstruit l'horodatage complet de chaque ligne de log (A10/T3, DECISIONS.md) —
+    PipelineResult.log() (core/pipeline.py) écrit chaque ligne en UTC avec seulement l'heure
+    (`[HH:MM:SS]`, pas la date). Algorithme décrit par la fiche elle-même (section B3) comme
+    repli tant que B3 (journal à niveaux avec date complète stockée) n'existe pas — c'est donc le
+    seul disponible pour ce lot : reconstruit la date complète à partir de `started_at.date()`, en
+    la faisant avancer d'un jour à chaque fois que l'heure analysée est plus tôt que celle de la
+    ligne précédente (passage de minuit)."""
+    if not log_text or not started_at:
+        return log_text or ""
+    from datetime import datetime, timedelta
+
+    current_date = started_at.date()
+    prev_time = None
+    out_lines = []
+    for line in log_text.splitlines():
+        m = _LOG_LINE_RE.match(line)
+        if not m:
+            out_lines.append(line)
+            continue
+        h, mi, s, rest = m.groups()
+        t = (int(h), int(mi), int(s))
+        if prev_time is not None and t < prev_time:
+            current_date += timedelta(days=1)
+        prev_time = t
+        utc_dt = datetime(current_date.year, current_date.month, current_date.day, *t)
+        local_dt = to_display(utc_dt)
+        out_lines.append(f"[{local_dt.strftime('%H:%M:%S')}] {rest}")
+    return "\n".join(out_lines)
 
 
 class HistoryView(QWidget):
@@ -179,6 +244,10 @@ class HistoryView(QWidget):
 
         self._run_ids = []   # index ligne → run_id
         self._bubble = None   # Bulle du jour (A9) — référence gardée pour qu'elle ne soit pas GC
+        # A10 : panneau latéral d'un run, réutilisé pour chaque ouverture (même patron que
+        # Dashboard/Pipelines) — `self` (cette vue) est déjà intégrée à la fenêtre principale, pas
+        # une fenêtre top-level, donc parent.rect() reflète la bonne zone à couvrir.
+        self._side_panel = SidePanel(self)
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
@@ -480,14 +549,150 @@ class HistoryView(QWidget):
         return row_btn
 
     def _on_bubble_run_clicked(self, run_id: int):
-        """Ligne de la bulle du jour cliquée — ferme la bulle, ouvre le détail du run. Ouvre pour
-        l'instant le log complet existant (run_log_dialog.py, inchangé) : remplacé par le panneau
-        latéral dédié à l'étape suivante (A10) du même lot, sans toucher run_log_dialog.py lui-
-        même (toujours utilisé par PipelineDetailDialog)."""
+        """Ligne de la bulle du jour cliquée (A9) — ferme la bulle, ouvre le panneau latéral du
+        run (A10) ; jamais run_log_dialog.py directement depuis cet écran (lui-même inchangé,
+        toujours utilisé par PipelineDetailDialog — un chemin séparé, pas remplacé ici)."""
         if self._bubble is not None:
             self._bubble.hide()
-        from .run_log_dialog import open_run_log_dialog
-        open_run_log_dialog(self, run_id)
+        self._open_run_panel(run_id)
+
+    def _open_run_panel(self, run_id: int):
+        from database import db_manager as db
+        run = db.get_run(run_id)
+        if not run:
+            return
+        # get_pipelines() (pas get_pipeline(), singulier) : seul le premier joinedload déjà
+        # pipeline.steps — nécessaire à _resolve_step_label() ci-dessous, sans quoi .steps lèverait
+        # DetachedInstanceError une fois la session de get_pipeline() refermée (même piège que
+        # _open_graph ci-dessus, déjà commenté).
+        pipeline = next((p for p in db.get_pipelines() if p.id == run.pipeline_id), None)
+        if not pipeline:
+            return
+        self._side_panel.set_content(self._build_run_panel_content(pipeline, run))
+        self._side_panel.open()
+
+    def _build_run_panel_content(self, pipeline, run) -> QWidget:
+        """Panneau latéral d'un run (A10) — même patron que le panneau d'échec de Dashboard
+        (surtitre/titre/ligne d'info/encadré d'erreur/journal/pied d'actions), sans les
+        précisions gated (C3 : mot "planifiée" ; C4 : "de travail, le reste en attente de
+        réessai" ; C5/C6 : recherche/filtre/couleurs par ligne dans le journal ; C7 : exporter)."""
+        from datetime import datetime
+
+        st = _status_str(run.status)
+
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(24, 4, 24, 20)
+        layout.setSpacing(12)
+
+        eyebrow_color = _PANEL_EYEBROW_COLOR.get(st, "text_dim")
+        eyebrow = QLabel(f"EXÉCUTION #{run.id} · {_status_label_fr(st).upper()}")
+        eyebrow.setStyleSheet(
+            f"color: {COLORS[eyebrow_color]}; font-family: {FONT_MONO}; font-size: 11px; "
+            f"font-weight: 700; letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(eyebrow)
+
+        title = QLabel(pipeline.name)
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 20px; font-weight: 700; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(title)
+
+        today = to_display(datetime.utcnow()).date()
+        day = to_display(run.started_at).date() if run.started_at else today
+        end_s = fmt_time(run.finished_at) if run.finished_at else "en cours"
+        info = QLabel(
+            f"{_day_group_label(day, today).lower()} {fmt_time(run.started_at)} → {end_s} · "
+            f"{_format_duration_short(run.duration_seconds)}"
+        )
+        info.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;")
+        layout.addWidget(info)
+
+        if run.error_message:
+            step_label = _resolve_step_label(pipeline, run.failed_step_key)
+            err_text = f"{step_label} — {run.error_message}" if step_label else run.error_message
+            err = QLabel(err_text)
+            err.setWordWrap(True)
+            err.setStyleSheet(
+                f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 11.5px; "
+                f"background: {COLORS['bg_main']}; border: 1px solid {COLORS['bg_hover']}; "
+                f"border-radius: 6px; padding: 10px;"
+            )
+            layout.addWidget(err)
+
+        log_lbl = QLabel("JOURNAL")
+        log_lbl.setStyleSheet(
+            f"color: {COLORS['text_muted']}; font-size: 10px; font-weight: 700; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        layout.addWidget(log_lbl)
+
+        log_box = QPlainTextEdit()
+        log_box.setReadOnly(True)
+        log_box.setFont(QFont(FONT_MONO, 10))
+        log_box.setStyleSheet(
+            f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
+            f"border: 1px solid {COLORS['border']}; border-radius: 6px;"
+        )
+        log_box.setPlainText(_convert_log_text_times(run.log_text, run.started_at))
+        layout.addWidget(log_box, stretch=1)
+
+        footer = QHBoxLayout(); footer.setSpacing(8)
+        if run.resumable_state_json:
+            btn_resume = self._panel_action_button(
+                "Reprendre depuis l'échec", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
+            btn_resume.clicked.connect(lambda: self._on_resume_from_panel(run.id))
+            footer.addWidget(btn_resume)
+        if st == "FAILED" and run.failed_step_key:
+            btn_graph = self._panel_action_button("Voir dans le graphe")
+            btn_graph.clicked.connect(lambda: self._on_open_graph_from_panel(pipeline.id, run.failed_step_key))
+            footer.addWidget(btn_graph)
+        footer.addStretch()
+        layout.addLayout(footer)
+
+        return content
+
+    @staticmethod
+    def _panel_action_button(text: str, outline: str = None, text_color: str = None) -> QPushButton:
+        """Dupliqué de dashboard_view.py::_treat_action_button (A10) — même raison que
+        _format_duration_short : convention déjà suivie par ce module plutôt qu'un import
+        inter-vues."""
+        btn = QPushButton(text)
+        btn.setFixedHeight(30)
+        border = outline or COLORS["border"]
+        color = text_color or COLORS["text_main"]
+        btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: 1px solid {border}; "
+            f"border-radius: 6px; color: {color}; font-weight: 600; padding: 0 12px; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_hover']}; }}"
+        )
+        return btn
+
+    def _on_resume_from_panel(self, run_id: int):
+        """Reprise depuis le panneau (A10) — passe par l'id directement (db.get_run), pas par un
+        index de ligne du tableau principal contrairement à _on_resume (bouton de ligne, qui
+        connaît déjà sa ligne) : le run ouvert dans le panneau peut provenir de la bulle du jour
+        (A9), pas forcément des 100 lignes récentes de self._run_ids."""
+        self._side_panel.close()
+        from database import db_manager as db
+        run = db.get_run(run_id)
+        if not run or not run.resumable_state_json:
+            return
+        pipeline = db.get_pipeline(run.pipeline_id)
+        if not pipeline:
+            return
+        from ui.dialogs import RunProgressDialog
+        RunProgressDialog(pipeline.id, pipeline.name, self, resume_from_run_id=run.id).exec()
+        self.refresh()
+
+    def _on_open_graph_from_panel(self, pipeline_id: int, failed_step_key: str):
+        self._side_panel.close()
+        self.open_atelier_requested.emit(pipeline_id, failed_step_key, False)
 
     def refresh(self):
         from datetime import datetime

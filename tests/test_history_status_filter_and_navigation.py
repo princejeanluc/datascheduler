@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from PySide6.QtTest import QTest
 
 from database import db_manager as db
@@ -228,6 +228,66 @@ def test_history_view_row_actions_drop_magnifier_and_add_resume(qapp, test_db):
 
     buttons_other = view.table.cellWidget(row_other, 6).findChildren(QPushButton)
     assert "Reprendre depuis l'échec" not in {b.toolTip() for b in buttons_other}
+
+
+def test_convert_log_text_times_reconstructs_local_time_and_handles_midnight_rollover(test_db):
+    """A10/T3 : PipelineResult.log() (core/pipeline.py) écrit chaque ligne en UTC, heure seule —
+    la fonction doit reconstruire la date complète depuis started_at et la faire avancer d'un
+    jour quand l'heure analysée est plus tôt que celle de la ligne précédente (minuit franchi)."""
+    from datetime import datetime
+
+    from ui.main_window.history_view import _convert_log_text_times
+
+    # Fuseau explicitement UTC (le défaut d'une base neuve suit le fuseau de la machine qui
+    # l'a créée, voir database/models.py::_default_timezone) — pour que to_display() soit
+    # l'identité ici et que la reconstruction de date reste testée telle quelle.
+    db.update_app_settings(timezone="UTC")
+    started = datetime(2026, 10, 19, 23, 50, 0)
+    log_text = "[23:50:05] démarrage\n[00:00:02] après minuit\nligne sans horodatage"
+
+    out = _convert_log_text_times(log_text, started)
+    lines = out.splitlines()
+    assert lines[0] == "[23:50:05] démarrage"
+    assert lines[1] == "[00:00:02] après minuit"
+    assert lines[2] == "ligne sans horodatage"
+
+
+def test_convert_log_text_times_handles_empty_input():
+    from ui.main_window.history_view import _convert_log_text_times
+
+    assert _convert_log_text_times("", None) == ""
+    assert _convert_log_text_times(None, None) == ""
+
+
+def test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_failure(qapp, test_db):
+    """A10 : le pied du panneau propose "Reprendre depuis l'échec" (état de reprise persisté) et
+    "Voir dans le graphe" (échec avec un nœud fautif identifié) — jamais "Exporter le journal"
+    (C7, gated)."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-panel-buttons")
+    run = db.create_run(p.id)
+    db.finish_run(
+        run.id, status="FAILED", failed_step_key="step-1",
+        resumable_state_json="{}", error_message="échec réseau",
+    )
+
+    view = HistoryView()
+    view._open_run_panel(run.id)
+
+    buttons = [b for b in view._side_panel.findChildren(QPushButton) if b.text()]
+    texts = {b.text() for b in buttons}
+    assert "Reprendre depuis l'échec" in texts
+    assert "Voir dans le graphe" in texts
+    assert "Exporter le journal" not in texts
+
+
+def test_history_view_run_panel_missing_run_does_not_raise(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    view = HistoryView()
+    view._open_run_panel(999_999)   # pas de run -> ne doit pas lever, panneau reste fermé
+    assert view._side_panel.isHidden()
 
 
 def test_stat_card_emits_clicked_only_when_clickable():
