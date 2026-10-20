@@ -6,7 +6,7 @@ Vue Connexions : profils Oracle/FTP/SMTP/BDD génériques.
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
     QTableWidget, QHeaderView, QAbstractItemView,
-    QMessageBox, QTabWidget,
+    QDialog, QTabWidget,
 )
 from PySide6.QtCore import QSize
 from ui.styles import COLORS
@@ -530,8 +530,13 @@ class ConnectionsView(QWidget):
             # Oracle utilisé uniquement par des steps Sqoop ne prévenait jamais l'utilisateur
             # (correctif K1, docs/refonte/LOTS.md).
             used_by = sorted(set(used_by) | set(db.find_pipelines_using_profile("oracle_profile_id", profile_id)))
+            p = db.get_oracle_profile(profile_id)
+            name = p.name if p else str(profile_id)
+        else:
+            p = db.get_database_profile(profile_id)
+            name = p.name if p else str(profile_id)
         label = DB_TYPE_META.get(db_type, {}).get("label", db_type)
-        if not self._confirm_delete(label, used_by):
+        if not self._confirm_delete(label, name, used_by):
             return
         if db_type == "ORACLE":
             db.delete_oracle_profile(profile_id)
@@ -554,8 +559,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_ftp(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_ftp_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("ftp_profile_id", profile_id)
-        if not self._confirm_delete("FTP", used_by):
+        if not self._confirm_delete("FTP", name, used_by):
             return
         db.delete_ftp_profile(profile_id)
         self._refresh_ftp()
@@ -575,8 +582,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_smtp(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_smtp_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("smtp_profile_id", profile_id)
-        if not self._confirm_delete("SMTP", used_by):
+        if not self._confirm_delete("SMTP", name, used_by):
             return
         db.delete_smtp_profile(profile_id)
         self._refresh_smtp()
@@ -596,9 +605,11 @@ class ConnectionsView(QWidget):
 
     def _on_delete_ssh(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_ssh_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("edge_profile_id", profile_id)
         bastion_users = db.find_ssh_profiles_using_as_bastion(profile_id)
-        if not self._confirm_delete("SSH", used_by, bastion_users=bastion_users):
+        if not self._confirm_delete("SSH", name, used_by, bastion_users=bastion_users):
             return
         db.delete_ssh_profile(profile_id)
         self._refresh_ssh()
@@ -618,8 +629,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_kerberos(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_kerberos_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("kerberos_profile_id", profile_id)
-        if not self._confirm_delete("Kerberos", used_by):
+        if not self._confirm_delete("Kerberos", name, used_by):
             return
         db.delete_kerberos_profile(profile_id)
         self._refresh_kerberos()
@@ -639,30 +652,18 @@ class ConnectionsView(QWidget):
 
     def _on_delete_elevation(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_elevation_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("elevation_profile_id", profile_id)
-        if not self._confirm_delete("d'élévation", used_by):
+        if not self._confirm_delete("d'élévation", name, used_by):
             return
         db.delete_elevation_profile(profile_id)
         self._refresh_elevation()
 
-    def _confirm_delete(self, profile_kind: str, used_by: list,
+    def _confirm_delete(self, profile_kind: str, profile_name: str, used_by: list,
                          bastion_users: list | None = None) -> bool:
-        """Confirmation de suppression — avertit si des pipelines utilisent ce profil, et (pour
-        un profil SSH) si d'autres profils SSH l'utilisent comme bastion."""
-        lines = []
-        if used_by:
-            names = ", ".join(used_by)
-            lines.append(f"utilisé par {len(used_by)} pipeline(s) : {names}")
-        if bastion_users:
-            names = ", ".join(bastion_users)
-            lines.append(f"utilisé comme bastion par {len(bastion_users)} profil(s) SSH : {names}"
-                          " (ils repasseront en connexion directe)")
-        if lines:
-            msg = (
-                f"Ce profil {profile_kind} est " + " et ".join(lines) + ".\n\n"
-                f"Le(s) supprimer quand même ? Ces pipelines échoueront à leur prochaine exécution."
-            )
-        else:
-            msg = f"Supprimer ce profil {profile_kind} ?"
-        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
-        return reply == QMessageBox.Yes
+        """Confirmation de suppression (A11) — avertit si des pipelines utilisent ce profil, et
+        (pour un profil SSH) si d'autres profils SSH l'utilisent comme bastion."""
+        from ui.dialogs import ConnectionDeleteDialog
+        dlg = ConnectionDeleteDialog(self, profile_kind, profile_name, used_by, bastion_users)
+        return dlg.exec() == QDialog.Accepted

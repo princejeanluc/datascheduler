@@ -204,14 +204,15 @@ def test_connections_view_shows_ssh_and_kerberos_rows(qapp, test_db):
 
 
 def test_connections_view_delete_ssh_checks_pipeline_usage(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.dialogs import ConnectionDeleteDialog
     from ui.main_window import connections_view as cv_module
 
     p = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
-    monkeypatch.setattr(cv_module.QMessageBox, "question",
-                         lambda *a, **kw: cv_module.QMessageBox.No)
+    monkeypatch.setattr(ConnectionDeleteDialog, "exec", lambda self: QDialog.Rejected)
 
     view = cv_module.ConnectionsView()
-    view._on_delete_ssh(p.id)   # répond "No" -> pas supprimé
+    view._on_delete_ssh(p.id)   # répond "Rejected" -> pas supprimé
     assert db.get_ssh_profile(p.id) is not None
 
 
@@ -245,6 +246,8 @@ def test_connections_view_ssh_via_column_shows_username_without_bastion(qapp, te
 
 
 def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.dialogs import ConnectionDeleteDialog
     from ui.main_window import connections_view as cv_module
 
     edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
@@ -252,15 +255,16 @@ def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, m
                            jump_via_id=edge01.id)
 
     captured = {}
-    def _fake_question(self_, title, msg, *a, **kw):
-        captured["msg"] = msg
-        return cv_module.QMessageBox.No
-    monkeypatch.setattr(cv_module.QMessageBox, "question", _fake_question)
+    def fake_exec(self):
+        captured["texts"] = _cell_texts_from_widget(self)
+        return QDialog.Rejected
+    monkeypatch.setattr(ConnectionDeleteDialog, "exec", fake_exec)
 
     view = cv_module.ConnectionsView()
     view._on_delete_ssh(edge01.id)
-    assert "EDGE03" in captured["msg"]
-    assert "bastion" in captured["msg"]
+    texts = " ".join(captured["texts"])
+    assert "EDGE03" in texts
+    assert "bastion" in texts
 
 
 # ──────────────────────────────────────────────
