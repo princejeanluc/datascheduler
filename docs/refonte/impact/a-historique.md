@@ -112,3 +112,9 @@ migration à défaire.
 2. **Textes du journal des modifications** — tranché par l'utilisateur : reformulés à l'affichage
    (type + motif `action=...` de l'import), jamais de donnée inventée pour un `detail` vide ou
    sparse (ex. « Création » sans détail reste « — », pas un recalcul du nombre d'étapes actuel).
+3. **`HistoryView._build_day_runs_table`** — la fiche (point 6 de « à garder tel quel ») la cite
+   comme testée ; A9 construit la bulle avec des lignes composites (heure/statut·durée/erreur/
+   flèche) plutôt que cette `QTableWidget`, pour coller au rendu de la maquette
+   `Historique-jour.html` (pas une grille à en-têtes de colonnes dans une bulle de 330px). Devenue
+   orpheline (plus aucun appelant en production), tranché par l'utilisateur : supprimée avec son
+   test plutôt que gardée inutilisée ou réintroduite comme contenu de la bulle.

@@ -490,37 +490,6 @@ class HistoryView(QWidget):
             row.addStretch()
             self._freq_rows_layout.addWidget(row_widget)
 
-    @staticmethod
-    def _build_day_runs_table(runs) -> QTableWidget:
-        """Même patron que _build_audit_table() ci-dessous — extrait en méthode statique pour
-        être testable sans ouvrir le QDialog qui l'englobe."""
-        table = QTableWidget(0, 4)
-        table.setHorizontalHeaderLabels(["Heure", "Durée", "Lignes", "Statut"])
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setShowGrid(False)
-        _configure_columns(table, stretch_cols={0})
-        # Colonne à cellule-widget (badge, pas un QTableWidgetItem) — ResizeToContents la
-        # comprime sous la pression de la colonne étirée (même bug déjà rencontré et corrigé
-        # sur la colonne "Statut" du tableau principal de cette vue, voir _build_ui() ci-dessus).
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        table.setColumnWidth(3, 130)
-        table.setRowCount(len(runs))
-        for i, r in enumerate(runs):
-            time_s = fmt_time(r.started_at)
-            dur = _format_duration_short(r.duration_seconds)
-            rows_s = f"{r.rows_exported:,}".replace(",", " ") if r.rows_exported is not None else "—"
-            st = _status_str(r.status)
-            table.setItem(i, 0, QTableWidgetItem(time_s))
-            table.setItem(i, 1, QTableWidgetItem(dur))
-            table.setItem(i, 2, QTableWidgetItem(rows_s))
-            badge = _make_status_badge(_status_label_fr(st), _STATUS_BADGE.get(st, "badge_idle"))
-            badge.setProperty("status_code", st)
-            table.setCellWidget(i, 3, badge)
-            table.setRowHeight(i, 40)
-        return table
-
     def _on_frequency_day_clicked(self, pipeline, day, anchor=None):
         """Case du calendrier de fréquence cliquée (chantier identité, vague 4, idée 13 ; refonte,
         lot A-Historique, A9) — bulle ancrée au calendrier de CE pipeline (composant partagé

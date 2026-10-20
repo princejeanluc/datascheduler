@@ -127,24 +127,6 @@ def test_history_view_second_tab_shows_the_audit_table(qapp, test_db):
     assert view._mod_layout.indexOf(view.audit_table) >= 0
 
 
-def test_day_runs_table_lists_runs_most_recent_first(qapp, test_db):
-    """Détail d'une case du calendrier de fréquence (chantier identité, vague 4, idée 13)."""
-    from database import db_manager as db
-    from ui.main_window.history_view import HistoryView
-
-    p = db.create_pipeline(name="day-detail-test")
-    r1 = db.create_run(p.id)
-    db.finish_run(r1.id, status="SUCCESS", rows_exported=100)
-    r2 = db.create_run(p.id)
-    db.finish_run(r2.id, status="FAILED")
-
-    runs = db.get_runs(p.id)
-    table = HistoryView._build_day_runs_table(runs)
-
-    assert table.rowCount() == 2
-    assert table.item(0, 2).text() == "—"   # r2 (le plus récent) — FAILED, pas de lignes
-
-
 def test_on_frequency_day_clicked_opens_bubble_with_that_days_runs(qapp, test_db):
     """A9 (refonte, lot A-Historique) : remplace l'ancien QDialog par la bulle ancrée Bubble —
     une ligne par run du jour, toute la ligne cliquable (vérifié séparément, voir
