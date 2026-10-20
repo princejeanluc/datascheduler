@@ -30,6 +30,28 @@ def test_connections_view_has_three_tabs_grouped_by_usage(qapp, test_db):
     assert titles == ["Bases de données", "Fichiers && notifications", "Big Data / Spark SQL"]
 
 
+def test_connections_view_eyebrow_counts_connections_failures_and_never_tested(qapp, test_db):
+    """A2 : surtitre dynamique, compté sur les 7 listes de profils — comptage côté vue, aucune
+    nouvelle fonction de données."""
+    from ui.main_window.connections_view import ConnectionsView
+
+    ok = db.create_ssh_profile(name="EDGE-OK", host="h1", port=22, username="u", password="pw")
+    db.record_profile_test_result("ssh", ok.id, True)
+    failed = db.create_smtp_profile(name="SMTP-FAIL", host="h2", port=587, from_address="a@b.c")
+    db.record_profile_test_result("smtp", failed.id, False)
+    db.create_kerberos_profile(name="KRB-NEW", principal="p@REALM", password="pw")  # jamais testé
+
+    view = ConnectionsView()
+    assert view._eyebrow_lbl.text() == "3 CONNEXIONS · 1 EN ÉCHEC · 1 JAMAIS TESTÉE"
+
+
+def test_connections_view_search_placeholder_matches_the_maquette(qapp, test_db):
+    from ui.main_window.connections_view import ConnectionsView
+
+    view = ConnectionsView()
+    assert view.inp_search.placeholderText() == "Nom, hôte, utilisateur…"
+
+
 def test_ssh_and_kerberos_panels_share_the_same_tab(qapp, test_db):
     from ui.main_window.connections_view import ConnectionsView
 

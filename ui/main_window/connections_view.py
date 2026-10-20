@@ -12,7 +12,8 @@ from PySide6.QtCore import QSize, Qt
 from PySide6.QtGui import QColor
 from ui.styles import COLORS
 from ui.time_display import fmt_relative
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
+from ui.components import make_page_header
+from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _status_str
 
 
 _STALE_AFTER_DAYS = 30
@@ -79,21 +80,20 @@ class ConnectionsView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        header = QHBoxLayout()
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(_make_title("Connexions"))
-        title_col.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
-        header.addLayout(title_col); header.addStretch()
-        self.inp_search = _make_search_input("Rechercher un profil…")
+        self.inp_search = _make_search_input("Nom, hôte, utilisateur…")
         self.inp_search.textChanged.connect(self._on_search_changed)
-        header.addWidget(self.inp_search)
         btn_health = QPushButton("  Bilan de santé"); btn_health.setObjectName("secondary")
         btn_health.setFixedHeight(36)
         btn_health.setIcon(_icon("fa5s.heartbeat", COLORS["text_main"]))
         btn_health.setIconSize(QSize(13, 13))
         btn_health.clicked.connect(self._on_health_check)
-        header.addWidget(btn_health)
-        layout.addLayout(header)
+
+        header = make_page_header("", "Connexions", actions=[self.inp_search, btn_health])
+        # make_page_header() ne renvoie pas de référence à son surtitre — recherché une fois ici
+        # par objectName (même patron que les lots précédents), tenu à jour dans refresh() (A2 :
+        # "N connexions · N en échec · N jamais testées").
+        self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
+        layout.addWidget(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -311,6 +311,27 @@ class ConnectionsView(QWidget):
         self._refresh_kerberos()
         self._refresh_elevation()
         self._on_search_changed(self.inp_search.text())
+        if self._eyebrow_lbl is not None:
+            self._eyebrow_lbl.setText(self._compute_eyebrow_text())
+
+    def _compute_eyebrow_text(self) -> str:
+        """A2 : surtitre dynamique, compté sur les 7 listes déjà chargées par refresh() — aucune
+        nouvelle fonction de données, juste un comptage côté vue sur last_test_success
+        (False -> échec, None -> jamais testée)."""
+        from database import db_manager as db
+
+        successes = [p.get("last_test_success") for p in db.list_all_db_profiles()]
+        for getter in (db.get_ftp_profiles, db.get_smtp_profiles, db.get_ssh_profiles,
+                       db.get_kerberos_profiles, db.get_elevation_profiles):
+            successes.extend(p.last_test_success for p in getter())
+
+        n = len(successes)
+        n_fail = sum(1 for s in successes if s is False)
+        n_never = sum(1 for s in successes if s is None)
+        return (
+            f"{n} CONNEXION{'S' if n != 1 else ''} · {n_fail} EN ÉCHEC · "
+            f"{n_never} JAMAIS TESTÉE{'S' if n_never != 1 else ''}"
+        )
 
     def _refresh_databases(self):
         from database import db_manager as db
