@@ -64,6 +64,26 @@ def test_delete_oracle_profile_warns_about_sqoop_import_usage(qapp, test_db, mon
     assert "pipeline-sqoop-import" in captured["msg"]
 
 
+def test_database_table_usage_column_counts_sqoop_steps_too(qapp, test_db):
+    """A6 (refonte, lot A-Connexions) : la colonne « Utilisée par » du tableau principal doit
+    rester cohérente avec l'avertissement de suppression ci-dessus — un profil Oracle utilisé
+    uniquement par une étape Sqoop ne doit pas afficher « aucun pipeline »."""
+    from PySide6.QtWidgets import QLabel
+
+    from ui.main_window.connections_view import ConnectionsView
+
+    profile = db.create_oracle_profile(name="ORA-SQOOP", host="h", port=1521, username="u", password="p")
+    pipeline = db.create_pipeline(name="pipeline-sqoop-usage")
+    db.save_steps(pipeline.id, [
+        {"step_type": "SQOOP_EXPORT", "config": {"oracle_profile_id": profile.id}},
+    ])
+
+    view = ConnectionsView()
+    usage_widget = view.database_table.cellWidget(0, 4)
+    assert isinstance(usage_widget, QLabel)
+    assert usage_widget.text() == "1 pipeline"
+
+
 def test_delete_oracle_profile_without_usage_does_not_warn(qapp, test_db, monkeypatch):
     """Non-régression : un profil non utilisé reste supprimable sans avertissement d'usage."""
     from ui.main_window.connections_view import ConnectionsView

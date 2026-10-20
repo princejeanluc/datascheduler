@@ -108,8 +108,10 @@ def _configure_columns(table: QTableWidget, stretch_cols: set) -> None:
 
 def _filter_table_rows(table: QTableWidget, needle: str, columns: list) -> None:
     """Cache les lignes qui ne contiennent pas `needle` (insensible à la casse)
-    dans les colonnes indiquées — fonctionne pour les cellules texte (QTableWidgetItem)
-    et les badges (QLabel en cellWidget)."""
+    dans les colonnes indiquées — fonctionne pour les cellules texte (QTableWidgetItem),
+    les badges (QLabel en cellWidget) et les cellules composites à plusieurs lignes (refonte,
+    lot A-Connexions, `_two_line_cell`/`_last_test_cell` : cherche dans tous leurs QLabel
+    enfants)."""
     needle = needle.strip().lower()
     for row in range(table.rowCount()):
         if not needle:
@@ -120,10 +122,12 @@ def _filter_table_rows(table: QTableWidget, needle: str, columns: list) -> None:
             item = table.item(row, col)
             if item:
                 haystack.append(item.text().lower())
-            else:
-                w = table.cellWidget(row, col)
-                if isinstance(w, QLabel):
-                    haystack.append(w.text().lower())
+                continue
+            w = table.cellWidget(row, col)
+            if isinstance(w, QLabel):
+                haystack.append(w.text().lower())
+            elif w is not None:
+                haystack.extend(lbl.text().lower() for lbl in w.findChildren(QLabel))
         table.setRowHidden(row, needle not in " ".join(haystack))
 
 

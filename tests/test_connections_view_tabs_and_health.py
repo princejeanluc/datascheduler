@@ -11,9 +11,16 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from database import db_manager as db
+
+
+def _cell_texts(table, row, col) -> list:
+    """Libellés texte d'une cellule composite (refonte, lot A-Connexions : `_two_line_cell`/
+    `_last_test_cell`) — exclut le point coloré (un QLabel vide, juste stylé en cercle)."""
+    widget = table.cellWidget(row, col)
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
 
 
 @pytest.fixture(scope="module")
@@ -77,9 +84,9 @@ def test_ssh_health_badge_reflects_last_test_success(qapp, test_db, last_test_su
         db.record_profile_test_result("ssh", p.id, last_test_success)
 
     view = ConnectionsView()
-    # Colonne 5, pas 4 : "Via" (bastion, chantier M) s'est insérée avant "État".
-    badge = view.ssh_table.cellWidget(0, 5)
-    assert badge.text() == expected_text
+    # Colonne 3 ("Dernier test") — layout uniforme à 6 colonnes sur les 6 tableaux depuis le lot
+    # A-Connexions (icône/Connexion/Cible/Dernier test/Utilisée par/Actions).
+    assert _cell_texts(view.ssh_table, 0, 3)[0] == expected_text
 
 
 @pytest.mark.parametrize("last_test_success,expected_text", [
@@ -95,8 +102,7 @@ def test_elevation_health_badge_reflects_last_test_success(qapp, test_db, last_t
         db.record_profile_test_result("elevation", p.id, last_test_success)
 
     view = ConnectionsView()
-    badge = view.elevation_table.cellWidget(0, 2)
-    assert badge.text() == expected_text
+    assert _cell_texts(view.elevation_table, 0, 3)[0] == expected_text
 
 
 def test_database_health_badge_reflects_last_test_success(qapp, test_db):
@@ -107,42 +113,14 @@ def test_database_health_badge_reflects_last_test_success(qapp, test_db):
     db.record_profile_test_result("oracle", p.id, True)
 
     view = ConnectionsView()
-    badge = view.database_table.cellWidget(0, 5)
-    assert badge.text() == "OK"
-
-
-def test_connection_indicator_colors_by_success_state(qapp):
-    """"Prise" vivante (chantier identité, vague 2, idée 10) — icône ajoutée à côté du badge
-    texte existant, jamais à sa place (décision confirmée avec l'utilisateur)."""
-    from ui.main_window.connections_view import _connection_indicator
-
-    assert not _connection_indicator(True).pixmap().isNull()
-    assert not _connection_indicator(False).pixmap().isNull()
-    assert not _connection_indicator(None).pixmap().isNull()
-
-
-def test_ssh_table_has_a_connection_indicator_column_alongside_the_text_badge(qapp, test_db):
-    """La nouvelle colonne s'ajoute — _health_badge() et sa colonne "État" restent inchangés,
-    la colonne Actions se décale automatiquement (voir _make_table)."""
-    from ui.main_window.connections_view import ConnectionsView
-
-    p = db.create_ssh_profile(name="EDGE01", host="h", port=22, username="u", password="pw")
-    db.record_profile_test_result("ssh", p.id, True)
-
-    view = ConnectionsView()
-    badge = view.ssh_table.cellWidget(0, 5)
-    indicator = view.ssh_table.cellWidget(0, 6)
-    actions = view.ssh_table.cellWidget(0, 7)
-
-    assert badge.text() == "OK"           # inchangé
-    assert indicator is not None          # nouvelle colonne, juste après "État"
-    assert actions is not None            # colonne Actions décalée, toujours présente
+    assert _cell_texts(view.database_table, 0, 3)[0] == "OK"
 
 
 def test_health_badge_dims_a_profile_not_retested_recently(qapp, test_db):
-    """Fraîcheur visuelle (chantier identité, vague 1, idée 11) — un profil testé il y a plus de
-    30 jours s'estompe (effet d'opacité) pour signaler qu'il mérite d'être revérifié ; un profil
-    testé récemment reste net."""
+    """Fraîcheur visuelle (chantier identité, vague 1, idée 11 ; refonte lot A-Connexions, A5) :
+    un profil testé il y a plus de 30 jours s'estompe (effet d'opacité) et porte désormais
+    « · à retester » en texte visible (plus une infobulle) ; un profil testé récemment reste
+    net."""
     from datetime import datetime, timedelta
 
     from ui.main_window.connections_view import ConnectionsView
@@ -157,13 +135,13 @@ def test_health_badge_dims_a_profile_not_retested_recently(qapp, test_db):
         obj.last_tested_at = datetime.utcnow() - timedelta(days=40)
 
     view = ConnectionsView()
-    rows = {view.ssh_table.item(r, 0).text(): r for r in range(view.ssh_table.rowCount())}
-    fresh_badge = view.ssh_table.cellWidget(rows["EDGE-FRESH"], 5)
-    stale_badge = view.ssh_table.cellWidget(rows["EDGE-STALE"], 5)
+    rows = {_cell_texts(view.ssh_table, r, 1)[0]: r for r in range(view.ssh_table.rowCount())}
+    fresh_cell = view.ssh_table.cellWidget(rows["EDGE-FRESH"], 3)
+    stale_cell = view.ssh_table.cellWidget(rows["EDGE-STALE"], 3)
 
-    assert fresh_badge.graphicsEffect() is None
-    assert stale_badge.graphicsEffect() is not None
-    assert "revérifier" in stale_badge.toolTip()
+    assert fresh_cell.graphicsEffect() is None
+    assert stale_cell.graphicsEffect() is not None
+    assert "à retester" in _cell_texts(view.ssh_table, rows["EDGE-STALE"], 3)[1]
 
 
 def test_search_filters_across_active_tab_tables(qapp, test_db):
@@ -177,3 +155,57 @@ def test_search_filters_across_active_tab_tables(qapp, test_db):
 
     assert not view.ssh_table.isRowHidden(0)
     assert view.ssh_table.isRowHidden(1)
+
+
+def test_search_matches_the_target_column_too(qapp, test_db):
+    """A1/A3 : la recherche porte sur la Cible (hôte/utilisateur), pas seulement sur le nom —
+    texte du champ : "Nom, hôte, utilisateur…"."""
+    from ui.main_window.connections_view import ConnectionsView
+
+    db.create_ssh_profile(name="SERVEUR-UN", host="h1", port=22, username="svc_myspecialuser", password="pw")
+    db.create_ssh_profile(name="SERVEUR-DEUX", host="h2", port=22, username="other", password="pw")
+
+    view = ConnectionsView()
+    view.inp_search.setText("myspecialuser")
+
+    rows = {_cell_texts(view.ssh_table, r, 1)[0]: r for r in range(view.ssh_table.rowCount())}
+    assert not view.ssh_table.isRowHidden(rows["SERVEUR-UN"])
+    assert view.ssh_table.isRowHidden(rows["SERVEUR-DEUX"])
+
+
+def test_ftp_and_smtp_tables_show_two_line_connexion_and_cible_cells(qapp, test_db):
+    """A3/A7 : Connexion = nom + type ; Cible = hôte:port + utilisateur/expéditeur, icône de
+    famille en colonne 0."""
+    from ui.main_window.connections_view import ConnectionsView
+
+    db.create_ftp_profile(name="Partage ventes", host="ftp.interne", port=990,
+                           protocol="FTPS", username="kulu", password="pw")
+    db.create_smtp_profile(name="SMTP Interne", host="smtp.interne", port=587,
+                            use_tls=True, from_address="kulu@entreprise.fr")
+
+    view = ConnectionsView()
+
+    ftp_connexion = _cell_texts(view.ftp_table, 0, 1)
+    assert ftp_connexion == ["Partage ventes", "FTPS"]
+    ftp_cible = _cell_texts(view.ftp_table, 0, 2)
+    assert ftp_cible == ["ftp.interne:990", "kulu"]
+
+    smtp_connexion = _cell_texts(view.smtp_table, 0, 1)
+    assert smtp_connexion == ["SMTP Interne", "SMTP · STARTTLS"]
+    smtp_cible = _cell_texts(view.smtp_table, 0, 2)
+    assert smtp_cible == ["smtp.interne:587", "kulu@entreprise.fr"]
+
+    assert view.ftp_table.cellWidget(0, 0) is not None
+    assert view.smtp_table.cellWidget(0, 0) is not None
+
+
+def test_kerberos_and_elevation_cible_has_no_second_line(qapp, test_db):
+    """A3 : Kerberos/Élévation n'ont pas d'hôte/port/utilisateur — une seule ligne de Cible."""
+    from ui.main_window.connections_view import ConnectionsView
+
+    db.create_kerberos_profile(name="KRB-SOLO", principal="svc@REALM", password="pw")
+    db.create_elevation_profile(name="ELEV-SOLO", target_user="hdfs", password="pw")
+
+    view = ConnectionsView()
+    assert _cell_texts(view.kerberos_table, 0, 2) == ["svc@REALM"]
+    assert _cell_texts(view.elevation_table, 0, 2) == ["sudo su hdfs"]

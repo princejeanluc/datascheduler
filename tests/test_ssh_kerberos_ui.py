@@ -11,9 +11,16 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from database import crypto, db_manager as db
+
+
+def _cell_texts(table, row, col) -> list:
+    """Libellés texte d'une cellule composite (refonte, lot A-Connexions : `_two_line_cell`/
+    `_last_test_cell`) — exclut le point coloré (un QLabel vide, juste stylé en cercle)."""
+    widget = table.cellWidget(row, col)
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
 
 
 @pytest.fixture(scope="module")
@@ -185,8 +192,8 @@ def test_connections_view_shows_ssh_and_kerberos_rows(qapp, test_db):
     view = ConnectionsView()
     assert view.ssh_table.rowCount() == 1
     assert view.kerberos_table.rowCount() == 1
-    assert view.ssh_table.item(0, 0).text() == "EDGE01"
-    assert view.kerberos_table.item(0, 1).text() == "a@REALM"
+    assert _cell_texts(view.ssh_table, 0, 1)[0] == "EDGE01"
+    assert _cell_texts(view.kerberos_table, 0, 2)[0] == "a@REALM"
 
 
 def test_connections_view_delete_ssh_checks_pipeline_usage(qapp, test_db, monkeypatch):
@@ -201,7 +208,11 @@ def test_connections_view_delete_ssh_checks_pipeline_usage(qapp, test_db, monkey
     assert db.get_ssh_profile(p.id) is not None
 
 
-def test_connections_view_ssh_via_column_shows_bastion_name_or_dash(qapp, test_db):
+def test_connections_view_ssh_via_column_shows_bastion_name_or_username(qapp, test_db):
+    """A4 (refonte, lot A-Connexions) : la 2e ligne de la colonne Cible montre la relation de
+    bastion quand il y en a une (« via X » ou « bastion de Y ») — sinon l'utilisateur, comme
+    avant le lot (voir aussi test_connections_view_ssh_via_column_shows_username_without_bastion
+    plus bas pour le cas sans aucune relation)."""
     from ui.main_window.connections_view import ConnectionsView
 
     edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
@@ -209,10 +220,21 @@ def test_connections_view_ssh_via_column_shows_bastion_name_or_dash(qapp, test_d
                            jump_via_id=edge01.id)
 
     view = ConnectionsView()
-    rows = {view.ssh_table.item(r, 0).text(): view.ssh_table.item(r, 4).text()
-            for r in range(view.ssh_table.rowCount())}
-    assert rows["EDGE01"] == "—"
-    assert rows["EDGE03"] == "EDGE01"
+    rows = {
+        _cell_texts(view.ssh_table, r, 1)[0]: _cell_texts(view.ssh_table, r, 2)
+        for r in range(view.ssh_table.rowCount())
+    }
+    assert rows["EDGE01"][1] == "bastion de EDGE03"
+    assert rows["EDGE03"][1] == "via EDGE01"
+
+
+def test_connections_view_ssh_via_column_shows_username_without_bastion(qapp, test_db):
+    from ui.main_window.connections_view import ConnectionsView
+
+    db.create_ssh_profile(name="EDGE-LONE", host="edge-lone", port=22, username="svc_edge", password="p")
+
+    view = ConnectionsView()
+    assert _cell_texts(view.ssh_table, 0, 2)[1] == "svc_edge"
 
 
 def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, monkeypatch):
