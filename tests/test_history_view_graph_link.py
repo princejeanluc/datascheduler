@@ -35,6 +35,13 @@ def _has_graph_link_button(view, row):
     )
 
 
+def _row_of(view, run_id):
+    """Index de ligne d'un run donné — plus robuste qu'une ligne fixe maintenant que le tableau
+    principal entrelace des lignes d'en-tête de groupe de jour (A5, refonte lot A-Historique) :
+    une seule exécution aujourd'hui est tout de même précédée de la ligne "AUJOURD'HUI"."""
+    return view._run_ids.index(run_id)
+
+
 def test_graph_link_hidden_for_a_successful_run(qapp, test_db):
     from ui.main_window.history_view import HistoryView
 
@@ -44,7 +51,7 @@ def test_graph_link_hidden_for_a_successful_run(qapp, test_db):
 
     view = HistoryView()
 
-    assert not _has_graph_link_button(view, 0)
+    assert not _has_graph_link_button(view, _row_of(view, run.id))
 
 
 def test_graph_link_hidden_for_a_failed_run_without_step_key(qapp, test_db):
@@ -58,7 +65,7 @@ def test_graph_link_hidden_for_a_failed_run_without_step_key(qapp, test_db):
 
     view = HistoryView()
 
-    assert not _has_graph_link_button(view, 0)
+    assert not _has_graph_link_button(view, _row_of(view, run.id))
 
 
 def test_graph_link_visible_for_a_failed_run_with_step_key(qapp, test_db):
@@ -70,7 +77,7 @@ def test_graph_link_visible_for_a_failed_run_with_step_key(qapp, test_db):
 
     view = HistoryView()
 
-    assert _has_graph_link_button(view, 0)
+    assert _has_graph_link_button(view, _row_of(view, run.id))
 
 
 def test_open_graph_emits_open_atelier_requested_with_pipeline_and_highlight(qapp, test_db):
@@ -94,7 +101,7 @@ def test_open_graph_emits_open_atelier_requested_with_pipeline_and_highlight(qap
     captured = []
     view.open_atelier_requested.connect(lambda *args: captured.append(args))
 
-    view._open_graph(0)
+    view._open_graph(_row_of(view, run.id))
 
     assert captured == [(pipeline.id, "fails", False)]
 

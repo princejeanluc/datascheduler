@@ -28,6 +28,7 @@ from PySide6.QtWidgets import QApplication, QDialog, QMenu, QPushButton, QLabel
 
 from ui.fonts import register_app_fonts
 from ui.main_window.widgets import GLOBAL_STYLE
+from ui.components import Bubble
 from database import db_manager as db
 
 # Largeur de la zone de contenu (1440 moins les 56px de la barre de navigation repliée, voir
@@ -410,6 +411,136 @@ def _pipelines_view_suppression():
     return PipelineDeleteDialog(None, parent, dependents, db.count_runs(parent.id))
 
 
+def _history_backdate_run(run_id: int, days_ago: int, duration_seconds: int = 180):
+    """db.finish_run() date toujours avec datetime.utcnow() — appelé APRÈS, pour replacer un run
+    dans un groupe de jour plus ancien (A5 : AUJOURD'HUI/HIER/date) sans dupliquer sa logique de
+    statut/compteurs."""
+    from datetime import datetime, timedelta
+    from database.models import PipelineRun
+    with db.get_session() as s:
+        r = s.get(PipelineRun, run_id)
+        r.finished_at = datetime.utcnow() - timedelta(days=days_ago)
+        r.started_at = r.finished_at - timedelta(seconds=duration_seconds)
+
+
+def _history_view():
+    """Historique : runs répartis sur aujourd'hui/hier/plus ancien (groupes de jours, A5), un
+    échec reprenable (bouton "Reprendre depuis l'échec" dans le tableau, A8), calendrier de
+    fréquence à 4 niveaux alimenté sur plusieurs jours (A4)."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(
+        name="synchro-clients-crm-hist", description="Oracle CRM -> référentiel clients",
+        frequency="DAILY", scheduled_time="07:00",
+    )
+    db.save_steps(p.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire clients", "config": {"_step_key": "step-1"},
+    }])
+
+    run_today = db.create_run(p.id)
+    db.finish_run(run_today.id, "SUCCESS", rows_exported=18234)
+
+    run_fail = db.create_run(p.id)
+    db.finish_run(
+        run_fail.id, "FAILED", error_message="ORA-12541: TNS:no listener", failed_step_key="step-1")
+    from database.models import PipelineRun
+    with db.get_session() as s:
+        s.get(PipelineRun, run_fail.id).resumable_state_json = "{}"
+
+    run_yesterday = db.create_run(p.id)
+    db.finish_run(run_yesterday.id, "SUCCESS", rows_exported=9000)
+    _history_backdate_run(run_yesterday.id, days_ago=1, duration_seconds=240)
+
+    run_old = db.create_run(p.id)
+    db.finish_run(run_old.id, "CANCELLED")
+    _history_backdate_run(run_old.id, days_ago=5, duration_seconds=38)
+
+    # Alimente le calendrier de fréquence (90 jours, 4 niveaux : bg_card/success_dim/success/
+    # danger) avec un peu d'historique au-delà des groupes de jours ci-dessus.
+    for i in range(10):
+        r = db.create_run(p.id)
+        db.finish_run(r.id, "FAILED" if i % 4 == 0 else "SUCCESS")
+        _history_backdate_run(r.id, days_ago=i + 10)
+
+    view = HistoryView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.refresh()
+    return view
+
+
+def _history_view_jour():
+    """Historique-jour : bulle du jour (A9), capturée seule — même traitement que Pipelines-menu
+    (popup indépendant du point de vue de Qt, invisible dans le grab() de la vue derrière)."""
+    from datetime import date
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="synchro-clients-crm-jour")
+    r1 = db.create_run(p.id)
+    db.finish_run(r1.id, "SUCCESS", rows_exported=18234)
+    r2 = db.create_run(p.id)
+    db.finish_run(r2.id, "FAILED", error_message="ORA-12541: TNS:no listener")
+
+    view = HistoryView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._on_frequency_day_clicked(p, date.today())
+    QApplication.instance().processEvents()
+    return view._bubble
+
+
+def _history_view_run():
+    """Historique-run : panneau latéral d'un run en échec reprenable (A10, SidePanel)."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="synchro-clients-crm-run")
+    db.save_steps(p.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire clients", "config": {"_step_key": "step-1"},
+    }])
+    run = db.create_run(p.id)
+    db.finish_run(
+        run.id, "FAILED", error_message="ORA-12541: TNS:no listener", failed_step_key="step-1",
+        resumable_state_json="{}",
+        log_text="[07:00:01] Démarrage\n[07:00:04] ORA-12541: TNS:no listener",
+    )
+
+    view = HistoryView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._open_run_panel(run.id)
+    QApplication.instance().processEvents()
+    return view
+
+
+def _history_view_modifications():
+    """Historique-modifications : second onglet "Journal des modifications" (A11/A12)."""
+    from ui.main_window.history_view import HistoryView
+
+    db.log_audit_event(
+        "pipeline_created", pipeline_id=1, pipeline_name="synchro-clients-crm-mod")
+    db.log_audit_event(
+        "pipeline_edited", pipeline_id=1, pipeline_name="synchro-clients-crm-mod",
+        detail="Nom/description/planification",
+    )
+    db.log_audit_event(
+        "pipeline_imported", pipeline_id=2, pipeline_name="export-hive-oracle-mod",
+        detail="action=overwrite",
+    )
+    db.log_audit_event("pipeline_deleted", pipeline_name="controle-ventes-mensuel-mod")
+
+    view = HistoryView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.refresh()
+    view._set_active_tab(1)
+    QApplication.instance().processEvents()
+    return view
+
+
 # (nom de fichier sans extension, fabrique de la vue) — un enregistrement par vue/état capturable.
 # Parametres-validation n'est pas capturé : son contenu distinctif (bandeau de validation en
 # ligne par champ) est C3, gated par la décision P1 — voir docs/refonte/impact/a-parametres.md.
@@ -444,6 +575,12 @@ REGISTRY = [
     ("aujourdhui-encours", _dashboard_view_encours),
     ("aujourdhui-tout", _dashboard_view_tout),
     ("aujourdhui-rattrapage", _dashboard_view_rattrapage),
+    # Historique-pipeline n'est pas capturé : le bandeau qui le remplacerait un jour est C9,
+    # gated (dépend de B5/C8) — voir docs/refonte/impact/a-historique.md.
+    ("historique", _history_view),
+    ("historique-jour", _history_view_jour),
+    ("historique-run", _history_view_run),
+    ("historique-modifications", _history_view_modifications),
 ]
 
 
@@ -470,7 +607,7 @@ def capture_all(out_dir: Path) -> list[Path]:
         # Pipelines-menu (QMenu) : jamais des vues plein écran — forcer 1440x900 laisserait une
         # grande zone vide autour d'une fenêtre/d'un popup flottant conçu pour sa taille
         # naturelle (REGLES.md section 6, point 3 — reste une capture "propre").
-        if not isinstance(view, (QDialog, QMenu)):
+        if not isinstance(view, (QDialog, QMenu, Bubble)):
             view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
         view.show()
         app.processEvents()

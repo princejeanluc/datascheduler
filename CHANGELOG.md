@@ -29,6 +29,25 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.51.0] - 2026-10-20
+
+### Modifié
+- **Refonte, Lot A-Historique** — l'écran Historique est aligné sur sa maquette validée :
+  en-tête avec surtitre dynamique (« N exécutions sur 7 jours · N échecs ») et deux onglets
+  « Exécutions »/« Journal des modifications » remplaçant l'ancien bouton+fenêtre, recherche
+  étendue au message d'erreur, filtre de statut en boutons segmentés (remplace la liste
+  déroulante), carte de fréquence à 4 niveaux de couleur avec légende et repères de mois,
+  tableau principal réordonné (Heure en premier) et groupé par jour (AUJOURD'HUI/HIER/date),
+  statuts affichés en français, actions de ligne sans la loupe (le double-clic ouvre) avec
+  « Reprendre depuis l'échec » ajouté, bulle ancrée pour le détail d'un jour du calendrier,
+  panneau latéral pour le détail d'une exécution (journal avec horodatages reconvertis à
+  l'affichage), journal des modifications avec types traduits et colorés et note de bas de page.
+
+### Ajouté
+- `ui/components/bubble.py::Bubble` — composant partagé « ancrée à un élément, avec une
+  flèche », se ferme par Échap ou clic en dehors (`Qt.Popup`). Premier écran à l'utiliser :
+  Historique (jour cliqué du calendrier de fréquence).
+
 ## [0.50.0] - 2026-10-19
 
 ### Modifié

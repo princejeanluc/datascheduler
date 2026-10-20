@@ -10,7 +10,9 @@ from ui.components.info_pill import make_info_pill
 from ui.components.banner import make_banner
 from ui.components.switch import Switch, make_switch
 from ui.components.side_panel import SidePanel
+from ui.components.bubble import Bubble
 
 __all__ = [
     "make_page_header", "make_info_pill", "make_banner", "Switch", "make_switch", "SidePanel",
+    "Bubble",
 ]

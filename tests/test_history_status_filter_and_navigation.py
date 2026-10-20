@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QLabel
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 from PySide6.QtTest import QTest
 
 from database import db_manager as db
@@ -31,6 +31,17 @@ def _make_run(name: str, status: str):
     return run
 
 
+def _visible_pipeline_names(view):
+    """Noms de pipeline (colonne 1 — Heure est désormais la colonne 0, A5 refonte lot
+    A-Historique) des lignes de run visibles, en ignorant les lignes d'en-tête de groupe de jour
+    (`view._run_ids[r] is None`)."""
+    return [
+        view.table.item(r, 1).text()
+        for r in range(view.table.rowCount())
+        if view._run_ids[r] is not None and not view.table.isRowHidden(r)
+    ]
+
+
 def test_status_filter_hides_non_matching_rows(qapp, test_db):
     from ui.main_window.history_view import HistoryView
 
@@ -38,16 +49,12 @@ def test_status_filter_hides_non_matching_rows(qapp, test_db):
     _make_run("hist-filter-failed", "FAILED")
 
     view = HistoryView()
-    assert view.table.rowCount() == 2
+    # 1 ligne d'en-tête de groupe ("AUJOURD'HUI") + 2 runs (A5).
+    assert view.table.rowCount() == 3
 
     view.set_status_filter("FAILED")
     hidden = [view.table.isRowHidden(r) for r in range(view.table.rowCount())]
-    visible_names = [
-        view.table.item(r, 0).text()
-        for r in range(view.table.rowCount())
-        if not view.table.isRowHidden(r)
-    ]
-    assert visible_names == ["hist-filter-failed"]
+    assert _visible_pipeline_names(view) == ["hist-filter-failed"]
     assert any(hidden)
 
 
@@ -61,12 +68,47 @@ def test_status_filter_combines_with_text_search(qapp, test_db):
     view.set_status_filter("FAILED")
     view.inp_search.setText("alpha")
 
-    visible_names = [
-        view.table.item(r, 0).text()
-        for r in range(view.table.rowCount())
-        if not view.table.isRowHidden(r)
-    ]
-    assert visible_names == ["hist-combo-alpha"]
+    assert _visible_pipeline_names(view) == ["hist-combo-alpha"]
+
+
+def test_search_matches_run_error_message(qapp, test_db):
+    """A2 : la recherche libre porte aussi sur le message d'erreur du run, pas seulement sur les
+    colonnes visibles du tableau — retrouver un échec par son message sans déjà savoir quel
+    pipeline l'a produit."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-search-error")
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="FAILED", error_message="connexion refusée par le serveur distant")
+    other = db.create_run(p.id)
+    db.finish_run(other.id, status="SUCCESS")
+
+    view = HistoryView()
+    view.inp_search.setText("refusée")
+
+    assert _visible_pipeline_names(view) == ["hist-search-error"]
+
+
+def test_status_filter_uses_segmented_buttons_not_a_combobox(qapp, test_db):
+    """A3 : le filtre de statut est désormais 5 boutons segmentés (même patron que
+    ResourcesView._set_active_range), pas une QComboBox — set_status_filter garde le même
+    contrat public (accepte None/""/un code)."""
+    from ui.main_window.history_view import HistoryView
+
+    _make_run("hist-segmented-ok", "SUCCESS")
+    _make_run("hist-segmented-ko", "FAILED")
+
+    view = HistoryView()
+    assert not hasattr(view, "cb_status")
+    assert set(view._status_buttons.keys()) == {None, "SUCCESS", "FAILED", "RUNNING", "CANCELLED"}
+
+    view.set_status_filter("FAILED")
+    assert view._status_filter == "FAILED"
+    assert _visible_pipeline_names(view) == ["hist-segmented-ko"]
+
+    view.set_status_filter("")
+    assert view._status_filter is None
+    assert set(_visible_pipeline_names(view)) == {"hist-segmented-ok", "hist-segmented-ko"}
 
 
 def test_status_filter_all_shows_every_row(qapp, test_db):
@@ -80,6 +122,172 @@ def test_status_filter_all_shows_every_row(qapp, test_db):
     view.set_status_filter(None)
 
     assert all(not view.table.isRowHidden(r) for r in range(view.table.rowCount()))
+
+
+def test_history_view_tabs_switch_between_executions_and_modifications(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    view = HistoryView()
+    assert view._tabs_stack.currentIndex() == 0
+
+    view._set_active_tab(1)
+    assert view._tabs_stack.currentIndex() == 1
+
+    view._set_active_tab(0)
+    assert view._tabs_stack.currentIndex() == 0
+
+
+def test_history_view_eyebrow_counts_runs_and_failures_over_7_days(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    _make_run("hist-eyebrow-ok", "SUCCESS")
+    _make_run("hist-eyebrow-ko", "FAILED")
+
+    view = HistoryView()
+    assert view._eyebrow_lbl.text() == "2 EXÉCUTIONS SUR 7 JOURS · 1 ÉCHEC"
+
+
+def test_format_duration_short_matches_pipelines_format():
+    from ui.main_window.history_view import _format_duration_short
+
+    assert _format_duration_short(None) == "—"
+    assert _format_duration_short(0) == "0 s"
+    assert _format_duration_short(38) == "38 s"
+    assert _format_duration_short(124) == "2 min 04"
+
+
+def test_history_view_table_groups_todays_runs_under_a_day_header(qapp, test_db):
+    """A5 : une ligne d'en-tête non sélectionnable, fusionnée sur toute la largeur, précède les
+    runs d'aujourd'hui — un seul QTableWidget, pas des tableaux séparés par jour (question 6)."""
+    from ui.main_window.history_view import HistoryView
+
+    run = _make_run("hist-group-today", "SUCCESS")
+
+    view = HistoryView()
+    assert view._run_ids[0] is None
+    assert view.table.item(0, 0).text() == "AUJOURD'HUI"
+    assert not (view.table.item(0, 0).flags() & Qt.ItemIsSelectable)
+    assert view.table.columnSpan(0, 0) == 7
+    assert view._run_ids[1] == run.id
+
+
+def test_history_view_rows_exported_distinguishes_zero_from_none(qapp, test_db):
+    """A6 : "0" quand rows_exported vaut réellement 0, "—" seulement quand il est absent — les
+    deux cas rendaient autrefois le même tiret."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-rows-zero")
+    r_zero = db.create_run(p.id)
+    db.finish_run(r_zero.id, status="SUCCESS", rows_exported=0)
+    r_none = db.create_run(p.id)
+    db.finish_run(r_none.id, status="FAILED")
+
+    view = HistoryView()
+    row_zero = view._run_ids.index(r_zero.id)
+    row_none = view._run_ids.index(r_none.id)
+    assert view.table.item(row_zero, 3).text() == "0"
+    assert view.table.item(row_none, 3).text() == "—"
+
+
+def test_history_view_status_badge_is_french_with_status_code_property(qapp, test_db):
+    """A7 : le badge affiche un libellé français, mais garde le code anglais en propriété
+    `status_code` — _apply_filters en dépend (badge.text() ne peut plus servir de clé de
+    comparaison une fois le texte traduit)."""
+    from ui.main_window.history_view import HistoryView
+
+    run = _make_run("hist-badge-fr", "FAILED")
+
+    view = HistoryView()
+    row = view._run_ids.index(run.id)
+    badge = view.table.cellWidget(row, 4)
+    assert badge.text() == "Échec"
+    assert badge.property("status_code") == "FAILED"
+
+
+def test_history_view_row_actions_drop_magnifier_and_add_resume(qapp, test_db):
+    """A8 : la loupe "Voir le log complet" disparaît (ouverture par double-clic désormais) ;
+    "Reprendre depuis l'échec" apparaît uniquement pour un run avec un état de reprise
+    persisté."""
+    from PySide6.QtWidgets import QPushButton
+
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-resume")
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="FAILED", resumable_state_json="{}")
+    other = db.create_run(p.id)
+    db.finish_run(other.id, status="FAILED")
+
+    view = HistoryView()
+    row = view._run_ids.index(run.id)
+    row_other = view._run_ids.index(other.id)
+    buttons = view.table.cellWidget(row, 6).findChildren(QPushButton)
+    tooltips = {b.toolTip() for b in buttons}
+    assert "Voir le log complet" not in tooltips
+    assert "Reprendre depuis l'échec" in tooltips
+
+    buttons_other = view.table.cellWidget(row_other, 6).findChildren(QPushButton)
+    assert "Reprendre depuis l'échec" not in {b.toolTip() for b in buttons_other}
+
+
+def test_convert_log_text_times_reconstructs_local_time_and_handles_midnight_rollover(test_db):
+    """A10/T3 : PipelineResult.log() (core/pipeline.py) écrit chaque ligne en UTC, heure seule —
+    la fonction doit reconstruire la date complète depuis started_at et la faire avancer d'un
+    jour quand l'heure analysée est plus tôt que celle de la ligne précédente (minuit franchi)."""
+    from datetime import datetime
+
+    from ui.main_window.history_view import _convert_log_text_times
+
+    # Fuseau explicitement UTC (le défaut d'une base neuve suit le fuseau de la machine qui
+    # l'a créée, voir database/models.py::_default_timezone) — pour que to_display() soit
+    # l'identité ici et que la reconstruction de date reste testée telle quelle.
+    db.update_app_settings(timezone="UTC")
+    started = datetime(2026, 10, 19, 23, 50, 0)
+    log_text = "[23:50:05] démarrage\n[00:00:02] après minuit\nligne sans horodatage"
+
+    out = _convert_log_text_times(log_text, started)
+    lines = out.splitlines()
+    assert lines[0] == "[23:50:05] démarrage"
+    assert lines[1] == "[00:00:02] après minuit"
+    assert lines[2] == "ligne sans horodatage"
+
+
+def test_convert_log_text_times_handles_empty_input():
+    from ui.main_window.history_view import _convert_log_text_times
+
+    assert _convert_log_text_times("", None) == ""
+    assert _convert_log_text_times(None, None) == ""
+
+
+def test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_failure(qapp, test_db):
+    """A10 : le pied du panneau propose "Reprendre depuis l'échec" (état de reprise persisté) et
+    "Voir dans le graphe" (échec avec un nœud fautif identifié) — jamais "Exporter le journal"
+    (C7, gated)."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-panel-buttons")
+    run = db.create_run(p.id)
+    db.finish_run(
+        run.id, status="FAILED", failed_step_key="step-1",
+        resumable_state_json="{}", error_message="échec réseau",
+    )
+
+    view = HistoryView()
+    view._open_run_panel(run.id)
+
+    buttons = [b for b in view._side_panel.findChildren(QPushButton) if b.text()]
+    texts = {b.text() for b in buttons}
+    assert "Reprendre depuis l'échec" in texts
+    assert "Voir dans le graphe" in texts
+    assert "Exporter le journal" not in texts
+
+
+def test_history_view_run_panel_missing_run_does_not_raise(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    view = HistoryView()
+    view._open_run_panel(999_999)   # pas de run -> ne doit pas lever, panneau reste fermé
+    assert view._side_panel.isHidden()
 
 
 def test_stat_card_emits_clicked_only_when_clickable():
@@ -276,12 +484,7 @@ def test_main_window_navigates_to_filtered_history_on_dashboard_signal(qapp, tes
 
         assert win._stack.currentIndex() == 4
         history_view = win._views[4]
-        visible_names = [
-            history_view.table.item(r, 0).text()
-            for r in range(history_view.table.rowCount())
-            if not history_view.table.isRowHidden(r)
-        ]
-        assert visible_names == ["mw-nav-failed"]
+        assert _visible_pipeline_names(history_view) == ["mw-nav-failed"]
     finally:
         sched.stop()
         import core.scheduler as scheduler_module
@@ -433,14 +636,18 @@ def test_run_history_dots_handles_various_statuses(qapp):
 
 
 def test_heatmap_day_color_key_worst_result_wins():
-    """Calendrier de fréquence (chantier identité, vague 4, idée 13) : un seul échec dans la
-    journée colore la case en danger, même si d'autres runs ce jour-là ont réussi."""
+    """Calendrier de fréquence (chantier identité, vague 4, idée 13 ; refonte lot A-Historique,
+    A4/T2 : 4 niveaux) : un seul échec dans la journée colore la case en danger, même si d'autres
+    runs ce jour-là ont réussi ; une case sans exécution est bg_card (fond de carte, pas une
+    bordure) ; exactement 1 réussite sans échec a sa propre teinte (success_dim), plus discrète
+    qu'une vraie séquence de réussites (success, 2+)."""
     from ui.main_window.widgets import _heatmap_day_color_key
 
     assert _heatmap_day_color_key({"success": 2, "failed": 1, "cancelled": 0}) == "danger"
     assert _heatmap_day_color_key({"success": 3, "failed": 0, "cancelled": 0}) == "success"
-    assert _heatmap_day_color_key({"success": 0, "failed": 0, "cancelled": 0}) == "border"
-    assert _heatmap_day_color_key({}) == "border"
+    assert _heatmap_day_color_key({"success": 1, "failed": 0, "cancelled": 0}) == "success_dim"
+    assert _heatmap_day_color_key({"success": 0, "failed": 0, "cancelled": 0}) == "bg_card"
+    assert _heatmap_day_color_key({}) == "bg_card"
 
 
 def test_run_frequency_heatmap_constructs_without_error(qapp):
@@ -453,6 +660,24 @@ def test_run_frequency_heatmap_constructs_without_error(qapp):
         {"success": 0, "failed": 0, "cancelled": 0},
     ])
     widget.set_counts([{"success": 1, "failed": 0, "cancelled": 0}])
+
+
+def test_heatmap_month_markers_constructs_without_error(qapp):
+    from ui.main_window.widgets import HeatmapMonthMarkers
+
+    HeatmapMonthMarkers(0)
+    markers = HeatmapMonthMarkers(90)
+    assert markers.width() > 0
+
+
+def test_make_heatmap_legend_has_four_entries(qapp):
+    from PySide6.QtWidgets import QLabel
+
+    from ui.main_window.widgets import make_heatmap_legend
+
+    legend = make_heatmap_legend()
+    labels = [lbl.text() for lbl in legend.findChildren(QLabel) if lbl.text()]
+    assert labels == ["aucune", "1 réussie", "plusieurs réussies", "au moins un échec"]
 
 
 def test_heatmap_day_tooltip_is_specific_to_that_day():
