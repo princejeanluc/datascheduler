@@ -1360,12 +1360,18 @@ class RunHistoryDots(QWidget):
 def _heatmap_day_color_key(day_counts: dict) -> str:
     """Couleur d'une case du calendrier de fréquence pour un jour donné — pire résultat du jour
     l'emporte (un seul échec dans la journée suffit à colorer la case en danger), pour que
-    "ce pipeline échoue tous les lundis" saute aux yeux d'un coup d'œil."""
+    "ce pipeline échoue tous les lundis" saute aux yeux d'un coup d'œil. 4 niveaux (refonte, lot
+    A-Historique, A4/T2) : aucune exécution -> bg_card (fond de carte, pas "border" — une case
+    vide n'est pas une bordure) ; exactement 1 réussite sans échec -> success_dim (plus discret
+    qu'une vraie séquence de réussites) ; 2+ réussites sans échec -> success."""
     if day_counts.get("failed", 0) > 0:
         return "danger"
-    if day_counts.get("success", 0) > 0:
+    success = day_counts.get("success", 0)
+    if success >= 2:
         return "success"
-    return "border"
+    if success == 1:
+        return "success_dim"
+    return "bg_card"
 
 
 def _heatmap_day_tooltip(day_counts: dict) -> str:
@@ -1386,6 +1392,39 @@ def _heatmap_day_tooltip(day_counts: dict) -> str:
     if cancelled:
         parts.append(f"{cancelled} annulé" + ("s" if cancelled > 1 else ""))
     return f"{date_s} — " + ", ".join(parts)
+
+
+_HEATMAP_LEGEND = [
+    ("aucune", "bg_card"),
+    ("1 réussie", "success_dim"),
+    ("plusieurs réussies", "success"),
+    ("au moins un échec", "danger"),
+]
+
+
+def make_heatmap_legend() -> QWidget:
+    """Légende à 4 niveaux du calendrier de fréquence (refonte, lot A-Historique, A4), sous le
+    titre de la carte — mêmes libellés/couleurs que docs/refonte/maquettes/html/Historique.html."""
+    row = QWidget()
+    hl = QHBoxLayout(row)
+    hl.setContentsMargins(0, 0, 0, 0)
+    hl.setSpacing(14)
+    for label, color_key in _HEATMAP_LEGEND:
+        item = QWidget()
+        item_l = QHBoxLayout(item)
+        item_l.setContentsMargins(0, 0, 0, 0)
+        item_l.setSpacing(5)
+        swatch = QLabel()
+        swatch.setFixedSize(8, 8)
+        swatch.setStyleSheet(
+            f"background: {COLORS[color_key]}; border-radius: 2px; border: none;")
+        item_l.addWidget(swatch)
+        text = QLabel(label)
+        text.setStyleSheet(f"font-size: 11px; color: {COLORS['text_dim']}; border: none;")
+        item_l.addWidget(text)
+        hl.addWidget(item)
+    hl.addStretch()
+    return row
 
 
 class RunFrequencyHeatmap(QWidget):
@@ -1453,3 +1492,45 @@ class RunFrequencyHeatmap(QWidget):
             color_key = _heatmap_day_color_key(day_counts)
             painter.setBrush(QBrush(QColor(COLORS[color_key])))
             painter.drawRoundedRect(QRectF(x, 0, self.SQUARE, self.SQUARE), 2, 2)
+
+
+_MONTHS_FR_ABBR = [
+    "janv.", "févr.", "mars", "avr.", "mai", "juin",
+    "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+]
+
+
+class HeatmapMonthMarkers(QWidget):
+    """Repères de mois au-dessus du calendrier de fréquence (refonte, lot A-Historique, A4) — un
+    court texte Mono à chaque début de mois dans la fenêtre de `n_days` jours se terminant
+    aujourd'hui, plus un repère "aujourd'hui" au dernier jour. Même grille (SQUARE/GAP) que
+    RunFrequencyHeatmap pour rester aligné avec les cases dessous."""
+
+    SQUARE = RunFrequencyHeatmap.SQUARE
+    GAP = RunFrequencyHeatmap.GAP
+
+    def __init__(self, n_days: int):
+        super().__init__()
+        self._n_days = n_days
+        self.setFixedSize(self._width_for(n_days), 14)
+        self.setStyleSheet("background: transparent; border: none;")
+
+    def _width_for(self, n: int) -> int:
+        return (n * self.SQUARE + max(0, n - 1) * self.GAP) if n else 1
+
+    def paintEvent(self, event):
+        if not self._n_days:
+            return
+        from datetime import date, timedelta
+        today = date.today()
+        start = today - timedelta(days=self._n_days - 1)
+        painter = QPainter(self)
+        painter.setPen(QColor(COLORS["text_dim"]))
+        painter.setFont(QFont(FONT_MONO, 9))
+        for i in range(self._n_days):
+            d = start + timedelta(days=i)
+            if d.day == 1:
+                x = i * (self.SQUARE + self.GAP)
+                painter.drawText(x, 11, _MONTHS_FR_ABBR[d.month - 1])
+        last_x = (self._n_days - 1) * (self.SQUARE + self.GAP)
+        painter.drawText(max(0, last_x - 50), 11, "aujourd'hui")

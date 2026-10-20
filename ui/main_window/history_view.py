@@ -5,16 +5,17 @@ Vue Historique : journal complet des exécutions.
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QComboBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedLayout,
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
-from ui.time_display import fmt_time, fmt_datetime
+from ui.time_display import fmt_time, fmt_datetime, fmt_relative, to_display
+from ui.components import make_page_header, Bubble
 from .widgets import (
     _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label,
-    _make_title, _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
-    RunFrequencyHeatmap,
+    _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
+    RunFrequencyHeatmap, HeatmapMonthMarkers, make_heatmap_legend,
 )
 
 _HEATMAP_DAYS = 90
@@ -31,6 +32,48 @@ _STATUS_FILTER_OPTIONS = [
     ("En cours", "RUNNING"),
     ("Annulé", "CANCELLED"),
 ]
+
+# Jours/mois en français écrits en dur (A5/A9) — même raison que dashboard_view.py : pas de
+# dépendance à la locale système.
+_DAYS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
+_MONTHS_FR = [
+    "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
+    "septembre", "octobre", "novembre", "décembre",
+]
+
+# A7 (refonte, lot A-Historique) : mapping purement d'affichage, local à cet écran — ne touche
+# pas _make_status_badge/_STATUS_BADGE (partagés avec Pipelines/Dashboard, qui continuent
+# d'afficher les codes anglais). CANCELLED garde le style badge_idle (fiche : "tombe sur
+# badge_idle"), seul le mot affiché change.
+_STATUS_LABEL_FR = {
+    "SUCCESS": "Réussi", "FAILED": "Échec", "RUNNING": "En cours",
+    "CANCELLED": "Annulé", "IDLE": "—",
+}
+
+
+def _status_label_fr(status_code: str) -> str:
+    return _STATUS_LABEL_FR.get(status_code, status_code)
+
+
+def _format_duration_short(seconds) -> str:
+    """« 2 min 04 » / « 38 s » (A6) — même format que Pipelines/Aujourd'hui/Dashboard, dupliqué
+    ici (convention déjà suivie par dashboard_view.py plutôt qu'un import inter-vues)."""
+    if seconds is None:
+        return "—"
+    m, s = divmod(int(seconds), 60)
+    return f"{m} min {s:02d}" if m else f"{s} s"
+
+
+def _day_group_label(day, today) -> str:
+    """Intitulé d'une ligne d'en-tête de groupe du tableau principal (A5) — jour calculé dans le
+    fuseau réglé (même conversion que la colonne Heure), pas le fuseau UTC de stockage (le
+    calendrier de fréquence, lui, reste en UTC — B7, hors périmètre de ce lot)."""
+    from datetime import timedelta
+    if day == today:
+        return "AUJOURD'HUI"
+    if day == today - timedelta(days=1):
+        return "HIER"
+    return f"{_DAYS_FR[day.weekday()].upper()} {day.day} {_MONTHS_FR[day.month - 1].upper()}"
 
 
 class HistoryView(QWidget):
@@ -63,30 +106,46 @@ class HistoryView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        header = QHBoxLayout()
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(_make_title("Historique"))
-        title_col.addWidget(_make_subtitle("Journal complet de toutes les exécutions"))
-        header.addLayout(title_col); header.addStretch()
-        btn_audit = QPushButton("  Journal des modifications"); btn_audit.setObjectName("secondary")
-        btn_audit.setFixedHeight(36)
-        btn_audit.setIcon(_icon("fa5s.history", COLORS["text_main"]))
-        btn_audit.setIconSize(QSize(13, 13))
-        btn_audit.clicked.connect(self._on_audit_log)
-        header.addWidget(btn_audit)
-        self.cb_status = QComboBox()
-        self.cb_status.setFixedHeight(34)
-        for label, value in _STATUS_FILTER_OPTIONS:
-            self.cb_status.addItem(label, value)
-        self.cb_status.currentIndexChanged.connect(self._apply_filters)
-        header.addWidget(self.cb_status)
-        self.inp_search = _make_search_input("Rechercher…")
-        self.inp_search.textChanged.connect(self._on_search_changed)
-        header.addWidget(self.inp_search)
-        layout.addLayout(header)
+        self._tab_exec_btn = self._make_tab_button("Exécutions")
+        self._tab_exec_btn.clicked.connect(lambda: self._set_active_tab(0))
+        self._tab_mod_btn = self._make_tab_button("Journal des modifications")
+        self._tab_mod_btn.clicked.connect(lambda: self._set_active_tab(1))
+
+        header = make_page_header("", "Historique", actions=[self._tab_exec_btn, self._tab_mod_btn])
+        # make_page_header() ne renvoie pas de référence à son surtitre — recherché une fois ici
+        # par objectName (même patron que dashboard_view.py/pipelines_view.py), tenu à jour dans
+        # refresh() (A1 : "N EXÉCUTIONS SUR 7 JOURS · N ÉCHECS").
+        self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
+        layout.addWidget(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
+
+        self._tabs_stack = QStackedLayout()
+        stack_host = QWidget()
+        stack_host.setLayout(self._tabs_stack)
+
+        exec_page = QWidget()
+        exec_layout = QVBoxLayout(exec_page)
+        exec_layout.setContentsMargins(0, 0, 0, 0)
+        exec_layout.setSpacing(24)
+
+        self._status_filter = None
+        self._status_buttons = {}
+        filters_row = QHBoxLayout()
+        filters_row.setSpacing(8)
+        for label, value in _STATUS_FILTER_OPTIONS:
+            btn = QPushButton(label)
+            btn.setFixedHeight(30)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, v=value: self._set_active_status(v))
+            self._status_buttons[value] = btn
+            filters_row.addWidget(btn)
+        filters_row.addStretch()
+        self.inp_search = _make_search_input("Rechercher…")
+        self.inp_search.textChanged.connect(self._on_search_changed)
+        filters_row.addWidget(self.inp_search)
+        exec_layout.addLayout(filters_row)
 
         freq_frame = QFrame(); freq_frame.setObjectName("card")
         freq_layout = QVBoxLayout(freq_frame)
@@ -96,24 +155,41 @@ class HistoryView(QWidget):
         freq_title.setStyleSheet(
             f"font-size: 13px; font-weight: 700; color: {COLORS['text_main']}; border: none;")
         freq_layout.addWidget(freq_title)
+        freq_layout.addWidget(_make_subtitle("90 derniers jours · clic sur un jour pour ses exécutions."))
+        freq_layout.addWidget(make_heatmap_legend())
+
+        # Repères de mois alignés sur la grille des calendriers ci-dessous — décalage de
+        # (largeur du nom de pipeline 160px + espacement de la ligne 12px), même valeurs que
+        # dans _refresh_frequency().
+        markers_row = QHBoxLayout()
+        markers_row.setContentsMargins(0, 0, 0, 0)
+        markers_spacer = QWidget(); markers_spacer.setFixedWidth(172)
+        markers_row.addWidget(markers_spacer)
+        markers_row.addWidget(HeatmapMonthMarkers(_HEATMAP_DAYS))
+        markers_row.addStretch()
+        freq_layout.addLayout(markers_row)
+
         self._freq_rows_layout = QVBoxLayout()
         self._freq_rows_layout.setSpacing(8)
         freq_layout.addLayout(self._freq_rows_layout)
         self._freq_empty_label = _make_empty_label("Aucun pipeline actif pour l'instant.")
         self._freq_empty_label.setVisible(False)
         freq_layout.addWidget(self._freq_empty_label)
-        layout.addWidget(freq_frame)
+        exec_layout.addWidget(freq_frame)
 
         self._run_ids = []   # index ligne → run_id
+        self._bubble = None   # Bulle du jour (A9) — référence gardée pour qu'elle ne soit pas GC
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Pipeline", "Démarré le", "Durée", "Lignes", "Statut", "Fichier déposé", ""])
+            ["Heure", "Pipeline", "Durée", "Lignes", "Statut", "Fichier déposé", ""])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        _configure_columns(self.table, stretch_cols={0, 5})
+        _configure_columns(self.table, stretch_cols={1, 5})
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 76)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.table.setColumnWidth(4, 130)
         self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
@@ -122,29 +198,88 @@ class HistoryView(QWidget):
         # ni débordement hors du tableau (2×26px + espacement + marges).
         self.table.setColumnWidth(6, 96)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
-        layout.addWidget(self.table)
+        exec_layout.addWidget(self.table)
 
         self._empty_label = _make_empty_label(
             "Aucune exécution enregistrée pour l'instant."
         )
         self._empty_label.setVisible(False)
-        layout.addWidget(self._empty_label)
-        layout.addStretch()
+        exec_layout.addWidget(self._empty_label)
+        exec_layout.addStretch()
+
+        self._tabs_stack.addWidget(exec_page)
+
+        # Page "Journal des modifications" — squelette vide pour l'instant (contenu réel : A11/A12,
+        # étape 11 du séquencement du plan), remplacée par la vraie table/note de bas de page sans
+        # changer ce mécanisme d'onglets.
+        mod_page = QWidget()
+        mod_layout = QVBoxLayout(mod_page)
+        mod_layout.setContentsMargins(0, 0, 0, 0)
+        self._mod_page_layout = mod_layout
+        self._tabs_stack.addWidget(mod_page)
+
+        layout.addWidget(stack_host)
+        self._set_active_tab(0)
+        self._set_active_status(None)
 
         self.refresh()
 
+    def _make_tab_button(self, text: str) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setFlat(True)
+        return btn
+
+    def _set_active_tab(self, index: int) -> None:
+        self._tabs_stack.setCurrentIndex(index)
+        for i, btn in enumerate((self._tab_exec_btn, self._tab_mod_btn)):
+            active = i == index
+            btn.setStyleSheet(
+                f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid "
+                f"{COLORS['accent'] if active else 'transparent'}; border-radius: 0; "
+                f"padding: 0 0 8px 0; color: {COLORS['text_main'] if active else COLORS['text_dim']}; "
+                f"font-size: 14px; font-weight: {600 if active else 500}; }}"
+            )
+
+    def _set_active_status(self, value) -> None:
+        """Filtre de statut en boutons segmentés (A3) — même patron visuel que
+        ResourcesView._set_active_range (pilule active : fond bg_active + bordure accent + texte
+        gras ; inactive : transparent + bordure border + texte dim ; survol : bordure accent)."""
+        self._status_filter = value
+        for v, btn in self._status_buttons.items():
+            active = v == value
+            btn.setStyleSheet(
+                f"QPushButton {{ border-radius: 15px; padding: 0 14px; font-size: 12px; "
+                f"font-weight: {'700' if active else '500'}; "
+                f"background: {COLORS['bg_active'] if active else 'transparent'}; "
+                f"color: {COLORS['text_main'] if active else COLORS['text_dim']}; "
+                f"border: 1px solid {COLORS['accent'] if active else COLORS['border']}; }}"
+                f"QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['text_main']}; }}"
+            )
+        self._apply_filters()
+
     def _apply_filters(self, *_args):
-        """Combine le filtre de statut (colonne badge, égalité exacte) et la recherche libre
-        (sous-chaîne insensible à la casse) — une ligne doit satisfaire les deux pour rester
-        visible."""
-        status = self.cb_status.currentData()
+        """Combine le filtre de statut (propriété `status_code` posée sur le badge à la
+        construction — pas badge.text(), qui affiche désormais un libellé français, A7) et la
+        recherche libre (sous-chaîne insensible à la casse, colonnes Heure/Pipeline/Durée/Lignes/
+        Statut/Fichier déposé + message d'erreur — A2) — une ligne doit satisfaire les deux pour
+        rester visible. `self._run_ids[row] is None` identifie une ligne d'en-tête de groupe de
+        jour (A5) : jamais filtrée directement, sa visibilité suit celle des runs qu'elle
+        introduit (calculé après coup ci-dessous, une ligne d'en-tête ne connaît pas son groupe)."""
+        status = self._status_filter
         needle = self.inp_search.text().strip().lower()
         search_cols = [0, 1, 2, 3, 4, 5]
+        group_header_rows = []
         for row in range(self.table.rowCount()):
+            if row >= len(self._run_ids) or self._run_ids[row] is None:
+                group_header_rows.append(row)
+                continue
             badge = self.table.cellWidget(row, 4)
-            if status is not None and (badge is None or badge.text() != status):
+            status_code = badge.property("status_code") if badge is not None else None
+            if status is not None and status_code != status:
                 self.table.setRowHidden(row, True)
                 continue
+            error_s = (self._run_errors.get(row) or "").lower()
             if not needle:
                 self.table.setRowHidden(row, False)
                 continue
@@ -155,7 +290,19 @@ class HistoryView(QWidget):
                     haystack.append(item.text().lower())
                 elif col == 4 and badge is not None:
                     haystack.append(badge.text().lower())
+            haystack.append(error_s)
             self.table.setRowHidden(row, needle not in " ".join(haystack))
+
+        n = self.table.rowCount()
+        for row in group_header_rows:
+            has_visible = False
+            for r2 in range(row + 1, n):
+                if r2 >= len(self._run_ids) or self._run_ids[r2] is None:
+                    break
+                if not self.table.isRowHidden(r2):
+                    has_visible = True
+                    break
+            self.table.setRowHidden(row, not has_visible)
 
     def _on_search_changed(self, text: str):
         """La recherche filtre à la fois le tableau des exécutions (déjà couvert par
@@ -166,12 +313,13 @@ class HistoryView(QWidget):
         self._refresh_frequency(search=text.strip())
 
     def set_status_filter(self, status: str):
-        # "" (chaîne vide) -> None : "Tous les statuts" est stocké avec la donnée None dans
-        # _STATUS_FILTER_OPTIONS, pas "" — nécessaire pour le lien "Tout l'historique" d'Aujourd'hui
-        # (A7, refonte), qui émet navigate_to_history("") via un signal typé str (pas object).
-        idx = self.cb_status.findData(status or None)
-        if idx >= 0:
-            self.cb_status.setCurrentIndex(idx)
+        # "" (chaîne vide) -> None : "Tous les statuts" est la valeur None dans
+        # _STATUS_FILTER_OPTIONS/_status_buttons, pas "" — nécessaire pour le lien "Tout
+        # l'historique" d'Aujourd'hui (A7, chantier antérieur), qui émet navigate_to_history("")
+        # via un signal typé str (pas object).
+        value = status or None
+        if value in self._status_buttons:
+            self._set_active_status(value)
         else:
             self._apply_filters()
 
@@ -208,7 +356,8 @@ class HistoryView(QWidget):
             name_lbl.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 12px; border: none;")
             row.addWidget(name_lbl)
             heatmap = RunFrequencyHeatmap(counts)
-            heatmap.day_clicked.connect(lambda day, pl=p: self._on_frequency_day_clicked(pl, day))
+            heatmap.day_clicked.connect(
+                lambda day, pl=p, hm=heatmap: self._on_frequency_day_clicked(pl, day, hm))
             row.addWidget(heatmap)
             row.addStretch()
             self._freq_rows_layout.addWidget(row_widget)
@@ -232,86 +381,178 @@ class HistoryView(QWidget):
         table.setRowCount(len(runs))
         for i, r in enumerate(runs):
             time_s = fmt_time(r.started_at)
-            dur = "—"
-            if r.duration_seconds is not None:
-                m, s = divmod(int(r.duration_seconds), 60)
-                dur = f"{m}m {s:02d}s"
-            rows_s = f"{r.rows_exported:,}".replace(",", " ") if r.rows_exported else "—"
+            dur = _format_duration_short(r.duration_seconds)
+            rows_s = f"{r.rows_exported:,}".replace(",", " ") if r.rows_exported is not None else "—"
             st = _status_str(r.status)
             table.setItem(i, 0, QTableWidgetItem(time_s))
             table.setItem(i, 1, QTableWidgetItem(dur))
             table.setItem(i, 2, QTableWidgetItem(rows_s))
-            table.setCellWidget(i, 3, _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle")))
+            badge = _make_status_badge(_status_label_fr(st), _STATUS_BADGE.get(st, "badge_idle"))
+            badge.setProperty("status_code", st)
+            table.setCellWidget(i, 3, badge)
             table.setRowHeight(i, 40)
         return table
 
-    def _on_frequency_day_clicked(self, pipeline, day):
-        """Case du calendrier de fréquence cliquée (chantier identité, vague 4, idée 13) —
-        détail des exécutions de CE jour pour CE pipeline, pas juste sa couleur agrégée. Même
-        patron que _on_audit_log() ci-dessous : petit QDialog construit à la volée, tableau en
-        lecture seule, double-clic sur une ligne ouvre le log complet de ce run."""
+    def _on_frequency_day_clicked(self, pipeline, day, anchor=None):
+        """Case du calendrier de fréquence cliquée (chantier identité, vague 4, idée 13 ; refonte,
+        lot A-Historique, A9) — bulle ancrée au calendrier de CE pipeline (composant partagé
+        Bubble, FONDATIONS.md section 3), détail des exécutions de CE jour. Remplace l'ancien
+        QDialog. `anchor` (le widget RunFrequencyHeatmap cliqué) est optionnel — retombe sur
+        `self` pour un appel direct en test ; une seule case déclenche le clic quel que soit le
+        pipeline affiché, la bulle s'ancre donc au calendrier de LA ligne cliquée, pas à un point
+        précis de la case (REGLES.md section 1 : le placement exact au pixel n'est pas exigé)."""
         from database import db_manager as db
         runs = db.get_runs_for_pipeline_on_day(pipeline.id, day)
         if not runs:
             return
 
-        from PySide6.QtWidgets import QDialog
-        date_s = day.strftime("%d/%m/%Y")
-        dlg = QDialog(self)
-        dlg.setWindowTitle(f"Exécutions du {date_s} — {pipeline.name}")
-        dlg.setMinimumSize(560, 360)
-        from ui.styles import DIALOG_STYLE
-        dlg.setStyleSheet(DIALOG_STYLE)
+        content = QWidget()
+        vl = QVBoxLayout(content)
+        vl.setContentsMargins(16, 14, 16, 14)
+        vl.setSpacing(4)
 
-        vl = QVBoxLayout(dlg)
-        vl.setContentsMargins(20, 16, 20, 16)
-        vl.setSpacing(12)
+        title = QLabel(pipeline.name)
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            f"font-size: 13px; font-weight: 700; color: {COLORS['text_main']}; border: none;")
+        vl.addWidget(title)
 
-        lbl_title = QLabel(f"Exécutions du {date_s}")
-        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        vl.addWidget(lbl_title)
+        date_s = f"{_DAYS_FR[day.weekday()]} {day.day} {_MONTHS_FR[day.month - 1]}"
+        n = len(runs)
+        sub = QLabel(f"{date_s} · {n} exécution{'s' if n != 1 else ''}")
+        sub.setStyleSheet(f"font-size: 11px; color: {COLORS['text_dim']}; border: none;")
+        vl.addWidget(sub)
 
-        table = self._build_day_runs_table(runs)
-        run_ids = [r.id for r in runs]
+        sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
+        vl.addWidget(sep)
 
-        def _open_full_log(index):
-            from .run_log_dialog import open_run_log_dialog
-            open_run_log_dialog(dlg, run_ids[index.row()])
+        for r in runs:
+            vl.addWidget(self._build_bubble_run_row(r))
 
-        table.doubleClicked.connect(_open_full_log)
-        vl.addWidget(table)
+        bubble_anchor = anchor if anchor is not None else self
+        self._bubble = Bubble(bubble_anchor.window())
+        self._bubble.set_content(content)
+        self._bubble.open_at(bubble_anchor)
 
-        hint = _make_subtitle("Double-cliquer une ligne pour voir le log complet.")
-        vl.addWidget(hint)
+    def _build_bubble_run_row(self, run) -> QPushButton:
+        """Une ligne de la bulle du jour (A9) : heure | statut · durée (+ 1ʳᵉ ligne du message
+        d'erreur si échec) | flèche — toute la ligne cliquable, ouvre le détail de ce run et
+        ferme la bulle. Enfants en WA_TransparentForMouseEvents : sans ça, un QLabel capte le
+        clic avant qu'il n'atteigne le QPushButton qui l'englobe (même gotcha déjà rencontré avec
+        des widgets Qt empilés, voir feedback_pyside_gotchas)."""
+        st = _status_str(run.status)
+        row_btn = QPushButton()
+        row_btn.setFlat(True)
+        row_btn.setCursor(Qt.PointingHandCursor)
+        row_btn.setStyleSheet(
+            "QPushButton { background: transparent; border: none; border-radius: 6px; text-align: left; }"
+            f"QPushButton:hover {{ background: {COLORS['bg_hover']}; }}"
+        )
+        row_l = QHBoxLayout(row_btn)
+        row_l.setContentsMargins(6, 6, 6, 6)
+        row_l.setSpacing(8)
 
-        btn_close = QPushButton("Fermer")
-        btn_close.setFixedHeight(34)
-        btn_close.clicked.connect(dlg.accept)
-        vl.addWidget(btn_close, alignment=Qt.AlignRight)
+        time_lbl = QLabel(fmt_time(run.started_at))
+        time_lbl.setFixedWidth(52)
+        time_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        time_lbl.setStyleSheet(
+            f"font-family: {FONT_MONO}; font-size: 11.5px; color: {COLORS['text_dim']}; border: none;")
+        row_l.addWidget(time_lbl)
 
-        dlg.exec()
+        detail_text = f"{_status_label_fr(st)} · {_format_duration_short(run.duration_seconds)}"
+        if st == "FAILED" and run.error_message:
+            detail_text += f" — {run.error_message.splitlines()[0]}"
+        detail_lbl = QLabel(detail_text)
+        detail_lbl.setWordWrap(True)
+        detail_lbl.setAttribute(Qt.WA_TransparentForMouseEvents)
+        detail_lbl.setStyleSheet(
+            f"font-size: 12px; "
+            f"color: {COLORS['danger'] if st == 'FAILED' else COLORS['text_main']}; border: none;"
+        )
+        row_l.addWidget(detail_lbl, stretch=1)
+
+        arrow = QLabel("→")
+        arrow.setAttribute(Qt.WA_TransparentForMouseEvents)
+        arrow.setStyleSheet(f"font-size: 13px; color: {COLORS['text_dim']}; border: none;")
+        row_l.addWidget(arrow)
+
+        row_btn.clicked.connect(lambda _, rid=run.id: self._on_bubble_run_clicked(rid))
+        return row_btn
+
+    def _on_bubble_run_clicked(self, run_id: int):
+        """Ligne de la bulle du jour cliquée — ferme la bulle, ouvre le détail du run. Ouvre pour
+        l'instant le log complet existant (run_log_dialog.py, inchangé) : remplacé par le panneau
+        latéral dédié à l'étape suivante (A10) du même lot, sans toucher run_log_dialog.py lui-
+        même (toujours utilisé par PipelineDetailDialog)."""
+        if self._bubble is not None:
+            self._bubble.hide()
+        from .run_log_dialog import open_run_log_dialog
+        open_run_log_dialog(self, run_id)
 
     def refresh(self):
+        from datetime import datetime
+
         from database import db_manager as db
+
+        if self._eyebrow_lbl is not None:
+            counts_7d = db.get_run_counts_by_day(days=7)
+            n_total = sum(c["success"] + c["failed"] + c["cancelled"] for c in counts_7d)
+            n_fail = sum(c["failed"] for c in counts_7d)
+            self._eyebrow_lbl.setText(
+                f"{n_total} EXÉCUTION{'S' if n_total != 1 else ''} SUR 7 JOURS · "
+                f"{n_fail} ÉCHEC{'S' if n_fail != 1 else ''}"
+            )
+
         self._refresh_frequency(search=self.inp_search.text().strip())
         runs = db.get_recent_runs(limit=100)
-        self._run_ids = [r.id for r in runs]
         self.table.setVisible(bool(runs))
         self._empty_label.setVisible(not runs)
-        self.table.setRowCount(len(runs))
-        for r_idx, run in enumerate(runs):
+
+        # A5 : groupes de jours (AUJOURD'HUI/HIER/date) — jour calculé dans le fuseau réglé, même
+        # conversion que la colonne Heure (pas le fuseau UTC de stockage). `display_rows` entrelace
+        # des lignes d'en-tête (non sélectionnables, `setSpan` sur toute la largeur) et des lignes
+        # de run dans le même QTableWidget — un seul tableau, jamais plusieurs (question 6 du
+        # plan).
+        today = to_display(datetime.utcnow()).date()
+        display_rows: list = []
+        last_day = None
+        for run in runs:
+            day = to_display(run.started_at).date() if run.started_at else None
+            if day != last_day:
+                display_rows.append((None, _day_group_label(day, today) if day else "—"))
+                last_day = day
+            display_rows.append((run, None))
+
+        self._run_ids = []       # index ligne → run_id (None pour une ligne d'en-tête de groupe)
+        self._run_errors = {}    # index ligne → run.error_message (A2, recherche étendue)
+        self.table.setRowCount(len(display_rows))
+        for r_idx, (run, header_label) in enumerate(display_rows):
+            if run is None:
+                self._run_ids.append(None)
+                self.table.setSpan(r_idx, 0, 1, 7)
+                header_item = QTableWidgetItem(header_label)
+                header_item.setFlags(Qt.ItemIsEnabled)
+                header_item.setForeground(QColor(COLORS["text_dim"]))
+                header_item.setFont(QFont(FONT_MONO, 10))
+                self.table.setItem(r_idx, 0, header_item)
+                self.table.setRowHeight(r_idx, 28)
+                continue
+
+            self._run_ids.append(run.id)
+            self._run_errors[r_idx] = run.error_message or ""
             pname  = run.pipeline.name if run.pipeline else str(run.pipeline_id)
             st     = _status_str(run.status)
-            dur    = "—"
-            if run.duration_seconds is not None:
-                m, s = divmod(int(run.duration_seconds), 60)
-                dur  = f"{m}m {s:02d}s"
-            date_s = fmt_datetime(run.started_at, fmt="%d/%m/%Y %H:%M:%S")
-            rows_s = f"{run.rows_exported:,}".replace(",", " ") if run.rows_exported else "—"
-            cells  = [pname, date_s, dur, rows_s, st, run.remote_path or "—"]
+            time_s = fmt_time(run.started_at)
+            dur    = _format_duration_short(run.duration_seconds)
+            rows_s = (
+                f"{run.rows_exported:,}".replace(",", " ")
+                if run.rows_exported is not None else "—"
+            )
+            cells  = [time_s, pname, dur, rows_s, st, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 4:
-                    badge = _make_status_badge(st, _STATUS_BADGE.get(st, "badge_idle"))
+                    badge = _make_status_badge(_status_label_fr(st), _STATUS_BADGE.get(st, "badge_idle"))
+                    badge.setProperty("status_code", st)
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
@@ -320,12 +561,18 @@ class HistoryView(QWidget):
                         item.setFont(QFont(FONT_MONO, 11))
                     self.table.setItem(r_idx, c_idx, item)
 
-            btn_view = _action_btn("fa5s.search", object_name="secondary",
-                                   tooltip="Voir le log complet", size=(26, 26))
-            btn_view.clicked.connect(lambda _, i=r_idx: self._open_log(i))
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4)
             hl.setSpacing(4)
-            hl.addWidget(btn_view)
+
+            # A8 : la loupe "Voir le log complet" disparaît (ouverture désormais par double-clic
+            # sur la ligne, T6 — _on_row_dbl_click, inchangé) ; une icône "Reprendre depuis
+            # l'échec" apparaît à la place quand un état de reprise est persisté sur CE run (même
+            # icône/style que Pipelines : fa5s.history, accent_action).
+            if run.resumable_state_json:
+                btn_resume = _action_btn("fa5s.history", object_name="accent_action",
+                                         tooltip="Reprendre depuis l'échec", size=(26, 26))
+                btn_resume.clicked.connect(lambda _, i=r_idx: self._on_resume(i))
+                hl.addWidget(btn_resume)
 
             # "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) — pas seulement st ==
             # "FAILED" : certains échecs n'ont jamais traversé la boucle d'étapes (pipeline
@@ -349,10 +596,27 @@ class HistoryView(QWidget):
         self._open_log(index.row())
 
     def _open_log(self, row: int):
-        if row >= len(self._run_ids):
+        if row >= len(self._run_ids) or self._run_ids[row] is None:
             return
         from .run_log_dialog import open_run_log_dialog
         open_run_log_dialog(self, self._run_ids[row])
+
+    def _on_resume(self, row: int):
+        """"Reprendre depuis l'échec" (A8) — même dialogue que Pipelines (ui/dialogs,
+        RunProgressDialog(resume_from_run_id=...)), pas une réimplémentation locale."""
+        if row >= len(self._run_ids) or self._run_ids[row] is None:
+            return
+        from database import db_manager as db
+
+        run = db.get_run(self._run_ids[row])
+        if not run or not run.resumable_state_json:
+            return
+        pipeline = db.get_pipeline(run.pipeline_id)
+        if not pipeline:
+            return
+        from ui.dialogs import RunProgressDialog
+        RunProgressDialog(pipeline.id, pipeline.name, self, resume_from_run_id=run.id).exec()
+        self.refresh()
 
     def _open_graph(self, row: int):
         """Lien "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1). db.get_run() ne
@@ -364,7 +628,7 @@ class HistoryView(QWidget):
         changement de comportement assumé, pas une régression cachée (voir CHANGELOG) : quitter
         l'Atelier ramène à l'écran "Pipelines" (gestion rapide), pas à l'Historique, puisque
         l'Atelier n'a qu'une seule sortie (back_requested → MainWindow._navigate(1))."""
-        if row >= len(self._run_ids):
+        if row >= len(self._run_ids) or self._run_ids[row] is None:
             return
         from database import db_manager as db
 

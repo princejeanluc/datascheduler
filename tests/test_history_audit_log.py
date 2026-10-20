@@ -81,10 +81,12 @@ def test_day_runs_table_lists_runs_most_recent_first(qapp, test_db):
     assert table.item(0, 2).text() == "—"   # r2 (le plus récent) — FAILED, pas de lignes
 
 
-def test_on_frequency_day_clicked_opens_dialog_with_that_days_runs(qapp, test_db, monkeypatch):
+def test_on_frequency_day_clicked_opens_bubble_with_that_days_runs(qapp, test_db):
+    """A9 (refonte, lot A-Historique) : remplace l'ancien QDialog par la bulle ancrée Bubble —
+    une ligne par run du jour, toute la ligne cliquable (vérifié séparément, voir
+    test_history_status_filter_and_navigation.py)."""
     from datetime import date
 
-    from PySide6.QtWidgets import QDialog
     from database import db_manager as db
     from ui.main_window.history_view import HistoryView
 
@@ -93,27 +95,51 @@ def test_on_frequency_day_clicked_opens_dialog_with_that_days_runs(qapp, test_db
     db.finish_run(run.id, status="SUCCESS")
     today = date.today()
 
-    captured = {}
-    monkeypatch.setattr(QDialog, "exec", lambda self: captured.setdefault("opened", True))
-
     view = HistoryView()
     view._on_frequency_day_clicked(p, today)
-    assert captured.get("opened")
+
+    assert view._bubble is not None
+    assert view._bubble.isVisible()
 
 
-def test_on_frequency_day_clicked_no_op_when_day_has_no_runs(qapp, test_db, monkeypatch):
-    """Aucune exécution ce jour-là — pas de fenêtre vide à ouvrir."""
+def test_bubble_run_row_click_closes_bubble_and_opens_the_run_log(qapp, test_db, monkeypatch):
+    """A9 : cliquer une ligne de la bulle ferme la bulle et ouvre le détail du run (pour
+    l'instant run_log_dialog.py, inchangé — remplacé par le panneau latéral à l'étape A10 du même
+    lot, sans changer ce test)."""
+    from database import db_manager as db
+    from ui.main_window import run_log_dialog
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="day-click-row-test")
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="SUCCESS")
+
+    captured = {}
+    monkeypatch.setattr(
+        run_log_dialog, "open_run_log_dialog",
+        lambda parent, run_id: captured.setdefault("run_id", run_id),
+    )
+
+    view = HistoryView()
+    view._on_frequency_day_clicked(p, run.started_at.date())
+    bubble = view._bubble
+    assert bubble.isVisible()
+
+    view._on_bubble_run_clicked(run.id)
+
+    assert not bubble.isVisible()
+    assert captured.get("run_id") == run.id
+
+
+def test_on_frequency_day_clicked_no_op_when_day_has_no_runs(qapp, test_db):
+    """Aucune exécution ce jour-là — pas de bulle vide à ouvrir."""
     from datetime import date
 
-    from PySide6.QtWidgets import QDialog
     from database import db_manager as db
     from ui.main_window.history_view import HistoryView
 
     p = db.create_pipeline(name="day-click-empty-test")
 
-    captured = {}
-    monkeypatch.setattr(QDialog, "exec", lambda self: captured.setdefault("opened", True))
-
     view = HistoryView()
     view._on_frequency_day_clicked(p, date.today())
-    assert "opened" not in captured
+    assert view._bubble is None
