@@ -114,3 +114,19 @@ arrière : revert des commits de ce lot, aucune migration à défaire.
    `fa5s.terminal`, `fa5s.key`, `fa5s.user-shield`) sont des équivalents raisonnables des pictos
    de la maquette, pas une reproduction pixel près (REGLES.md section 3 : le placement/les icônes
    exacts ne sont pas exigés, seule la couleur/taille/texte comptent).
+3. **Élévation absente du bilan de santé** — `connection_health_dialog.py::_collect_profiles`
+   n'a jamais couvert les profils d'élévation (gap préexistant, pas introduit par ce lot) ; les
+   y ajouter serait une fonction de données nouvelle, hors périmètre d'un lot de restyle pur —
+   signalé en « Hors périmètre repéré » plutôt que corrigé silencieusement.
+
+## État final
+- `ui/dialogs/_profile_dialog_chrome.py` (nouveau) et `ui/dialogs/connection_delete_dialog.py`
+  (nouveau) s'ajoutent à la liste de fichiers touchés.
+- Repéré en capturant (`scripts/capture_views.py`) : la note de pied des 7 dialogues passait en
+  word-wrap (se faisait rogner à la largeur minimale actuelle, plus étroite que la maquette) ;
+  le bilan de santé élargi (620→720) et sa colonne Statut (90→110px) pour que son nouveau
+  contenu (message en clair, plus seulement en infobulle) reste lisible.
+- Suite complète (`python -m pytest tests -q`) : 1773 passed avant l'ajout des captures et de la
+  confirmation de suppression ; revérifiée verte après chaque commit suivant sur les fichiers
+  concernés.
+- Version : `0.51.0` → `0.52.0` (MINOR — nouvel écran aligné, aucune rupture de compatibilité).

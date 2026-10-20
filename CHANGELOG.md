@@ -29,6 +29,28 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.52.0] - 2026-10-20
+
+### Modifié
+- **Refonte, Lot A-Connexions** — l'écran Connexions et ses 9 dialogues sont alignés sur leur
+  maquette validée : en-tête avec surtitre dynamique (« N connexions · N en échec · N jamais
+  testées »), les 6 tableaux (Bases de données, FTP, SMTP, SSH, Kerberos, Élévation — les 3
+  onglets actuels sont gardés) réordonnés en 6 colonnes uniformes (icône de famille, Connexion à
+  deux niveaux, Cible à deux niveaux, Dernier test avec heure relative visible au lieu d'une
+  infobulle et avertissement « à retester » au-delà de 30 jours, Utilisée par, Actions), cible
+  SSH avec le lien « via Bastion »/« bastion de » quand un profil passe par un autre, les 7
+  formulaires de profil restylés (en-tête avec icône de type et surtitre, bandeau de résultat de
+  test avec l'heure et le message en Mono au lieu d'un simple texte, pied avec une note sur la
+  portée du test), bilan de santé passé de 4 à 5 colonnes (icône, nom, statut, message en clair,
+  heure relative), nouvelle confirmation de suppression dédiée remplaçant la fenêtre de message
+  générique.
+
+### Ajouté
+- `ui/dialogs/connection_delete_dialog.py::ConnectionDeleteDialog` — confirmation de
+  suppression d'un profil de connexion, même patron que `PipelineDeleteDialog`.
+- `COLORS` : `family_files`, `family_notification`, `family_bigdata` — couleurs de famille des
+  icônes de type de connexion, réutilisables telles quelles par le futur lot A-Atelier.
+
 ## [0.51.0] - 2026-10-20
 
 ### Modifié
