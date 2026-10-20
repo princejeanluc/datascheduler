@@ -141,6 +141,47 @@ def _convert_log_text_times(log_text: str, started_at) -> str:
     return "\n".join(out_lines)
 
 
+# A11 (refonte, lot A-Historique) : traduction/couleur du journal des modifications, locale à cet
+# écran — AuditEvent.event_type reste stocké tel quel en base (jamais réécrit), seul l'affichage
+# change. Seuls les types explicitement listés par la fiche ont une couleur dédiée
+# (succès/danger/signal_pale) ; un type connu mais non cité (duplication/export) reste text_main ;
+# un type futur inconnu (B6 : connexion/requête/réglage) retombe sur le texte brut + text_main,
+# jamais un crash.
+_EVENT_TYPE_FR = {
+    "pipeline_created": ("Création", "success"),
+    "pipeline_edited": ("Modification", "text_main"),
+    "pipeline_deleted": ("Suppression", "danger"),
+    "pipeline_duplicated": ("Duplication", "text_main"),
+    "pipeline_exported": ("Export", "text_main"),
+    "pipeline_imported": ("Import", "signal_pale"),
+}
+
+
+def _event_type_label_and_color(event_type: str) -> tuple[str, str]:
+    return _EVENT_TYPE_FR.get(event_type, (event_type, "text_main"))
+
+
+# pipeline_imported est le seul event_type dont le detail stocké (database/export_import.py,
+# apply_import()) est un motif technique brut ("action=create|collision|rename|overwrite"), pas
+# déjà une phrase lisible comme les autres (save_steps/save_pipeline_graph/export_pipeline_to_file
+# écrivent déjà des phrases en français) — décision utilisateur (AskUserQuestion) : reformuler ce
+# seul cas à l'affichage, jamais inventer une donnée non stockée pour un detail vide/sparse.
+_IMPORT_ACTION_FR = {
+    "create": "Nouveau pipeline",
+    "collision": "Collision non résolue",
+    "rename": "Copie renommée",
+    "overwrite": "Pipeline existant écrasé",
+}
+
+
+def _translate_audit_detail(event) -> str:
+    detail = event.detail or ""
+    if event.event_type == "pipeline_imported" and detail.startswith("action="):
+        action = detail[len("action="):]
+        return _IMPORT_ACTION_FR.get(action, detail)
+    return detail or "—"
+
+
 class HistoryView(QWidget):
     # Chantier Atelier Pipelines (écran 2) — même signal/contrat que PipelinesView
     # (pipeline_id, highlight_step_key, is_new_pipeline) ; ici is_new_pipeline est toujours
@@ -278,13 +319,31 @@ class HistoryView(QWidget):
 
         self._tabs_stack.addWidget(exec_page)
 
-        # Page "Journal des modifications" — squelette vide pour l'instant (contenu réel : A11/A12,
-        # étape 11 du séquencement du plan), remplacée par la vraie table/note de bas de page sans
-        # changer ce mécanisme d'onglets.
+        # Page "Journal des modifications" (A11/A12) — remplace l'ancien bouton + QDialog
+        # (_on_audit_log, supprimé) : même table (_build_audit_table, signature inchangée), types
+        # traduits/colorés, note de bas de page verbatim de la maquette. self.audit_table est
+        # remplacée à chaque refresh() (_refresh_audit_log) — même patron que _refresh_frequency,
+        # pas de méthode d'update ligne à ligne pour une table reconstruite à chaque fois.
         mod_page = QWidget()
-        mod_layout = QVBoxLayout(mod_page)
-        mod_layout.setContentsMargins(0, 0, 0, 0)
-        self._mod_page_layout = mod_layout
+        self._mod_layout = QVBoxLayout(mod_page)
+        self._mod_layout.setContentsMargins(0, 0, 0, 0)
+        self._mod_layout.setSpacing(16)
+
+        self.audit_table = self._build_audit_table([])
+        self._mod_layout.addWidget(self.audit_table)
+
+        self._audit_empty_label = _make_empty_label("Aucun événement enregistré pour l'instant.")
+        self._audit_empty_label.setVisible(False)
+        self._mod_layout.addWidget(self._audit_empty_label)
+
+        audit_footnote = _make_subtitle(
+            "Aujourd'hui, le journal ne suit que les pipelines (création, modification, "
+            "suppression, import). Les lignes « proposé » étendent le suivi aux connexions, aux "
+            "requêtes et au détail des réglages modifiés."
+        )
+        audit_footnote.setWordWrap(True)
+        self._mod_layout.addWidget(audit_footnote)
+
         self._tabs_stack.addWidget(mod_page)
 
         layout.addWidget(stack_host)
@@ -709,6 +768,7 @@ class HistoryView(QWidget):
             )
 
         self._refresh_frequency(search=self.inp_search.text().strip())
+        self._refresh_audit_log()
         runs = db.get_recent_runs(limit=100)
         self.table.setVisible(bool(runs))
         self._empty_label.setVisible(not runs)
@@ -847,8 +907,11 @@ class HistoryView(QWidget):
 
     @staticmethod
     def _build_audit_table(events) -> QTableWidget:
+        """A11 : types traduits/colorés (_event_type_label_and_color), détail reformulé à
+        l'affichage pour l'import (_translate_audit_detail) — jamais une donnée inventée pour un
+        detail vide/sparse (ex. "Création" sans détail reste "—")."""
         table = QTableWidget(0, 5)
-        table.setHorizontalHeaderLabels(["Date", "Type", "Pipeline", "Auteur", "Détail"])
+        table.setHorizontalHeaderLabels(["Quand", "Type", "Élément", "Auteur", "Ce qui a changé"])
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -858,45 +921,32 @@ class HistoryView(QWidget):
         table.setRowCount(len(events))
         for r_idx, event in enumerate(events):
             date_s = fmt_datetime(event.timestamp, fmt="%d/%m/%Y %H:%M:%S")
+            type_label, type_color_key = _event_type_label_and_color(event.event_type)
             cells = [
-                date_s, event.event_type, event.pipeline_name or "—",
-                event.actor or "—", event.detail or "—",
+                (date_s, "text_main"),
+                (type_label, type_color_key),
+                (event.pipeline_name or "—", "text_main"),
+                (event.actor or "—", "text_main"),
+                (_translate_audit_detail(event), "text_dim"),
             ]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_dim"] if c_idx == 4 else COLORS["text_main"]))
+            for c_idx, (text, color_key) in enumerate(cells):
+                item = QTableWidgetItem(text)
+                item.setForeground(QColor(COLORS[color_key]))
                 table.setItem(r_idx, c_idx, item)
             table.setRowHeight(r_idx, 36)
         return table
 
-    def _on_audit_log(self):
+    def _refresh_audit_log(self):
+        """Onglet "Journal des modifications" (A11) — même patron que _refresh_frequency : la
+        table est reconstruite (pas mise à jour ligne à ligne) et remplacée dans son layout à
+        chaque refresh()."""
         from database import db_manager as db
+
         events = db.get_audit_events(limit=200)
-
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QPushButton
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Journal des modifications")
-        dlg.setMinimumSize(760, 480)
-        from ui.styles import DIALOG_STYLE
-        dlg.setStyleSheet(DIALOG_STYLE)
-
-        vl = QVBoxLayout(dlg)
-        vl.setContentsMargins(20, 16, 20, 16)
-        vl.setSpacing(12)
-
-        lbl_title = QLabel("Journal des modifications")
-        lbl_title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        vl.addWidget(lbl_title)
-
-        table = self._build_audit_table(events)
-        vl.addWidget(table)
-
-        if not events:
-            vl.addWidget(_make_empty_label("Aucun événement enregistré pour l'instant."))
-
-        btn_close = QPushButton("Fermer")
-        btn_close.setFixedHeight(34)
-        btn_close.clicked.connect(dlg.accept)
-        vl.addWidget(btn_close, alignment=Qt.AlignRight)
-
-        dlg.exec()
+        new_table = self._build_audit_table(events)
+        idx = self._mod_layout.indexOf(self.audit_table)
+        self._mod_layout.removeWidget(self.audit_table)
+        self.audit_table.deleteLater()
+        self._mod_layout.insertWidget(idx, new_table)
+        self.audit_table = new_table
+        self._audit_empty_label.setVisible(not events)
