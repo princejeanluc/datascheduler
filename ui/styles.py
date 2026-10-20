@@ -66,6 +66,15 @@ COLORS = {
     # Refonte (lot A-Pipelines) — T2 : vues sur la maquette sans clé existante
     "border_active":   "#6b4520",   # bordure du bouton d'action mis en avant, pendant de bg_active
     "bg_row_selected": "#221a12",   # ligne de tableau ciblée par un menu/une fenêtre ouverte dessus
+
+    # Refonte (lot A-Connexions) — T2 : couleurs de famille des icônes de type de connexion,
+    # qui reprennent exactement la palette "couleur par famille d'étape" de FONDATIONS.md section
+    # 1 (prévue pour le futur lot A-Atelier, pas encore construit — mêmes valeurs hexadécimales,
+    # nommées pour que ce lot futur les retrouve et les réutilise sans en recréer). La famille
+    # "Bases de données" (#6BB4CF) réutilise "signal_pale" ci-dessus, déjà la même valeur.
+    "family_files":        "#b5c96a",   # Fichiers (FTP/FTPS/SFTP) — "Transfert et diffusion"
+    "family_notification": "#c9a37a",   # E-mail (SMTP) — "Notification"
+    "family_bigdata":      "#4fb3a0",   # Big Data (SSH, Kerberos, Élévation)
 }
 
 # ──────────────────────────────────────────────
