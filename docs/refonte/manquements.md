@@ -75,7 +75,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Manquement | Carte de fréquence plafonnée | 10 pipelines au plus, sauf pendant une recherche | `history_view.py::_MAX_FREQUENCY_ROWS` |
 | Proposition | Durée comparée à l'habitude | Barre de durée avec la médiane du pipeline, ambre au-delà de 1,5 fois | nouveau |
 | Proposition | Historique d'un pipeline | Bandeau résumé (réussites, médianes, courbes durée et lignes) quand un seul pipeline est filtré ; remplace `PipelineDetailDialog` | `ui/dialogs/pipeline_detail_dialog.py` |
-| Proposition | Jour en bulle | Le clic sur un jour de la carte ouvre une bulle au lieu d'une fenêtre | `history_view.py::_on_frequency_day_clicked` |
+| Proposition | Jour en bulle | Le clic sur un jour de la carte ouvre une bulle au lieu d'une fenêtre | `history_view.py::_on_frequency_day_clicked` — fait (lot A-Historique) |
 
 ## Paramètres
 

@@ -74,12 +74,26 @@ segmentés internes — aucun appelant externe ne le référence (vérifié par 
 - Concernés : `test_history_status_filter_and_navigation.py`, `test_history_audit_log.py`,
   `test_history_view_graph_link.py`, `test_run_log_dialog.py`, `test_pipeline_detail_dialog.py`,
   `test_pipeline_topology_dialog.py`, `test_activity_stats.py`, `test_audit_log.py`,
-  `test_db_manager.py` — tous revérifiés verts avant le premier changement de code.
+  `test_db_manager.py`, `test_capture_views.py` — tous revérifiés verts avant le premier
+  changement de code, et à chaque étape ensuite.
 - Mis à jour (T1) : tout test lisant `table.item(r, 0)` comme nom de pipeline (devient colonne 1,
-  colonne 0 = Heure) ; `test_heatmap_day_color_key_worst_result_wins` (case vide : `"border"` →
-  `"bg_card"`) ; tests ouvrant un `QDialog` pour le jour cliqué ou le journal des modifications
-  (remplacés par `Bubble`/onglet, plus de `QDialog` à monkeypatcher à cet endroit).
-- Ajoutés : un test par comportement nouveau (listés dans le plan, section Tests).
+  colonne 0 = Heure, retrouvé par `view._run_ids.index(run.id)` plutôt qu'une ligne fixe une fois
+  les en-têtes de groupe de jour introduites) ; `test_heatmap_day_color_key_worst_result_wins`
+  (case vide : `"border"` → `"bg_card"`, + cas `success_dim`) ; tests ouvrant un `QDialog` pour le
+  jour cliqué ou le journal des modifications (remplacés par `Bubble`/onglet, plus de `QDialog` à
+  monkeypatcher à cet endroit) ; `test_history_view_has_audit_log_button` (méthode supprimée,
+  remplacé par un test du second onglet).
+- Ajoutés : un test par comportement nouveau — onglets, surtitre dynamique, 4 niveaux du
+  calendrier + légende + repères de mois, groupes de jours, formats durée/lignes, badge français +
+  `status_code`, filtre segmenté, recherche étendue à l'erreur, actions de ligne (reprendre),
+  `Bubble` (ouverture/clic de ligne/fermeture), panneau de run (boutons de pied, conversion
+  `log_text`), types/détail traduits du journal des modifications, note de bas de page.
+- Suite complète : 1 seul échec, préexistant et sans rapport (`test_pipeline_graph_engine_parallel.py
+  ::test_run_pipeline_uses_parallel_engine_when_pipeline_opted_in`, un seuil de minuterie dépassé de
+  quelques dizaines de ms — flaky, pas touché par ce lot).
+
+## Version
+`0.50.0` → `0.51.0` (MINOR — nouvel écran aligné, aucune rupture de compatibilité).
 
 ## Dépendances et build
 Aucune dépendance ajoutée. Aucune icône nouvelle hors `qtawesome` déjà utilisé.
