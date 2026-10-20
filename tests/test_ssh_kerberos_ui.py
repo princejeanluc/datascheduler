@@ -182,7 +182,7 @@ def test_kerberos_profile_dialog_test_without_ssh_profile_shows_warning(qapp, te
     dlg.inp_principal.setText("a@REALM")
     dlg.inp_pass.setText("pw")
     dlg._on_test()   # aucun profil SSH sélectionné dans le combo
-    assert "profil SSH" in dlg.lbl_test_result.text()
+    assert "profil SSH" in " ".join(_cell_texts_from_widget(dlg))
     assert dlg._test_thread is None
 
 

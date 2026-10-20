@@ -88,16 +88,43 @@ def test_ssh_dialog_header(qapp, test_db):
     assert "NOUVEAU · BIG DATA" in _texts(dlg)
 
 
+def test_kerberos_dialog_header_ssh_picker_and_banner(qapp, test_db):
+    from ui.dialogs import KerberosProfileDialog
+
+    dlg = KerberosProfileDialog()
+    assert "NOUVEAU · BIG DATA" in _texts(dlg)
+    assert "Profil SSH pour le test" in _texts(dlg)
+    assert dlg.btn_test.text() == "⚡  Tester (kinit)"
+
+    dlg._on_test_result(True, "ticket obtenu (kinit)")
+    assert any("Connexion réussie à" in t for t in _texts(dlg))
+    assert "ticket obtenu (kinit)" in _texts(dlg)
+
+
+def test_elevation_dialog_header_ssh_picker_and_banner(qapp, test_db):
+    from ui.dialogs import ElevationProfileDialog
+
+    dlg = ElevationProfileDialog()
+    assert "NOUVEAU · BIG DATA" in _texts(dlg)
+    assert "Profil SSH pour le test" in _texts(dlg)
+    assert dlg.btn_test.text() == "⚡  Tester (sudo su)"
+
+    dlg._on_test_result(False, "Permission denied")
+    assert any("Le test a échoué à" in t for t in _texts(dlg))
+    assert "Permission denied" in _texts(dlg)
+
+
 def test_footer_note_is_present_on_every_profile_dialog(qapp, test_db):
     """A9 : « Le test utilise les valeurs saisies, pas celles enregistrées. » sur les 7
     dialogues."""
     from ui.dialogs import (
         OracleDialog, DatabaseProfileDialog, FtpDialog, SmtpDialog, SshProfileDialog,
+        KerberosProfileDialog, ElevationProfileDialog,
     )
 
     note = "Le test utilise les valeurs saisies, pas celles enregistrées."
     for dlg in (
         OracleDialog(), DatabaseProfileDialog(db_type="MYSQL"), FtpDialog(), SmtpDialog(),
-        SshProfileDialog(),
+        SshProfileDialog(), KerberosProfileDialog(), ElevationProfileDialog(),
     ):
         assert note in _texts(dlg)
