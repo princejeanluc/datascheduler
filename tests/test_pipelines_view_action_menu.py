@@ -58,16 +58,23 @@ def test_actions_column_width_is_fixed_not_auto_shrunk(qapp, test_db):
 
 
 def test_overflow_menu_contains_expected_actions(qapp, test_db):
+    """A8 : menu restylé — réordonné ("Exécuter depuis le début" permanent, Désactiver/Activer
+    déplacé après Exporter…, juste avant Supprimer…, en dernier)."""
     from ui.main_window.pipelines_view import PipelinesView
 
     db.create_pipeline(name="menu-actions-test")
     view = PipelinesView()
     _, menu = _get_more_button_and_menu(view, 0)
     labels = [a.text() for a in menu.actions() if not a.isSeparator()]
-    assert labels == ["Désactiver", "Valider (à blanc)", "Dupliquer", "Exporter", "Supprimer"]
+    assert labels == [
+        "Exécuter depuis le début", "Valider à blanc", "Dupliquer", "Exporter…",
+        "Désactiver", "Supprimer…",
+    ]
 
 
 def test_overflow_menu_toggle_action_triggers_callback(qapp, test_db, monkeypatch):
+    """A8 : Désactiver/Activer n'est plus en première position — l'action est cherchée par
+    texte, pas par position (même patron robuste que test_pipelines_view_resume_menu.py)."""
     from ui.main_window.pipelines_view import PipelinesView
 
     p = db.create_pipeline(name="menu-toggle-test")
@@ -76,9 +83,43 @@ def test_overflow_menu_toggle_action_triggers_callback(qapp, test_db, monkeypatc
     calls = []
     monkeypatch.setattr(view, "_on_toggle_pipeline", lambda i, a: calls.append((i, a)))
     _, menu = _get_more_button_and_menu(view, 0)
-    menu.actions()[0].trigger()
+    action = next(a for a in menu.actions() if a.text().startswith("Désactiver"))
+    action.trigger()
 
     assert calls == [(p.id, True)]
+
+
+def test_overflow_menu_toggle_shows_next_run_time_when_scheduled(qapp, test_db):
+    """A8 : « ne partira plus à HH:MM » seulement quand next_run_at est posé."""
+    from datetime import datetime
+    from ui.main_window.pipelines_view import PipelinesView
+
+    p = db.create_pipeline(name="menu-toggle-hhmm-test")
+    with db.get_session() as s:
+        from database.models import Pipeline
+        s.get(Pipeline, p.id).next_run_at = datetime(2026, 10, 19, 7, 0)
+
+    view = PipelinesView()
+    _, menu = _get_more_button_and_menu(view, 0)
+    labels = [a.text() for a in menu.actions() if not a.isSeparator()]
+    assert "Désactiver — ne partira plus à 07:00" in labels
+
+
+def test_overflow_menu_run_from_start_always_present_and_triggers_callback(qapp, test_db, monkeypatch):
+    """A8 : « Exécuter depuis le début » est permanent (même quand une reprise est proposée par
+    le premier bouton de ligne, A7/P8) et appelle _on_run_pipeline tel quel."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    p = db.create_pipeline(name="menu-run-fresh-test")
+    view = PipelinesView()
+
+    calls = []
+    monkeypatch.setattr(view, "_on_run_pipeline", lambda i: calls.append(i))
+    _, menu = _get_more_button_and_menu(view, 0)
+    action = next(a for a in menu.actions() if a.text() == "Exécuter depuis le début")
+    action.trigger()
+
+    assert calls == [p.id]
 
 
 def test_overflow_menu_offers_interrupt_only_while_running(qapp, test_db, monkeypatch):
@@ -176,6 +217,24 @@ def test_on_interrupt_pipeline_delegates_to_worker_in_background_mode(qapp, test
 
     assert enqueued == [("CANCEL", {"pipeline_id": p.id})]
     assert local_calls == []
+
+
+def test_row_highlights_while_its_menu_is_open(qapp, test_db):
+    """Maquette (Pipelines-menu.html) : la ligne se teinte pendant que son menu "⋯" est ouvert."""
+    from ui.main_window.pipelines_view import PipelinesView
+
+    db.create_pipeline(name="row-highlight-test")
+    view = PipelinesView()
+    name_cell = view.table.cellWidget(0, 0)
+
+    from ui.styles import COLORS
+
+    btn, menu = _get_more_button_and_menu(view, 0)
+    menu.aboutToShow.emit()
+    assert COLORS["bg_row_selected"] in name_cell.styleSheet()
+
+    menu.aboutToHide.emit()
+    assert "background: transparent" in name_cell.styleSheet()
 
 
 def test_overflow_menu_delete_action_triggers_callback(qapp, test_db, monkeypatch):

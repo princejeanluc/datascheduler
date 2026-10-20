@@ -12,7 +12,7 @@ import threading
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from core import pipeline as pipeline_module
 from core.pipeline import is_pipeline_running, is_cancel_requested, request_cancel
@@ -22,6 +22,12 @@ from core.pipeline import is_pipeline_running, is_cancel_requested, request_canc
 def qapp():
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+def _badge(view, row: int) -> QLabel:
+    """Lot A-Pipelines (A3) : la colonne Statut est devenue un conteneur (pastille + ligne de
+    détail), la pastille elle-même reste le premier QLabel ajouté."""
+    return view.table.cellWidget(row, 1).findChildren(QLabel)[0]
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +73,7 @@ def test_pipelines_view_shows_stopping_badge_while_cancel_pending(qapp, test_db)
     request_cancel(pipeline.id)
 
     view = PipelinesView()
-    badge = view.table.cellWidget(0, 1)
+    badge = _badge(view, 0)
     assert badge.text() == "ARRÊT EN COURS"
 
 
@@ -85,7 +91,7 @@ def test_pipelines_view_shows_running_badge_without_cancel_pending(qapp, test_db
     pipeline_module._active_runs[pipeline.id] = threading.Event()   # actif, pas d'arrêt demandé
 
     view = PipelinesView()
-    badge = view.table.cellWidget(0, 1)
+    badge = _badge(view, 0)
     assert badge.text() == "RUNNING"
 
 
@@ -108,7 +114,7 @@ def test_pipelines_view_running_badge_shows_current_step_as_tooltip(qapp, test_d
     pipeline_module._active_runs[pipeline.id] = threading.Event()
 
     view = PipelinesView()
-    badge = view.table.cellWidget(0, 1)
+    badge = _badge(view, 0)
     assert badge.toolTip() == "Étape 1/3 : Extraction"
 
 
@@ -120,7 +126,7 @@ def test_pipelines_view_non_running_badge_has_no_step_tooltip(qapp, test_db):
     db.save_steps(pipeline.id, [{"step_type": "DB_EXTRACT", "config": {}}])
 
     view = PipelinesView()
-    badge = view.table.cellWidget(0, 1)
+    badge = _badge(view, 0)
     assert badge.toolTip() == ""
 
 
@@ -139,11 +145,15 @@ def test_pipelines_view_plan_column_shows_trigger_tooltip(qapp, test_db):
 
     view = PipelinesView()
     # "B" est déclenché après "A" (chantier P) : la vue l'indente désormais sous son parent
-    # (chantier identité, vague 1, idée 9) — d'où "in" plutôt qu'une égalité stricte.
-    row = next(r for r in range(view.table.rowCount())
-               if "B" in view.table.item(r, 0).text())
-    item = view.table.item(row, 3)
-    assert "A" in item.toolTip() and "Échec" in item.toolTip()
+    # (chantier identité, vague 1, idée 9) — d'où "in" plutôt qu'une égalité stricte. Colonne 0
+    # devenue un cell-widget (A2) : le nom se cherche dans son premier QLabel, pas via .item().
+    def _name_of(r):
+        return view.table.cellWidget(r, 0).findChildren(QLabel)[0].text()
+    row = next(r for r in range(view.table.rowCount()) if "B" in _name_of(r))
+    # A5 : avec un déclenchement configuré, la colonne Planification devient elle aussi un
+    # cell-widget (2e ligne visible "↳ après ... · condition"), l'infobulle reste sur ce widget.
+    cell = view.table.cellWidget(row, 3)
+    assert "A" in cell.toolTip() and "Échec" in cell.toolTip()
 
 
 def test_pipelines_view_plan_column_has_no_trigger_tooltip_without_configuration(qapp, test_db):
@@ -157,22 +167,5 @@ def test_pipelines_view_plan_column_has_no_trigger_tooltip_without_configuration
     assert item.toolTip() == ""
 
 
-def test_pipelines_view_delete_warns_about_dependent_pipelines(qapp, test_db, monkeypatch):
-    from database import db_manager as db
-    from ui.main_window import pipelines_view as pv_module
-
-    a = db.create_pipeline(name="A")
-    b = db.create_pipeline(name="B")
-    db.set_pipeline_trigger(b.id, a.id, "SUCCESS")
-
-    captured = {}
-    def fake_question(parent, title, text, *args, **kwargs):
-        captured["text"] = text
-        return pv_module.QMessageBox.No
-    monkeypatch.setattr(pv_module.QMessageBox, "question", staticmethod(fake_question))
-
-    view = pv_module.PipelinesView()
-    view._on_delete_pipeline(a.id)
-
-    assert "B" in captured["text"]
-    assert db.get_pipeline(a.id) is not None   # refusé -> pas supprimé
+# Lot A-Pipelines (A13) : _on_delete_pipeline ouvre désormais PipelineDeleteDialog (une vraie
+# fenêtre, plus un QMessageBox.question inline) — voir tests/test_pipeline_delete_dialog.py.

@@ -31,6 +31,19 @@ def test_export_dialog_opens_without_error(qapp):
     assert dlg.inp_password.text() == ""
 
 
+def test_export_dialog_shows_surtitle_name_and_intro_text(qapp):
+    """A12 : surtitre "EXPORTER" + nom seul (pas "Exporter « nom »" en un seul label) + texte
+    d'aide de la maquette — pas de section "LE FICHIER CONTIENDRA" (C11, gated)."""
+    from PySide6.QtWidgets import QLabel
+
+    dlg = PipelineExportDialog(None, pipeline=_FakePipeline())
+    labels = [lbl.text() for lbl in dlg.findChildren(QLabel)]
+    assert "EXPORTER" in labels
+    assert "Mon pipeline" in labels
+    assert "Un fichier .dspipeline à rouvrir dans un autre Kulu." in labels
+    assert not any("LE FICHIER CONTIENDRA" in t for t in labels)
+
+
 def test_import_password_dialog_opens_without_error(qapp):
     dlg = PipelineImportPasswordDialog(None)
     assert dlg.windowTitle()
@@ -187,6 +200,64 @@ def test_review_dialog_no_transition_warning_when_active_states_match(qapp, test
     dlg = PipelineImportReviewDialog(None, plan=plan)
 
     assert dlg.lbl_transition_warning.isHidden()
+
+
+# ── A11 : bandeau 4 étapes + titre de collision ─────────────────────────────
+
+def test_review_dialog_collision_title_describes_uuid_detection(qapp, test_db):
+    """Question ouverte 10 (tranchée) : le code détecte une collision par UUID, jamais par nom —
+    le titre ne doit pas laisser croire le contraire (texte de la maquette, faux)."""
+    from PySide6.QtWidgets import QLabel
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="collision-title-test")
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+    assert plan.pipeline_action == "collision"
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+    labels = [lbl.text() for lbl in dlg.findChildren(QLabel)]
+    assert "CE PIPELINE EXISTE DÉJÀ" in labels
+    assert "UN PIPELINE PORTE DÉJÀ CE NOM" not in labels
+
+
+def test_review_dialog_rename_preview_shows_real_import_suffix(qapp, test_db):
+    """A11 : le suffixe réel vient de _unique_name ("(import)"), jamais le "(2)" de la maquette."""
+    from PySide6.QtWidgets import QLabel
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="rename-preview-test")
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+
+    dlg = PipelineImportReviewDialog(None, plan=plan)
+    labels = [lbl.text() for lbl in dlg.findChildren(QLabel)]
+    assert "« rename-preview-test (import) »" in labels
+    assert not any("(2)" in t for t in labels)
+
+
+def test_review_dialog_step_badges_mark_password_done_only_when_used(qapp, test_db):
+    """A11 : le repère "Mot de passe" du bandeau n'affiche un "✓" que si ce dialogue a vraiment
+    été ouvert après PipelineImportPasswordDialog (password_used=True, passé par
+    PipelinesView._on_import_pipeline) — faux par défaut (comportement historique inchangé pour
+    tout import sans mot de passe)."""
+    from PySide6.QtWidgets import QLabel
+    from database import db_manager as db
+    from database.export_import import export_pipeline, plan_import
+
+    pipeline = db.create_pipeline(name="badges-password-test")
+    export_result = export_pipeline(pipeline.id)
+    plan = plan_import(export_result.bundle)
+
+    dlg_without = PipelineImportReviewDialog(None, plan=plan)
+    checks_without = [lbl.text() for lbl in dlg_without.findChildren(QLabel) if lbl.text() == "✓"]
+
+    dlg_with = PipelineImportReviewDialog(None, plan=plan, password_used=True)
+    checks_with = [lbl.text() for lbl in dlg_with.findChildren(QLabel) if lbl.text() == "✓"]
+
+    assert len(checks_with) == len(checks_without) + 1
 
 
 def test_review_dialog_no_transition_warning_for_fresh_pipeline(qapp, test_db):

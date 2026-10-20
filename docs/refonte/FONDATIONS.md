@@ -37,6 +37,8 @@ Les maquettes utilisent quelques valeurs qui n'ont pas encore de clé. Ajoute-le
 | `bg_success` / `border_success` | `#132116` / `#24502c` | bandeau de réussite |
 | `bg_warning` / `border_warning` | `#241d10` / `#5a4719` | bandeau d'avertissement |
 | `bg_danger` / `border_danger` | `#2a1715` / `#6e2b28` | bandeau d'échec |
+| `border_active` | `#6b4520` | bordure du bouton d'action mis en avant (lot A-Pipelines), pendant de `bg_active` |
+| `bg_row_selected` | `#221a12` | ligne de tableau ciblée par un menu/une fenêtre ouverte dessus (lot A-Pipelines) |
 
 Les trois couleurs des graphiques de Ressources (`#3987e5`, `#199e70`, `#d95926`) existent déjà dans `resources_view.py`. Elles restent réservées aux séries de données.
 
@@ -101,6 +103,7 @@ Ajoute les paliers manquants à `FONT_SIZES` (`page_title: 26`, `panel_title: 17
 | Sélecteur de plage | boutons arrondis 1h / 6h / 24h / 7j | `ResourcesView._set_active_range` | Ressources, Historique |
 | Champ de recherche | icône loupe, raccourci affiché | `_make_search_input` | tous |
 | État vide | icône, titre, texte, action | `_make_empty_label` (à étendre) | Pipelines, Ressources |
+| Bouton avec raccourci affiché | texte + raccourci clavier en Mono atténué, sans mélange de style dans un QPushButton | `_make_button_with_hint` (lot A-Pipelines) | Pipelines |
 
 Règle : un composant existant est étendu en gardant sa signature. On ne le remplace pas.
 

@@ -42,6 +42,12 @@ class SidePanel(QWidget):
         super().__init__(parent)
         self._panel_width = width
         self._content: QWidget | None = None
+        # Lot A-Pipelines (A10) : garde-fou optionnel, rétrocompatible — par défaut None, aucun
+        # changement de comportement pour les appelants existants (Aujourd'hui). Même garantie que
+        # l'ancien PipelineDryRunDialog.closeEvent() ("fermeture bloquée tant que ça tourne"), pour
+        # un contenu qui lance un traitement en arrière-plan (validation à blanc) et ne doit pas
+        # pouvoir être fermé pendant qu'il tourne.
+        self._close_guard = None
         # Sélecteur d'ID (objectName), pas une règle nue — même précaution que partout ailleurs
         # dans la refonte (REGLES.md section 3) : une règle nue poserait les mêmes risques de
         # cascade vers les enfants qu'un `setStyleSheet("background: ...; border: ...;")` direct.
@@ -107,6 +113,12 @@ class SidePanel(QWidget):
         self._content = widget
         self._content_host_layout.addWidget(widget)
 
+    def set_close_guard(self, fn) -> None:
+        """`fn` : `Callable[[], bool] | None` — si `fn()` renvoie vrai, `close()` ne fait rien
+        (ni Échap, ni le bouton « ✕ », ni un appel direct). Remis à None par défaut par chaque
+        appel : à l'appelant de rappeler `set_close_guard(None)` une fois le traitement terminé."""
+        self._close_guard = fn
+
     # ── Ouverture / fermeture ──────────────────────
 
     def _resting_geometry(self):
@@ -128,6 +140,8 @@ class SidePanel(QWidget):
 
     def close(self) -> None:
         if not self.isVisible():
+            return
+        if self._close_guard is not None and self._close_guard():
             return
         self._anim.stop()
         self._anim.setStartValue(self.geometry())

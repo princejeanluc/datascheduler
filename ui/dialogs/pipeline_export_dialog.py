@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame, QMessageBox, QFileDialog,
 )
 from PySide6.QtCore import Qt
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO_STACK
 
 
 # ──────────────────────────────────────────────
@@ -35,9 +35,23 @@ class PipelineExportDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(16)
 
-        title = QLabel(f"Exporter « {self._pipeline.name} »")
+        # A12 : surtitre + nom seul (au lieu de "Exporter « nom »" dans un seul label) + texte
+        # d'aide de la maquette — pas de section "LE FICHIER CONTIENDRA" (C11, gated).
+        surtitle = QLabel("EXPORTER")
+        surtitle.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-family: {FONT_MONO_STACK}; font-size: 10px; "
+            f"letter-spacing: 0.06em;"
+        )
+        root.addWidget(surtitle)
+
+        title = QLabel(self._pipeline.name)
         title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")
         root.addWidget(title)
+
+        intro = QLabel("Un fichier .dspipeline à rouvrir dans un autre Kulu.")
+        intro.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        root.addWidget(intro)
+
         root.addWidget(self._sep())
 
         form = QFormLayout()

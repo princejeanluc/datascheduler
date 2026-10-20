@@ -29,9 +29,65 @@ def _action_btn(icon_name: str, object_name: str = "", tooltip: str = "",
     if tooltip:
         btn.setToolTip(tooltip)
     btn.setFixedSize(*size)
-    color = icon_color or (COLORS["danger"] if object_name == "danger" else COLORS["text_main"])
+    # "accent_action" (lot A-Pipelines, A7) : action mise en avant sur une ligne active
+    # (reprendre/exécuter maintenant) — fond bg_active/bordure border_active posés par GLOBAL_STYLE,
+    # seule l'icône se choisit ici, même principe que "danger" déjà existant.
+    if icon_color:
+        color = icon_color
+    elif object_name == "danger":
+        color = COLORS["danger"]
+    elif object_name == "accent_action":
+        color = COLORS["accent_pale"]
+    else:
+        color = COLORS["text_main"]
     btn.setIcon(_icon(icon_name, color))
     btn.setIconSize(QSize(14, 14))
+    return btn
+
+
+def _make_button_with_hint(text: str, hint: str, icon: str = "", primary: bool = True,
+                            on_click=None) -> QFrame:
+    """Bouton avec raccourci clavier affiché à sa droite en Mono atténué (FONDATIONS.md section 3,
+    « Bouton avec raccourci affiché ») — ex. « + Nouveau pipeline   Ctrl N » de Pipelines.html.
+    QPushButton ne peut pas mélanger deux styles de texte dans un seul widget (pas de rich text) :
+    même patron qu'une puce de rail (QFrame stylé en bouton, clic câblé sur mouseReleaseEvent)
+    plutôt qu'un vrai QPushButton, pour obtenir les deux styles de texte sans widget composite
+    plus lourd (QToolButton personnalisé, QWidgetAction…). `clicked` n'est pas un signal Qt ici :
+    l'appelant passe directement son callback via `on_click` (voir usage)."""
+    btn = QFrame()
+    btn.setCursor(Qt.PointingHandCursor)
+    btn.setFixedHeight(36)
+    if primary:
+        bg, bg_hover, fg, border = COLORS["accent"], COLORS["accent_pale"], "#000000", "none"
+    else:
+        bg, bg_hover, fg, border = "transparent", COLORS["bg_hover"], COLORS["text_main"], f"1px solid {COLORS['border']}"
+    btn.setObjectName("button_with_hint")
+    btn.setStyleSheet(
+        f"QFrame#button_with_hint {{ background: {bg}; border-radius: 6px; border: {border}; }}"
+        f"QFrame#button_with_hint:hover {{ background: {bg_hover}; }}"
+    )
+    layout = QHBoxLayout(btn)
+    layout.setContentsMargins(16, 0, 14, 0)
+    layout.setSpacing(8)
+    if icon:
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(_icon(icon, fg).pixmap(QSize(13, 13)))
+        icon_lbl.setStyleSheet("background: transparent; border: none;")
+        layout.addWidget(icon_lbl)
+    text_lbl = QLabel(text)
+    text_lbl.setStyleSheet(f"color: {fg}; font-weight: 700; font-size: 13px; background: transparent; border: none;")
+    layout.addWidget(text_lbl)
+    hint_lbl = QLabel(hint)
+    hint_lbl.setStyleSheet(
+        f"color: {fg}; font-family: {FONT_MONO_STACK}; font-size: 10.5px; font-weight: 500; "
+        f"background: transparent; border: none;"
+    )
+    op_effect = QGraphicsOpacityEffect(hint_lbl)
+    op_effect.setOpacity(0.7)
+    hint_lbl.setGraphicsEffect(op_effect)
+    layout.addWidget(hint_lbl)
+    if on_click is not None:
+        btn.mouseReleaseEvent = lambda event, cb=on_click: cb()
     return btn
 
 
@@ -325,6 +381,15 @@ QPushButton#danger:hover {{
     background-color: {COLORS['danger']};
     color: white;
 }}
+/* "accent_action" (lot A-Pipelines, A7) : action mise en avant sur une ligne active (reprendre/
+   exécuter maintenant) — distinct du bouton principal plein accent, plus proche d'un badge. */
+QPushButton#accent_action {{
+    background-color: {COLORS['bg_active']};
+    border: 1px solid {COLORS['border_active']};
+}}
+QPushButton#accent_action:hover {{
+    background-color: {COLORS['border_active']};
+}}
 
 /* ── Formulaires ── */
 QLineEdit, QTextEdit, QComboBox, QSpinBox {{
@@ -405,6 +470,17 @@ QLabel#badge_running {{
 QLabel#badge_idle {{
     background-color: rgba(153,153,153,0.10);
     color: {COLORS['text_dim']};
+    border-radius: 3px;
+    padding: 2px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}}
+/* Lot A-Pipelines (A3) : pipeline en attente dans core.missed_runs — même famille de couleur
+   que le badge "warning" déjà utilisé ailleurs (Aujourd'hui, carte MANQUÉE). */
+QLabel#badge_missed {{
+    background-color: rgba(232,179,57,0.12);
+    color: {COLORS['warning']};
     border-radius: 3px;
     padding: 2px 10px;
     font-size: 11px;

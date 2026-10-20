@@ -140,6 +140,43 @@ def test_side_panel_close_button_closes_it(qapp):
     assert not panel.isVisible()
 
 
+def test_side_panel_close_guard_blocks_close_while_true(qapp):
+    """Lot A-Pipelines (A10) : set_close_guard permet à un contenu (validation à blanc) de
+    bloquer la fermeture pendant un traitement en cours, même garantie que l'ancien
+    PipelineDryRunDialog.closeEvent()."""
+    from ui.components.side_panel import SidePanel
+
+    host = _host(qapp)
+    panel = SidePanel(host)
+    panel.open()
+    _settle(qapp, panel)
+
+    blocked = True
+    panel.set_close_guard(lambda: blocked)
+
+    panel.close()
+    _settle(qapp, panel)
+    assert panel.isVisible()   # le close() a été ignoré pendant que le garde-fou est actif
+
+    blocked = False
+    panel.close()
+    _settle(qapp, panel)
+    assert not panel.isVisible()
+
+
+def test_side_panel_close_guard_none_by_default_does_not_block(qapp):
+    from ui.components.side_panel import SidePanel
+
+    host = _host(qapp)
+    panel = SidePanel(host)
+    panel.open()
+    _settle(qapp, panel)
+
+    panel.close()
+    _settle(qapp, panel)
+    assert not panel.isVisible()
+
+
 def test_side_panel_tracks_parent_resize_while_open(qapp):
     from ui.components.side_panel import SidePanel
 
