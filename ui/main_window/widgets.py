@@ -987,6 +987,30 @@ def _two_line_cell(main_text: str, main_color: str, sub_text: str = "", sub_colo
     return cell
 
 
+def _status_dot_row(text: str, color: str, dashed: bool = False) -> QWidget:
+    """Point coloré + mot (jamais la couleur seule) sur une seule ligne — extrait de
+    `_last_test_cell` (A5) pour être réutilisé tel quel par le bilan de santé (A10), où le statut
+    et l'heure relative sont deux colonnes séparées plutôt que deux lignes empilées d'une même
+    cellule. `dashed` : contour pointillé plutôt que rempli (ex. « jamais testé »)."""
+    row = QWidget()
+    row.setStyleSheet("background: transparent; border: none;")
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    dot = QLabel()
+    dot.setFixedSize(7, 7)
+    dot.setStyleSheet(
+        f"border-radius: 3px; border: 1.5px dashed {color}; background: transparent;" if dashed
+        else f"border-radius: 3px; background: {color};"
+    )
+    layout.addWidget(dot)
+    word = QLabel(text)
+    word.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {color}; border: none;")
+    layout.addWidget(word)
+    layout.addStretch()
+    return row
+
+
 def _last_test_cell(success, last_tested_at=None) -> QWidget:
     """Colonne « Dernier test » (A5) — point coloré + mot (jamais la couleur seule) puis, sur une
     seconde ligne VISIBLE (pas une infobulle, contrairement à l'ancien `_health_badge` qu'elle
@@ -1005,24 +1029,7 @@ def _last_test_cell(success, last_tested_at=None) -> QWidget:
     layout = QVBoxLayout(cell)
     layout.setContentsMargins(0, 0, 0, 0)
     layout.setSpacing(2)
-
-    top = QWidget()
-    top.setStyleSheet("background: transparent; border: none;")
-    top_layout = QHBoxLayout(top)
-    top_layout.setContentsMargins(0, 0, 0, 0)
-    top_layout.setSpacing(6)
-    dot = QLabel()
-    dot.setFixedSize(7, 7)
-    dot.setStyleSheet(
-        f"border-radius: 3px; background: {color};" if success is not None
-        else f"border-radius: 3px; border: 1.5px dashed {color}; background: transparent;"
-    )
-    top_layout.addWidget(dot)
-    word = QLabel(text)
-    word.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {color}; border: none;")
-    top_layout.addWidget(word)
-    top_layout.addStretch()
-    layout.addWidget(top)
+    layout.addWidget(_status_dot_row(text, color, dashed=success is None))
 
     is_stale = False
     if last_tested_at is not None:

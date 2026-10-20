@@ -301,6 +301,7 @@ def test_health_dialog_on_row_tested_preserves_state_for_none_success(qapp, test
     row_idx = next(i for i, r in enumerate(dlg._rows) if r["id"] == p.id)
 
     dlg._on_row_tested(row_idx, None, "Test uniquement disponible depuis le profil Kerberos.")
-    status_item = dlg.table.item(row_idx, 3)
-    assert status_item.text() == "—"   # jamais testé, statut inchangé (pas un échec affiché)
-    assert status_item.toolTip() == "Test uniquement disponible depuis le profil Kerberos."
+    # Statut toujours "non testable ici" pour Kerberos (jamais un échec affiché), message en
+    # clair dans sa propre colonne (A10).
+    assert _cell_texts(dlg.table, row_idx, 2) == ["non testable ici"]
+    assert dlg.table.item(row_idx, 3).text() == "Test uniquement disponible depuis le profil Kerberos."

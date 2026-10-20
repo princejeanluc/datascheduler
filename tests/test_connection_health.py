@@ -12,9 +12,16 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from sqlalchemy import create_engine, text
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from database import db_manager as db
+
+
+def _cell_texts(table, row, col) -> list:
+    """Libellés texte d'une cellule composite (refonte, lot A-Connexions : icône de type,
+    `_status_dot_row`) — exclut le point coloré (un QLabel vide, juste stylé en cercle)."""
+    widget = table.cellWidget(row, col)
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
 
 
 @pytest.fixture(scope="module")
@@ -122,10 +129,41 @@ def test_dialog_lists_all_profile_categories(qapp, test_db):
 
     dlg = ConnectionHealthDialog(None)
     assert dlg.table.rowCount() == 4
-    categories = {dlg.table.item(i, 0).text() for i in range(4)}
-    assert categories == {"Oracle", "FTP", "SMTP", "Base de données"}
+    # A10 : la "Catégorie" en texte disparaît au profit d'une icône de type (colonne 0) ;
+    # vérifiée indirectement via le set de catégories collectées, pas une colonne affichée.
+    categories = {row["category"] for row in dlg._rows}
+    assert categories == {"oracle", "ftp", "smtp", "database"}
     for i in range(4):
-        assert dlg.table.item(i, 2).text() == "Jamais testé"
+        assert _cell_texts(dlg.table, i, 2) == ["Jamais testé"]
+
+
+def test_dialog_shows_type_icon_instead_of_category_text(qapp, test_db):
+    """A10 : la colonne 0 est une icône de type (même dictionnaire que les tableaux de
+    ConnectionsView et les 7 dialogues de profil), pas un texte de catégorie."""
+    from ui.dialogs import ConnectionHealthDialog
+
+    db.create_ftp_profile(name="FTP1", host="h", port=21, username="u", password="p")
+
+    dlg = ConnectionHealthDialog(None)
+    icon_widget = dlg.table.cellWidget(0, 0)
+    assert icon_widget is not None
+    assert not icon_widget.pixmap().isNull()
+
+
+def test_dialog_shows_message_in_clear_text_and_relative_time(qapp, test_db):
+    """A10 : le message n'est plus réservé à l'infobulle, et l'heure passe en relatif
+    (`fmt_relative`), pas l'horodatage absolu d'avant ce lot."""
+    from datetime import datetime, timedelta
+
+    from ui.dialogs import ConnectionHealthDialog
+
+    db.create_ftp_profile(name="FTP-health", host="h", port=21, username="u", password="p")
+
+    dlg = ConnectionHealthDialog(None)
+    dlg._render_row(0, datetime.utcnow() - timedelta(minutes=5), True, "dossier accessible")
+
+    assert dlg.table.item(0, 3).text() == "dossier accessible"
+    assert "il y a" in dlg.table.item(0, 4).text()
 
 
 def test_dialog_test_all_updates_rows_and_persists(qapp, test_db):
@@ -140,8 +178,8 @@ def test_dialog_test_all_updates_rows_and_persists(qapp, test_db):
     assert dlg._thread.wait(15000)
     qapp.processEvents()
 
-    assert dlg.table.item(0, 2).text() != "Jamais testé"
-    assert dlg.table.item(0, 3).text() in ("✅ OK", "❌ Échec")
+    assert _cell_texts(dlg.table, 0, 2) != ["Jamais testé"]
+    assert _cell_texts(dlg.table, 0, 2)[0] in ("OK", "Échec")
 
     refreshed = db.get_oracle_profile(profile.id)
     assert refreshed.last_tested_at is not None
