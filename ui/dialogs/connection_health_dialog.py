@@ -130,7 +130,9 @@ class ConnectionHealthDialog(QDialog):
         self._thread = None
         self._rows: list[dict] = []
         self.setWindowTitle("Bilan de santé des connexions")
-        self.setMinimumSize(620, 460)
+        # A10 : élargi (620 -> 720) — le message (auparavant seulement en infobulle) est
+        # maintenant visible en permanence, dans sa propre colonne à côté du nom et de l'heure.
+        self.setMinimumSize(720, 460)
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui()
         self._load_rows()
@@ -182,7 +184,7 @@ class ConnectionHealthDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 36)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self.table.setColumnWidth(2, 90)
+        self.table.setColumnWidth(2, 110)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.table.setColumnWidth(4, 110)
         root.addWidget(self.table, stretch=1)

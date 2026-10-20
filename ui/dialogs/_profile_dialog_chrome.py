@@ -117,7 +117,11 @@ def build_footer(test_label: str, on_test, on_cancel, on_save) -> tuple:
     row = QHBoxLayout()
     row.setSpacing(10)
 
+    # setWordWrap : les dialogues de profil gardent des largeurs minimales (460-480px) plus
+    # étroites que la maquette (600px) — sans retour à la ligne, la note serait rognée plutôt que
+    # redescendre sur une 2e ligne (repéré sur une capture réelle, scripts/capture_views.py).
     note = QLabel("Le test utilise les valeurs saisies, pas celles enregistrées.")
+    note.setWordWrap(True)
     note.setStyleSheet(f"font-size: 12px; color: {COLORS['text_dim']};")
     row.addWidget(note, stretch=1)
 
