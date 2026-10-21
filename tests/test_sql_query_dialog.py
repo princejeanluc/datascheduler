@@ -101,3 +101,19 @@ def test_format_button_reformats_editor_content(qapp, test_db):
     dlg.editor.set_text("select a from t")
     dlg.editor.format_sql()
     assert "SELECT" in dlg.editor.text()
+
+
+def test_eyebrow_shown_only_when_step_label_and_pipeline_name_are_both_provided(qapp, test_db):
+    """A10 (Requêtes SQL) : surtitre contextuel (« NOUVELLE REQUÊTE · POUR L'ÉTAPE « X » DE Y »)
+    uniquement quand l'appelant fournit les deux paramètres facultatifs — signature actuelle
+    (parent=None, query=None) conservée en tête pour les appelants qui ne les fournissent pas."""
+    from PySide6.QtWidgets import QLabel
+    from ui.dialogs.sql_query_dialog import SqlQueryDialog
+
+    dlg_plain = SqlQueryDialog()
+    assert not any("NOUVELLE REQUÊTE" in lbl.text() for lbl in dlg_plain.findChildren(QLabel))
+
+    dlg_contextual = SqlQueryDialog(step_label="Extraire les retours",
+                                     pipeline_name="Reporting ventes J-1")
+    texts = [lbl.text() for lbl in dlg_contextual.findChildren(QLabel)]
+    assert any("EXTRAIRE LES RETOURS" in t and "Reporting ventes J-1" in t for t in texts)

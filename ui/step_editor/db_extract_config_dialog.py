@@ -22,11 +22,12 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
                  oracle_profiles=None, sql_queries=None, ftp_profiles=None,
                  smtp_profiles=None, db_profiles=None,
                  retry_count: int = 0, run_always: bool = False, timeout_s: int = 0,
-                 retry_interval_s: int = 5, prior_steps=None, **_):
+                 retry_interval_s: int = 5, prior_steps=None, pipeline_name: str = "", **_):
         super().__init__(config, parent, label, retry_count, run_always, timeout_s,
                           retry_interval_s)
         self._db_profiles = db_profiles or []
         self._sql_queries  = sql_queries or []
+        self._pipeline_name = pipeline_name
         self.setWindowTitle("Étape — Extraction base de données")
         self.setMinimumSize(540, 500)
         self._build_ui()
@@ -123,7 +124,8 @@ class _DbExtractConfigDialog(_BaseStepConfigDialog):
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
         from database import db_manager as db
-        dlg = SqlQueryDialog(self)
+        dlg = SqlQueryDialog(self, step_label=self._get_label() or None,
+                             pipeline_name=self._pipeline_name or None)
         if dlg.exec():
             self._sql_queries = db.get_sql_queries()
             self._filter_queries()

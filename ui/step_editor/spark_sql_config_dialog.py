@@ -30,6 +30,7 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
         self._ssh_profiles      = db.get_ssh_profiles()
         self._kerberos_profiles = db.get_kerberos_profiles()
         self._sql_queries       = _.get("sql_queries") or []
+        self._pipeline_name     = _.get("pipeline_name") or ""
         self.setWindowTitle("Étape — Spark SQL")
         self.setMinimumSize(560, 560)
         self._build_ui()
@@ -179,7 +180,8 @@ class _SparkSqlConfigDialog(_BaseStepConfigDialog):
     def _new_sql_query(self, cb: QComboBox):
         from ui.dialogs import SqlQueryDialog
         from database import db_manager as db
-        dlg = SqlQueryDialog(self)
+        dlg = SqlQueryDialog(self, step_label=self._get_label() or None,
+                             pipeline_name=self._pipeline_name or None)
         if dlg.exec():
             self._sql_queries = db.get_sql_queries()
             cb.clear(); cb.addItem("— Sélectionner une requête SQL —", None)
