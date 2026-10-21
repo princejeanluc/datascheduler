@@ -147,26 +147,24 @@ class QueriesView(QWidget):
 
         title = QLabel("Requêtes SQL")
         title.setStyleSheet(f"background: transparent; font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        subtitle = QLabel("Bibliothèque de requêtes réutilisables")
-        subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
-        layout.addWidget(title); layout.addWidget(subtitle)
+        self._subtitle = QLabel("")
+        self._subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
+        layout.addWidget(title); layout.addWidget(self._subtitle)
 
-        self.inp_search = _make_search_input("Rechercher (nom, description, SQL…)")
+        self.inp_search = _make_search_input("Nom, description ou SQL…")
         self.inp_search.setMinimumWidth(0)
         self.inp_search.setMaximumWidth(16_777_215)   # occupe la largeur du panneau, pas 240px fixe
         self.inp_search.textChanged.connect(self._on_search_changed)
         layout.addWidget(self.inp_search)
 
-        hint = QLabel("cherche aussi dans le corps SQL, pas seulement le nom")
-        hint.setWordWrap(True)
-        hint.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']}; "
-            f"font-style: italic;"
-        )
-        layout.addWidget(hint)
-
         btn_new = QPushButton("+ Nouvelle requête")
         btn_new.setFixedHeight(32)
+        btn_new.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {COLORS['accent_pale']}; "
+            f"border: 1px solid {COLORS['border_active']}; border-radius: 6px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_active']}; border-color: {COLORS['accent']}; "
+            f"color: {COLORS['accent']}; }}"
+        )
         btn_new.clicked.connect(self._on_new_query)
         layout.addWidget(btn_new)
 
@@ -320,6 +318,9 @@ class QueriesView(QWidget):
 
         queries = db.get_sql_queries()
         self._load_oracle_profiles()
+
+        n = len(queries)
+        self._subtitle.setText(f"{n} dans la bibliothèque")
 
         self.list_widget.clear()
         self.list_widget.setVisible(bool(queries))
