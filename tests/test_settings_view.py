@@ -374,6 +374,11 @@ def test_on_save_reverts_to_in_app_when_background_registration_fails(qapp, test
     assert db.get_app_settings().execution_mode == "IN_APP"
     assert "échec" in view._save_status_lbl.text().lower()
     assert COLORS["danger"] in view._save_status_lbl.styleSheet()
+    # Correctif (écart maquette Parametres-refus.html) : le menu déroulant doit revenir sur
+    # "Dans l'application seulement" lui aussi — la base revient à IN_APP ci-dessus, mais sans ce
+    # correctif le menu restait affiché sur "Avec exécution en arrière-plan", en contradiction
+    # avec l'état réellement actif.
+    assert view.cb_execution_mode.currentData() == "IN_APP"
 
 
 def test_on_save_shows_success_style_when_background_registration_succeeds(qapp, test_db, monkeypatch):
