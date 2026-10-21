@@ -512,6 +512,85 @@ def _connections_view_suppression():
     )
 
 
+def _queries_view():
+    """Requêtes SQL : quelques requêtes dans la bibliothèque, une sélectionnée avec mots-clés,
+    fonction et jeton visibles dans l'éditeur (A3, A6, A7, A8)."""
+    from ui.main_window.queries_view import QueriesView
+
+    extraction = db.create_sql_query(
+        name="EXTRAIRE_VENTES_J1",
+        description="Ventes de la veille, par magasin",
+        sql_text=(
+            "SELECT\n"
+            "  v.magasin_id,\n"
+            "  v.montant_ttc\n"
+            "FROM ventes v\n"
+            "WHERE v.date_vente = TO_DATE('{expr:fmt(date_add(today(), -1), \"{yyyy}-{MM}-{dd}\")}', "
+            "'YYYY-MM-DD')"
+        ),
+    )
+    db.create_sql_query(name="PURGE_TEMP_STAGING", sql_text="DELETE FROM temp_staging WHERE 1=1")
+    db.create_sql_query(name="MAJ_REFERENTIEL_CLIENTS", sql_text="UPDATE ref SET actif = 1")
+
+    pipeline = db.create_pipeline(name="reporting-ventes-j1-capture")
+    db.save_steps(pipeline.id, [{
+        "step_type": "DB_EXTRACT", "label": "Extraire ventes J-1",
+        "config": {"_step_key": "step-1", "sql_query_id": extraction.id},
+    }])
+
+    view = QueriesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._select_query(extraction.id)
+    return view
+
+
+def _queries_view_rechercher():
+    """SQL-rechercher : 3 occurrences de v.date_vente, barre ouverte sur la 2e (compteur 2/3,
+    A9)."""
+    from ui.main_window.queries_view import QueriesView
+
+    q = db.create_sql_query(
+        name="EXTRAIRE_RETOURS_J1-rechercher",
+        sql_text=(
+            "SELECT r.numero_retour\n"
+            "FROM retours r\n"
+            "JOIN ventes v ON v.id = r.vente_id\n"
+            "WHERE v.date_vente = TO_DATE('{yyyy}-{MM}-{dd}', 'YYYY-MM-DD')\n"
+            "  AND v.date_vente < SYSDATE\n"
+            "ORDER BY v.date_vente"
+        ),
+    )
+
+    view = QueriesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view._select_query(q.id)
+    view.editor.show_find_bar()
+    view.editor._find_bar.inp_find.setText("v.date_vente")
+    view.editor._find_bar.step(1)   # passe de 1/3 à 2/3
+    QApplication.instance().processEvents()
+    return view
+
+
+def _queries_view_depuis_etape():
+    """SQL-depuis-etape : modale de création ouverte depuis une étape, surtitre contextuel
+    (A10)."""
+    from ui.dialogs import SqlQueryDialog
+
+    dlg = SqlQueryDialog(step_label="Extraire les retours",
+                         pipeline_name="Reporting ventes J-1")
+    dlg.show()
+    QApplication.instance().processEvents()
+    # Ce état ne simule aucune saisie en cours — sans ceci, le champ Nom (premier widget
+    # focusable) affiche à tort une bordure de focus accent (REGLES.md section 6, point 3).
+    dlg.inp_name.clearFocus()
+    QApplication.instance().processEvents()
+    return dlg
+
+
 def _history_backdate_run(run_id: int, days_ago: int, duration_seconds: int = 180):
     """db.finish_run() date toujours avec datetime.utcnow() — appelé APRÈS, pour replacer un run
     dans un groupe de jour plus ancien (A5 : AUJOURD'HUI/HIER/date) sans dupliquer sa logique de
@@ -688,6 +767,11 @@ REGISTRY = [
     ("connexions-formulaire", _connections_view_formulaire),
     ("connexions-sante", _connections_view_sante),
     ("connexions-suppression", _connections_view_suppression),
+    # SQL-apercu/-jetons/-resolu/-enregistrer non capturés : entièrement Lot C (C1, C4, C3, C5),
+    # gated — voir docs/refonte/impact/a-requetes-sql.md.
+    ("sql", _queries_view),
+    ("sql-rechercher", _queries_view_rechercher),
+    ("sql-depuis-etape", _queries_view_depuis_etape),
 ]
 
 
