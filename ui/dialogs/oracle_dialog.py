@@ -5,11 +5,12 @@ Dialogue de création / édition d'un profil Oracle.
 
 from PySide6.QtWidgets import (
     QComboBox, QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QSpinBox, QRadioButton, QButtonGroup, QPushButton, QFrame,
+    QLineEdit, QSpinBox, QRadioButton, QButtonGroup, QFrame,
     QWidget,
 )
 from PySide6.QtCore import Qt, QThread, Signal, QTimer
 from ui.styles import COLORS, DIALOG_STYLE
+from ._profile_dialog_chrome import build_header, make_test_banner_container, test_result_title, build_footer
 
 
 # ──────────────────────────────────────────────
@@ -65,13 +66,8 @@ class OracleDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(20)
 
-        # Titre
-        title = QLabel("Connexion Oracle")
-        title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")
-        root.addWidget(title)
-
-        sep = self._sep()
-        root.addWidget(sep)
+        title = self._profile.name if self._profile else "Connexion Oracle"
+        root.addWidget(build_header("oracle", title, editing=self._profile is not None))
 
         # Formulaire
         form = QFormLayout()
@@ -150,48 +146,13 @@ class OracleDialog(QDialog):
         form.addRow("",                              self.lbl_sys_warn)
         root.addLayout(form)
 
-        # Zone de test
-        root.addWidget(self._build_test_zone())
+        banner_container, self._set_banner = make_test_banner_container()
+        root.addWidget(banner_container)
+        root.addWidget(self._sep())
 
-        sep2 = self._sep()
-        root.addWidget(sep2)
-
-        # Boutons
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        btn_row.addStretch()
-
-        self.btn_cancel = QPushButton("Annuler")
-        self.btn_cancel.setObjectName("secondary")
-        self.btn_cancel.setFixedHeight(36)
-        self.btn_cancel.clicked.connect(self.reject)
-
-        self.btn_save = QPushButton("Enregistrer")
-        self.btn_save.setFixedHeight(36)
-        self.btn_save.clicked.connect(self._on_save)
-
-        btn_row.addWidget(self.btn_cancel)
-        btn_row.addWidget(self.btn_save)
-        root.addLayout(btn_row)
-
-    def _build_test_zone(self) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("card")
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(12)
-
-        self.btn_test = QPushButton("⚡  Tester la connexion")
-        self.btn_test.setObjectName("secondary")
-        self.btn_test.setFixedHeight(32)
-        self.btn_test.clicked.connect(self._on_test)
-
-        self.lbl_test_result = QLabel("—")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-
-        layout.addWidget(self.btn_test)
-        layout.addWidget(self.lbl_test_result, stretch=1)
-        return frame
+        footer, self.btn_test, self.btn_cancel, self.btn_save = build_footer(
+            "⚡  Tester la connexion", self._on_test, self.reject, self._on_save)
+        root.addLayout(footer)
 
     # ── Logique ──────────────────────────────
 
@@ -211,8 +172,7 @@ class OracleDialog(QDialog):
             return
 
         self.btn_test.setEnabled(False)
-        self.lbl_test_result.setText("Connexion en cours…")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._set_banner("info", "Connexion en cours…")
 
         self._test_thread = OracleTestThread(config)
         self._test_thread.result_ready.connect(self._on_test_result)
@@ -233,14 +193,10 @@ class OracleDialog(QDialog):
         if hasattr(self, "_test_timeout"):
             self._test_timeout.stop()
         self.btn_test.setEnabled(True)
-        if success:
-            txt = f"✅  Connexion réussie — Oracle {version}"
-            color = COLORS["success"]
-        else:
-            txt = f"❌  {message}"
-            color = COLORS["danger"]
-        self.lbl_test_result.setText(txt)
-        self.lbl_test_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._set_banner(
+            "success" if success else "danger", test_result_title(success),
+            f"Oracle {version}" if success else message,
+        )
 
         if self._profile:
             from database import db_manager as db
@@ -318,8 +274,7 @@ class OracleDialog(QDialog):
             # Champ laissé vide en édition : on teste avec le mot de passe déjà enregistré.
             pwd = crypto.decrypt(self._profile.password)
         if not host or not user or not pwd:
-            self.lbl_test_result.setText("⚠  Remplir Hôte / Utilisateur / Mot de passe")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            self._set_banner("warning", "Remplir Hôte / Utilisateur / Mot de passe")
             return None
         service = self.inp_service.text().strip() if self.rb_service.isChecked() else None
         sid     = self.inp_sid.text().strip()     if self.rb_sid.isChecked()     else None

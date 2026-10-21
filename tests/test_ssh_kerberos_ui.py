@@ -11,9 +11,23 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel
 
 from database import crypto, db_manager as db
+
+
+def _cell_texts(table, row, col) -> list:
+    """Libellés texte d'une cellule composite (refonte, lot A-Connexions : `_two_line_cell`/
+    `_last_test_cell`) — exclut le point coloré (un QLabel vide, juste stylé en cercle)."""
+    widget = table.cellWidget(row, col)
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
+
+
+def _cell_texts_from_widget(widget) -> list:
+    """Libellés texte visibles d'un widget quelconque (refonte, lot A-Connexions : le résultat
+    d'un test ou d'une erreur de sauvegarde s'affiche désormais dans un bandeau `make_banner`,
+    pas un QLabel `lbl_test_result` dédié)."""
+    return [lbl.text() for lbl in widget.findChildren(QLabel) if lbl.text()]
 
 
 @pytest.fixture(scope="module")
@@ -131,7 +145,7 @@ def test_ssh_profile_dialog_rejects_cycle_and_shows_error(qapp, test_db):
     dlg._on_save()   # EDGE01 -> EDGE03 -> EDGE01 : doit être rejeté, pas planter
 
     assert db.get_ssh_profile(edge01.id).jump_via_id is None
-    assert "boucle" in dlg.lbl_test_result.text()
+    assert "boucle" in " ".join(_cell_texts_from_widget(dlg))
 
 
 # ──────────────────────────────────────────────
@@ -168,7 +182,7 @@ def test_kerberos_profile_dialog_test_without_ssh_profile_shows_warning(qapp, te
     dlg.inp_principal.setText("a@REALM")
     dlg.inp_pass.setText("pw")
     dlg._on_test()   # aucun profil SSH sélectionné dans le combo
-    assert "profil SSH" in dlg.lbl_test_result.text()
+    assert "profil SSH" in " ".join(_cell_texts_from_widget(dlg))
     assert dlg._test_thread is None
 
 
@@ -185,23 +199,28 @@ def test_connections_view_shows_ssh_and_kerberos_rows(qapp, test_db):
     view = ConnectionsView()
     assert view.ssh_table.rowCount() == 1
     assert view.kerberos_table.rowCount() == 1
-    assert view.ssh_table.item(0, 0).text() == "EDGE01"
-    assert view.kerberos_table.item(0, 1).text() == "a@REALM"
+    assert _cell_texts(view.ssh_table, 0, 1)[0] == "EDGE01"
+    assert _cell_texts(view.kerberos_table, 0, 2)[0] == "a@REALM"
 
 
 def test_connections_view_delete_ssh_checks_pipeline_usage(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.dialogs import ConnectionDeleteDialog
     from ui.main_window import connections_view as cv_module
 
     p = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
-    monkeypatch.setattr(cv_module.QMessageBox, "question",
-                         lambda *a, **kw: cv_module.QMessageBox.No)
+    monkeypatch.setattr(ConnectionDeleteDialog, "exec", lambda self: QDialog.Rejected)
 
     view = cv_module.ConnectionsView()
-    view._on_delete_ssh(p.id)   # répond "No" -> pas supprimé
+    view._on_delete_ssh(p.id)   # répond "Rejected" -> pas supprimé
     assert db.get_ssh_profile(p.id) is not None
 
 
-def test_connections_view_ssh_via_column_shows_bastion_name_or_dash(qapp, test_db):
+def test_connections_view_ssh_via_column_shows_bastion_name_or_username(qapp, test_db):
+    """A4 (refonte, lot A-Connexions) : la 2e ligne de la colonne Cible montre la relation de
+    bastion quand il y en a une (« via X » ou « bastion de Y ») — sinon l'utilisateur, comme
+    avant le lot (voir aussi test_connections_view_ssh_via_column_shows_username_without_bastion
+    plus bas pour le cas sans aucune relation)."""
     from ui.main_window.connections_view import ConnectionsView
 
     edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
@@ -209,13 +228,26 @@ def test_connections_view_ssh_via_column_shows_bastion_name_or_dash(qapp, test_d
                            jump_via_id=edge01.id)
 
     view = ConnectionsView()
-    rows = {view.ssh_table.item(r, 0).text(): view.ssh_table.item(r, 4).text()
-            for r in range(view.ssh_table.rowCount())}
-    assert rows["EDGE01"] == "—"
-    assert rows["EDGE03"] == "EDGE01"
+    rows = {
+        _cell_texts(view.ssh_table, r, 1)[0]: _cell_texts(view.ssh_table, r, 2)
+        for r in range(view.ssh_table.rowCount())
+    }
+    assert rows["EDGE01"][1] == "bastion de EDGE03"
+    assert rows["EDGE03"][1] == "via EDGE01"
+
+
+def test_connections_view_ssh_via_column_shows_username_without_bastion(qapp, test_db):
+    from ui.main_window.connections_view import ConnectionsView
+
+    db.create_ssh_profile(name="EDGE-LONE", host="edge-lone", port=22, username="svc_edge", password="p")
+
+    view = ConnectionsView()
+    assert _cell_texts(view.ssh_table, 0, 2)[1] == "svc_edge"
 
 
 def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.dialogs import ConnectionDeleteDialog
     from ui.main_window import connections_view as cv_module
 
     edge01 = db.create_ssh_profile(name="EDGE01", host="edge01", port=22, username="u", password="p")
@@ -223,15 +255,16 @@ def test_connections_view_delete_ssh_warns_when_used_as_bastion(qapp, test_db, m
                            jump_via_id=edge01.id)
 
     captured = {}
-    def _fake_question(self_, title, msg, *a, **kw):
-        captured["msg"] = msg
-        return cv_module.QMessageBox.No
-    monkeypatch.setattr(cv_module.QMessageBox, "question", _fake_question)
+    def fake_exec(self):
+        captured["texts"] = _cell_texts_from_widget(self)
+        return QDialog.Rejected
+    monkeypatch.setattr(ConnectionDeleteDialog, "exec", fake_exec)
 
     view = cv_module.ConnectionsView()
     view._on_delete_ssh(edge01.id)
-    assert "EDGE03" in captured["msg"]
-    assert "bastion" in captured["msg"]
+    texts = " ".join(captured["texts"])
+    assert "EDGE03" in texts
+    assert "bastion" in texts
 
 
 # ──────────────────────────────────────────────
@@ -272,6 +305,7 @@ def test_health_dialog_on_row_tested_preserves_state_for_none_success(qapp, test
     row_idx = next(i for i, r in enumerate(dlg._rows) if r["id"] == p.id)
 
     dlg._on_row_tested(row_idx, None, "Test uniquement disponible depuis le profil Kerberos.")
-    status_item = dlg.table.item(row_idx, 3)
-    assert status_item.text() == "—"   # jamais testé, statut inchangé (pas un échec affiché)
-    assert status_item.toolTip() == "Test uniquement disponible depuis le profil Kerberos."
+    # Statut toujours "non testable ici" pour Kerberos (jamais un échec affiché), message en
+    # clair dans sa propre colonne (A10).
+    assert _cell_texts(dlg.table, row_idx, 2) == ["non testable ici"]
+    assert dlg.table.item(row_idx, 3).text() == "Test uniquement disponible depuis le profil Kerberos."

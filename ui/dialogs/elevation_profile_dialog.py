@@ -9,10 +9,11 @@ existant (nœud edge) pour le mener.
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QComboBox, QPushButton, QFrame,
+    QLineEdit, QComboBox, QFrame,
 )
 from PySide6.QtCore import Qt, QThread, Signal
 from ui.styles import COLORS, DIALOG_STYLE
+from ._profile_dialog_chrome import build_header, make_test_banner_container, test_result_title, build_footer
 
 
 # ──────────────────────────────────────────────
@@ -59,9 +60,8 @@ class ElevationProfileDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(20)
 
-        title = QLabel("Élévation de privilèges (sudo su)")
-        title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")
-        root.addWidget(title)
+        title = self._profile.name if self._profile else "Élévation de privilèges (sudo su)"
+        root.addWidget(build_header("elevation", title, editing=self._profile is not None))
         note = QLabel(
             "Compte technique généralement partagé par l'équipe (ex : « nifi ») — le mot de "
             "passe est chiffré au repos. Utilisé par l'étape Export Sqoop pour basculer vers cet "
@@ -86,18 +86,20 @@ class ElevationProfileDialog(QDialog):
         form.addRow(self._label("Mot de passe *"),        self.inp_pass)
         root.addLayout(form)
 
-        root.addWidget(self._build_test_zone())
+        root.addWidget(self._build_ssh_picker())
+
+        banner_container, self._set_banner = make_test_banner_container()
+        root.addWidget(banner_container)
         root.addWidget(self._sep())
 
-        btn_row = QHBoxLayout(); btn_row.setSpacing(10); btn_row.addStretch()
-        self.btn_cancel = QPushButton("Annuler"); self.btn_cancel.setObjectName("secondary")
-        self.btn_cancel.setFixedHeight(36); self.btn_cancel.clicked.connect(self.reject)
-        self.btn_save = QPushButton("Enregistrer")
-        self.btn_save.setFixedHeight(36); self.btn_save.clicked.connect(self._on_save)
-        btn_row.addWidget(self.btn_cancel); btn_row.addWidget(self.btn_save)
-        root.addLayout(btn_row)
+        footer, self.btn_test, self.btn_cancel, self.btn_save = build_footer(
+            "⚡  Tester (sudo su)", self._on_test, self.reject, self._on_save)
+        root.addLayout(footer)
 
-    def _build_test_zone(self) -> QFrame:
+    def _build_ssh_picker(self) -> QFrame:
+        """Sélecteur de profil SSH pour le test (A9 : le bouton Tester lui-même a rejoint le
+        pied, partagé avec les 6 autres dialogues — seul ce sélecteur + son indice restent une
+        zone à part, propre à Kerberos/Élévation)."""
         from database import db_manager as db
         frame = QFrame(); frame.setObjectName("card")
         layout = QVBoxLayout(frame)
@@ -119,15 +121,6 @@ class ElevationProfileDialog(QDialog):
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 10px; font-style: italic;")
         layout.addWidget(hint)
-
-        row2 = QHBoxLayout(); row2.setSpacing(12)
-        self.btn_test = QPushButton("⚡  Tester (sudo su)")
-        self.btn_test.setObjectName("secondary"); self.btn_test.setFixedHeight(32)
-        self.btn_test.clicked.connect(self._on_test)
-        self.lbl_test_result = QLabel("—")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
-        row2.addWidget(self.btn_test); row2.addWidget(self.lbl_test_result, stretch=1)
-        layout.addLayout(row2)
         return frame
 
     # ── Logique ──────────────────────────────
@@ -138,13 +131,11 @@ class ElevationProfileDialog(QDialog):
 
         ssh_id = self.cb_ssh_profile.currentData()
         if not ssh_id:
-            self.lbl_test_result.setText("⚠  Choisir un profil SSH pour le test")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            self._set_banner("warning", "Choisir un profil SSH pour le test")
             return
         ssh_profile = db.get_ssh_profile(ssh_id)
         if not ssh_profile:
-            self.lbl_test_result.setText("⚠  Profil SSH introuvable")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            self._set_banner("warning", "Profil SSH introuvable")
             return
 
         elevation_config = self._build_config()
@@ -152,22 +143,14 @@ class ElevationProfileDialog(QDialog):
             return
 
         self.btn_test.setEnabled(False)
-        self.lbl_test_result.setText("sudo su en cours…")
-        self.lbl_test_result.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
+        self._set_banner("info", "sudo su en cours…")
         self._test_thread = ElevationTestThread(config_from_profile(ssh_profile), elevation_config)
         self._test_thread.result_ready.connect(self._on_test_result)
         self._test_thread.start()
 
     def _on_test_result(self, success: bool, message: str):
         self.btn_test.setEnabled(True)
-        if success:
-            txt   = f"✅  {message}"
-            color = COLORS["success"]
-        else:
-            txt   = f"❌  {message}"
-            color = COLORS["danger"]
-        self.lbl_test_result.setText(txt)
-        self.lbl_test_result.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._set_banner("success" if success else "danger", test_result_title(success), message)
 
         if self._profile:
             from database import db_manager as db
@@ -208,8 +191,7 @@ class ElevationProfileDialog(QDialog):
         if not pwd and self._profile:
             pwd = crypto.decrypt(self._profile.password)
         if not target_user or not pwd:
-            self.lbl_test_result.setText("⚠  Remplir Utilisateur cible / Mot de passe")
-            self.lbl_test_result.setStyleSheet(f"color: {COLORS['warning']}; font-size: 12px;")
+            self._set_banner("warning", "Remplir Utilisateur cible / Mot de passe")
             return None
         return ElevationConfig(target_user=target_user, password=pwd)
 

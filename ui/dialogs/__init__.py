@@ -23,6 +23,7 @@ from .pipeline_delete_dialog import PipelineDeleteDialog
 from .pipeline_detail_dialog import PipelineDetailDialog
 from .pipeline_topology_dialog import PipelineTopologyDialog
 from .connection_health_dialog import ConnectionHealthDialog
+from .connection_delete_dialog import ConnectionDeleteDialog
 from .ssh_profile_dialog import SshTestThread, SshProfileDialog
 from .kerberos_profile_dialog import KerberosTestThread, KerberosProfileDialog
 from .elevation_profile_dialog import ElevationTestThread, ElevationProfileDialog
@@ -42,6 +43,7 @@ __all__ = [
     "PipelineDetailDialog",
     "PipelineTopologyDialog",
     "ConnectionHealthDialog",
+    "ConnectionDeleteDialog",
     "SshTestThread", "SshProfileDialog",
     "KerberosTestThread", "KerberosProfileDialog",
     "ElevationTestThread", "ElevationProfileDialog",

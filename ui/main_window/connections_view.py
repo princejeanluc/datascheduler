@@ -5,68 +5,23 @@ Vue Connexions : profils Oracle/FTP/SMTP/BDD génériques.
 
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QMessageBox, QTabWidget, QGraphicsOpacityEffect,
+    QTableWidget, QHeaderView, QAbstractItemView,
+    QDialog, QTabWidget,
 )
-from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import QSize
 from ui.styles import COLORS
-from ui.time_display import fmt_relative
-from .widgets import _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input, _make_empty_label, _make_title, _make_subtitle, _status_str
+from ui.components import make_page_header
+from .widgets import (
+    _icon, _action_btn, _configure_columns, _filter_table_rows, _make_search_input,
+    _make_empty_label, _status_str, _type_icon_badge, _two_line_cell, _last_test_cell,
+)
 
-
-_STALE_AFTER_DAYS = 30
-
-
-def _health_badge(success, last_tested_at=None) -> QLabel:
-    """Statut du dernier test de connexion, déjà stocké sur chaque profil (bilan de santé,
-    chantier C.4/D.1) — ici simplement affiché en ligne au lieu d'être réservé à la fenêtre
-    modale "Bilan de santé". `last_tested_at` (optionnel, rétrocompatible) ajoute une fraîcheur
-    visuelle : un profil non retesté depuis plus de 30 jours s'estompe légèrement, pour repérer
-    d'un regard ce qui mérite d'être revérifié (chantier identité, vague 1, idée 11)."""
-    if success is True:
-        text, obj_name = "OK", "badge_success"
-    elif success is False:
-        text, obj_name = "Échec", "badge_failed"
-    else:
-        text, obj_name = "Jamais testé", "badge_idle"
-    lbl = QLabel(text); lbl.setObjectName(obj_name)
-    lbl.setAlignment(Qt.AlignCenter)
-
-    if last_tested_at is not None:
-        from datetime import datetime, timezone
-        age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - last_tested_at).days
-        tooltip = "Testé aujourd'hui" if age_days <= 0 else f"Testé {fmt_relative(last_tested_at)}"
-        if age_days > _STALE_AFTER_DAYS:
-            tooltip += " — à revérifier"
-            effect = QGraphicsOpacityEffect(lbl)
-            effect.setOpacity(0.55)
-            lbl.setGraphicsEffect(effect)
-        lbl.setToolTip(tooltip)
-    elif success is None:
-        lbl.setToolTip("Jamais testé")
-
-    return lbl
-
-
-def _connection_indicator(success) -> QLabel:
-    """Petite icône de prise ajoutée à côté du badge texte existant (jamais à sa place — la
-    clarté du mot OK/Échec/Jamais testé reste utile, confirmé avec l'utilisateur) — renforce
-    visuellement l'idée de connexion réelle à une infra (chantier identité, vague 2, idée 10).
-    Colonne à part entière, _health_badge() reste inchangé."""
-    if success is True:
-        color = COLORS["success"]
-    elif success is False:
-        color = COLORS["danger"]
-    else:
-        color = COLORS["text_muted"]
-    lbl = QLabel()
-    icon = _icon("fa5s.plug", color)
-    if icon:
-        lbl.setPixmap(icon.pixmap(QSize(14, 14)))
-    lbl.setAlignment(Qt.AlignCenter)
-    lbl.setStyleSheet("background: transparent; border: none;")
-    return lbl
+# Mêmes 6 colonnes pour les 6 tableaux (A3/A5/A6/A7, refonte lot A-Connexions) : icône de
+# famille, Connexion (nom + type), Cible (hôte:port/principal/commande + utilisateur ou relation),
+# Dernier test (badge + heure relative), Utilisée par, Actions. Seul le CONTENU différait avant
+# (colonnes Nom/Type/Hôte/Port/Utilisateur séparées pour les bases, 4 colonnes seulement pour
+# Kerberos/Élévation sans hôte/port) — la forme est désormais identique partout.
+_TABLE_HEADERS = ["", "Connexion", "Cible", "Dernier test", "Utilisée par", ""]
 
 
 class ConnectionsView(QWidget):
@@ -79,21 +34,20 @@ class ConnectionsView(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
 
-        header = QHBoxLayout()
-        title_col = QVBoxLayout(); title_col.setSpacing(2)
-        title_col.addWidget(_make_title("Connexions"))
-        title_col.addWidget(_make_subtitle("Profils de bases de données, FTP et SMTP réutilisables dans les pipelines"))
-        header.addLayout(title_col); header.addStretch()
-        self.inp_search = _make_search_input("Rechercher un profil…")
+        self.inp_search = _make_search_input("Nom, hôte, utilisateur…")
         self.inp_search.textChanged.connect(self._on_search_changed)
-        header.addWidget(self.inp_search)
         btn_health = QPushButton("  Bilan de santé"); btn_health.setObjectName("secondary")
         btn_health.setFixedHeight(36)
         btn_health.setIcon(_icon("fa5s.heartbeat", COLORS["text_main"]))
         btn_health.setIconSize(QSize(13, 13))
         btn_health.clicked.connect(self._on_health_check)
-        header.addWidget(btn_health)
-        layout.addLayout(header)
+
+        header = make_page_header("", "Connexions", actions=[self.inp_search, btn_health])
+        # make_page_header() ne renvoie pas de référence à son surtitre — recherché une fois ici
+        # par objectName (même patron que les lots précédents), tenu à jour dans refresh() (A2 :
+        # "N connexions · N en échec · N jamais testées").
+        self._eyebrow_lbl = header.findChild(QLabel, "page_eyebrow")
+        layout.addWidget(header)
 
         sep = QFrame(); sep.setObjectName("separator"); sep.setFrameShape(QFrame.HLine)
         layout.addWidget(sep)
@@ -143,8 +97,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Type", "Hôte", "Port", "Utilisateur", "État", ""]
-        self.database_table = self._make_table(hdrs, stretch_cols={0, 2})
+        self.database_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.database_table)
         self._database_empty = _make_empty_label(
             "Aucun profil de base de données — cliquez sur « Nouveau profil » "
@@ -167,8 +120,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Protocole", "Utilisateur", "État", ""]
-        self.ftp_table = self._make_table(hdrs, stretch_cols={0, 1})
+        self.ftp_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.ftp_table)
         self._ftp_empty = _make_empty_label("Aucun profil FTP — cliquez sur « Nouveau profil FTP ».")
         self._ftp_empty.setVisible(False)
@@ -188,8 +140,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Sécurité", "Expéditeur", "État", ""]
-        self.smtp_table = self._make_table(hdrs, stretch_cols={0, 1, 4})
+        self.smtp_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.smtp_table)
         self._smtp_empty = _make_empty_label("Aucun profil SMTP — cliquez sur « Nouveau profil SMTP ».")
         self._smtp_empty.setVisible(False)
@@ -209,8 +160,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Hôte", "Port", "Utilisateur", "Via", "État", ""]
-        self.ssh_table = self._make_table(hdrs, stretch_cols={0, 1})
+        self.ssh_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.ssh_table)
         self._ssh_empty = _make_empty_label("Aucun profil SSH — cliquez sur « Nouveau profil SSH ».")
         self._ssh_empty.setVisible(False)
@@ -230,8 +180,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Principal", "État", ""]
-        self.kerberos_table = self._make_table(hdrs, stretch_cols={0, 1})
+        self.kerberos_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.kerberos_table)
         self._kerberos_empty = _make_empty_label(
             "Aucun profil Kerberos — cliquez sur « Nouveau profil Kerberos »."
@@ -253,8 +202,7 @@ class ConnectionsView(QWidget):
         top.addWidget(lbl); top.addStretch(); top.addWidget(btn)
         vl.addLayout(top)
 
-        hdrs = ["Nom", "Utilisateur cible", "État", ""]
-        self.elevation_table = self._make_table(hdrs, stretch_cols={0, 1})
+        self.elevation_table = self._make_table(_TABLE_HEADERS, stretch_cols={1, 2})
         vl.addWidget(self.elevation_table)
         self._elevation_empty = _make_empty_label(
             "Aucun profil d'élévation — cliquez sur « Nouveau profil d'élévation »."
@@ -264,42 +212,59 @@ class ConnectionsView(QWidget):
         return card
 
     def _make_table(self, headers: list, stretch_cols: set) -> QTableWidget:
-        t = QTableWidget(0, len(headers) + 1)
-        t.setHorizontalHeaderLabels(headers + [""])
+        """Layout uniforme à 6 colonnes (A3/A5/A6/A7) : icône(0)/Connexion(1)/Cible(2)/
+        Dernier test(3)/Utilisée par(4)/Actions(5) — `headers` est toujours `_TABLE_HEADERS`,
+        gardé en paramètre pour que la largeur de chaque colonne reste calculée par nom plutôt
+        que par position en dur."""
+        t = QTableWidget(0, len(headers))
+        t.setHorizontalHeaderLabels(headers)
         t.verticalHeader().setVisible(False)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         t.setSelectionBehavior(QAbstractItemView.SelectRows)
         t.setShowGrid(False)
         _configure_columns(t, stretch_cols)
-        t.horizontalHeader().setSectionResizeMode(len(headers), QHeaderView.Fixed)
-        t.setColumnWidth(len(headers), 90)
-        # Colonne "prise vivante" (chantier identité, vague 2, idée 10) : dernier en-tête vide,
-        # juste avant Actions. ResizeToContents sur un en-tête vide se calcule trop juste pour
-        # l'icône (14px + marges) et la rogne légèrement sur le bord droit — largeur fixe comme
-        # pour Actions (repéré sur une capture réelle).
-        if headers and headers[-1] == "":
-            t.horizontalHeader().setSectionResizeMode(len(headers) - 1, QHeaderView.Fixed)
-            t.setColumnWidth(len(headers) - 1, 40)
-        # "État" (badge OK/Échec/Jamais testé) : ResizeToContents se faisait squeeze en dessous
-        # de son besoin réel une fois l'ensemble des colonnes trop serré pour la largeur
-        # disponible (le texte se rognait silencieusement, ex. "Jamais testé" → "mais tes" —
-        # repéré sur une capture réelle après l'ajout de la colonne "prise"). Largeur fixe,
-        # garantie de ne jamais être compressée, quelle que soit la pression des autres colonnes.
-        if "État" in headers:
-            etat_idx = headers.index("État")
-            t.horizontalHeader().setSectionResizeMode(etat_idx, QHeaderView.Fixed)
-            t.setColumnWidth(etat_idx, 140)
+
+        # Icône de famille (toujours colonne 0) : pastille 30px + marges.
+        t.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        t.setColumnWidth(0, 46)
+        if "Dernier test" in headers:
+            idx = headers.index("Dernier test")
+            t.horizontalHeader().setSectionResizeMode(idx, QHeaderView.Fixed)
+            t.setColumnWidth(idx, 150)
+        if "Utilisée par" in headers:
+            idx = headers.index("Utilisée par")
+            t.horizontalHeader().setSectionResizeMode(idx, QHeaderView.Fixed)
+            t.setColumnWidth(idx, 110)
+        # Actions (dernière colonne, en-tête vide) : largeur fixe pour les 2 boutons 26px
+        # (ResizeToContents sur un en-tête vide se calcule trop juste et les rogne légèrement,
+        # même piège déjà rencontré et corrigé pour cette colonne avant ce lot).
+        last = len(headers) - 1
+        t.horizontalHeader().setSectionResizeMode(last, QHeaderView.Fixed)
+        t.setColumnWidth(last, 76)
         return t
+
+    def _usage_label(self, used_by: list) -> QLabel:
+        """Colonne « Utilisée par » (A6) — jamais la couleur seule, un nombre toujours lisible."""
+        n = len(used_by)
+        text = f"{n} pipeline{'s' if n != 1 else ''}" if n else "aucun pipeline"
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            f"font-size: 12.5px; color: {COLORS['text_main'] if n else COLORS['text_muted']}; "
+            f"background: transparent; border: none;"
+        )
+        return lbl
 
     # ── Recherche ────────────────────────────────
 
     def _on_search_changed(self, text: str):
-        _filter_table_rows(self.database_table, text, columns=[0, 1, 2, 3, 4])
-        _filter_table_rows(self.ftp_table, text, columns=[0, 1, 2, 3, 4])
-        _filter_table_rows(self.smtp_table, text, columns=[0, 1, 2, 3, 4])
-        _filter_table_rows(self.ssh_table, text, columns=[0, 1, 2, 3])
-        _filter_table_rows(self.kerberos_table, text, columns=[0, 1])
-        _filter_table_rows(self.elevation_table, text, columns=[0, 1])
+        # Colonnes 1 (Connexion) et 2 (Cible) systématiquement cherchables sur les 6 tableaux —
+        # les autres colonnes sont des widgets de statut/comptage, sans sens pour une recherche
+        # libre (A1 : "Nom, hôte, utilisateur…").
+        for table in (
+            self.database_table, self.ftp_table, self.smtp_table,
+            self.ssh_table, self.kerberos_table, self.elevation_table,
+        ):
+            _filter_table_rows(table, text, columns=[1, 2])
 
     # ── Refresh ──────────────────────────────────
 
@@ -311,6 +276,27 @@ class ConnectionsView(QWidget):
         self._refresh_kerberos()
         self._refresh_elevation()
         self._on_search_changed(self.inp_search.text())
+        if self._eyebrow_lbl is not None:
+            self._eyebrow_lbl.setText(self._compute_eyebrow_text())
+
+    def _compute_eyebrow_text(self) -> str:
+        """A2 : surtitre dynamique, compté sur les 7 listes déjà chargées par refresh() — aucune
+        nouvelle fonction de données, juste un comptage côté vue sur last_test_success
+        (False -> échec, None -> jamais testée)."""
+        from database import db_manager as db
+
+        successes = [p.get("last_test_success") for p in db.list_all_db_profiles()]
+        for getter in (db.get_ftp_profiles, db.get_smtp_profiles, db.get_ssh_profiles,
+                       db.get_kerberos_profiles, db.get_elevation_profiles):
+            successes.extend(p.last_test_success for p in getter())
+
+        n = len(successes)
+        n_fail = sum(1 for s in successes if s is False)
+        n_never = sum(1 for s in successes if s is None)
+        return (
+            f"{n} CONNEXION{'S' if n != 1 else ''} · {n_fail} EN ÉCHEC · "
+            f"{n_never} JAMAIS TESTÉE{'S' if n_never != 1 else ''}"
+        )
 
     def _refresh_databases(self):
         from database import db_manager as db
@@ -321,15 +307,26 @@ class ConnectionsView(QWidget):
         self.database_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
             type_label = DB_TYPE_META.get(p["db_type"], {}).get("label", p["db_type"])
-            cells = [p["name"], type_label, p["host"], str(p["port"]), p["username"]]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.database_table.setItem(r_idx, c_idx, item)
+            icon_key = "oracle" if p["db_type"] == "ORACLE" else "database"
+            self.database_table.setCellWidget(r_idx, 0, _type_icon_badge(icon_key))
             self.database_table.setCellWidget(
-                r_idx, 5, _health_badge(p.get("last_test_success"), p.get("last_tested_at"))
-            )
-            self.database_table.setCellWidget(r_idx, 6, _connection_indicator(p.get("last_test_success")))
+                r_idx, 1, _two_line_cell(p["name"], COLORS["text_main"], type_label))
+            self.database_table.setCellWidget(r_idx, 2, _two_line_cell(
+                f"{p['host']}:{p['port']}", COLORS["text_main"], p["username"], mono_main=True))
+            self.database_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.get("last_test_success"), p.get("last_tested_at")))
+
+            used_by = db.find_pipelines_using_db_profile(p["db_type"], p["id"])
+            if p["db_type"] == "ORACLE":
+                # Steps SQOOP_EXPORT/SQOOP_IMPORT référencent le profil Oracle sous la clé
+                # "oracle_profile_id" (sans "db_type"), jamais vus par find_pipelines_using_db_profile
+                # seul (correctif K1) — même union déjà appliquée par _on_delete_database, reprise
+                # ici pour que le comptage affiché reste cohérent avec l'avertissement affiché à
+                # la suppression.
+                used_by = sorted(set(used_by) |
+                                  set(db.find_pipelines_using_profile("oracle_profile_id", p["id"])))
+            self.database_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid, dtype = p["id"], p["db_type"]
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -337,8 +334,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid, t=dtype: self._on_edit_database(i, t))
             btn_del.clicked.connect(lambda _, i=pid, t=dtype: self._on_delete_database(i, t))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.database_table.setCellWidget(r_idx, 7, w)
-            self.database_table.setRowHeight(r_idx, 44)
+            self.database_table.setCellWidget(r_idx, 5, w)
+            self.database_table.setRowHeight(r_idx, 46)
 
     def _refresh_ftp(self):
         from database import db_manager as db
@@ -348,13 +345,16 @@ class ConnectionsView(QWidget):
         self.ftp_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
             protocol = _status_str(p.protocol)
-            cells = [p.name, p.host, str(p.port), protocol, p.username]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.ftp_table.setItem(r_idx, c_idx, item)
-            self.ftp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
-            self.ftp_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
+            self.ftp_table.setCellWidget(r_idx, 0, _type_icon_badge("ftp"))
+            self.ftp_table.setCellWidget(
+                r_idx, 1, _two_line_cell(p.name, COLORS["text_main"], protocol))
+            self.ftp_table.setCellWidget(r_idx, 2, _two_line_cell(
+                f"{p.host}:{p.port}", COLORS["text_main"], p.username, mono_main=True))
+            self.ftp_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.last_test_success, p.last_tested_at))
+            used_by = db.find_pipelines_using_profile("ftp_profile_id", p.id)
+            self.ftp_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -362,8 +362,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ftp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ftp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ftp_table.setCellWidget(r_idx, 7, w)
-            self.ftp_table.setRowHeight(r_idx, 44)
+            self.ftp_table.setCellWidget(r_idx, 5, w)
+            self.ftp_table.setRowHeight(r_idx, 46)
 
     def _refresh_smtp(self):
         from database import db_manager as db
@@ -372,14 +372,17 @@ class ConnectionsView(QWidget):
         self._smtp_empty.setVisible(not profiles)
         self.smtp_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            security = "STARTTLS" if p.use_tls else "Aucune"
-            cells = [p.name, p.host, str(p.port), security, p.from_address]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.smtp_table.setItem(r_idx, c_idx, item)
-            self.smtp_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
-            self.smtp_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
+            security = "SMTP · STARTTLS" if p.use_tls else "SMTP · Aucune"
+            self.smtp_table.setCellWidget(r_idx, 0, _type_icon_badge("smtp"))
+            self.smtp_table.setCellWidget(
+                r_idx, 1, _two_line_cell(p.name, COLORS["text_main"], security))
+            self.smtp_table.setCellWidget(r_idx, 2, _two_line_cell(
+                f"{p.host}:{p.port}", COLORS["text_main"], p.from_address, mono_main=True))
+            self.smtp_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.last_test_success, p.last_tested_at))
+            used_by = db.find_pipelines_using_profile("smtp_profile_id", p.id)
+            self.smtp_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -387,8 +390,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_smtp(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_smtp(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.smtp_table.setCellWidget(r_idx, 7, w)
-            self.smtp_table.setRowHeight(r_idx, 44)
+            self.smtp_table.setCellWidget(r_idx, 5, w)
+            self.smtp_table.setRowHeight(r_idx, 46)
 
     def _refresh_ssh(self):
         from database import db_manager as db
@@ -398,14 +401,31 @@ class ConnectionsView(QWidget):
         self._ssh_empty.setVisible(not profiles)
         self.ssh_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            via = name_by_id.get(p.jump_via_id, "—") if p.jump_via_id else "—"
-            cells = [p.name, p.host, str(p.port), p.username, via]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.ssh_table.setItem(r_idx, c_idx, item)
-            self.ssh_table.setCellWidget(r_idx, 5, _health_badge(p.last_test_success, p.last_tested_at))
-            self.ssh_table.setCellWidget(r_idx, 6, _connection_indicator(p.last_test_success))
+            self.ssh_table.setCellWidget(r_idx, 0, _type_icon_badge("ssh"))
+            self.ssh_table.setCellWidget(
+                r_idx, 1, _two_line_cell(p.name, COLORS["text_main"], "SSH"))
+
+            # A4 : la 2e ligne de la Cible montre la relation de bastion quand il y en a une
+            # (jamais les deux à la fois sur la maquette — un profil qui passe par un bastion n'y
+            # est en pratique pas lui-même utilisé comme bastion) ; sinon l'utilisateur, comme
+            # avant.
+            if p.jump_via_id and p.jump_via_id in name_by_id:
+                sub_text, sub_color = f"via {name_by_id[p.jump_via_id]}", COLORS["relation"]
+            else:
+                bastion_of = [other.name for other in profiles if other.jump_via_id == p.id]
+                if bastion_of:
+                    sub_text = f"bastion de {', '.join(bastion_of)}"
+                    sub_color = COLORS["relation"]
+                else:
+                    sub_text, sub_color = p.username, None
+            self.ssh_table.setCellWidget(r_idx, 2, _two_line_cell(
+                f"{p.host}:{p.port}", COLORS["text_main"], sub_text, sub_color, mono_main=True))
+
+            self.ssh_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.last_test_success, p.last_tested_at))
+            used_by = db.find_pipelines_using_profile("edge_profile_id", p.id)
+            self.ssh_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -413,8 +433,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_ssh(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_ssh(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.ssh_table.setCellWidget(r_idx, 7, w)
-            self.ssh_table.setRowHeight(r_idx, 44)
+            self.ssh_table.setCellWidget(r_idx, 5, w)
+            self.ssh_table.setRowHeight(r_idx, 46)
 
     def _refresh_kerberos(self):
         from database import db_manager as db
@@ -423,13 +443,17 @@ class ConnectionsView(QWidget):
         self._kerberos_empty.setVisible(not profiles)
         self.kerberos_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            cells = [p.name, p.principal]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.kerberos_table.setItem(r_idx, c_idx, item)
-            self.kerberos_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
-            self.kerberos_table.setCellWidget(r_idx, 3, _connection_indicator(p.last_test_success))
+            self.kerberos_table.setCellWidget(r_idx, 0, _type_icon_badge("kerberos"))
+            self.kerberos_table.setCellWidget(
+                r_idx, 1, _two_line_cell(p.name, COLORS["text_main"], "Kerberos"))
+            # Pas d'hôte/port/utilisateur pour ce type — une seule ligne de Cible (le principal).
+            self.kerberos_table.setCellWidget(
+                r_idx, 2, _two_line_cell(p.principal, COLORS["text_main"], mono_main=True))
+            self.kerberos_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.last_test_success, p.last_tested_at))
+            used_by = db.find_pipelines_using_profile("kerberos_profile_id", p.id)
+            self.kerberos_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -437,8 +461,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_kerberos(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_kerberos(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.kerberos_table.setCellWidget(r_idx, 4, w)
-            self.kerberos_table.setRowHeight(r_idx, 44)
+            self.kerberos_table.setCellWidget(r_idx, 5, w)
+            self.kerberos_table.setRowHeight(r_idx, 46)
 
     def _refresh_elevation(self):
         from database import db_manager as db
@@ -447,13 +471,16 @@ class ConnectionsView(QWidget):
         self._elevation_empty.setVisible(not profiles)
         self.elevation_table.setRowCount(len(profiles))
         for r_idx, p in enumerate(profiles):
-            cells = [p.name, p.target_user]
-            for c_idx, cell in enumerate(cells):
-                item = QTableWidgetItem(cell)
-                item.setForeground(QColor(COLORS["text_main"]))
-                self.elevation_table.setItem(r_idx, c_idx, item)
-            self.elevation_table.setCellWidget(r_idx, 2, _health_badge(p.last_test_success, p.last_tested_at))
-            self.elevation_table.setCellWidget(r_idx, 3, _connection_indicator(p.last_test_success))
+            self.elevation_table.setCellWidget(r_idx, 0, _type_icon_badge("elevation"))
+            self.elevation_table.setCellWidget(
+                r_idx, 1, _two_line_cell(p.name, COLORS["text_main"], "Élévation"))
+            self.elevation_table.setCellWidget(r_idx, 2, _two_line_cell(
+                f"sudo su {p.target_user}", COLORS["text_main"], mono_main=True))
+            self.elevation_table.setCellWidget(
+                r_idx, 3, _last_test_cell(p.last_test_success, p.last_tested_at))
+            used_by = db.find_pipelines_using_profile("elevation_profile_id", p.id)
+            self.elevation_table.setCellWidget(r_idx, 4, self._usage_label(used_by))
+
             pid = p.id
             w = QWidget(); hl = QHBoxLayout(w); hl.setContentsMargins(4, 4, 4, 4); hl.setSpacing(4)
             btn_edit = _action_btn("fa5s.pencil-alt", object_name="secondary", tooltip="Modifier")
@@ -461,8 +488,8 @@ class ConnectionsView(QWidget):
             btn_edit.clicked.connect(lambda _, i=pid: self._on_edit_elevation(i))
             btn_del.clicked.connect(lambda _, i=pid: self._on_delete_elevation(i))
             hl.addWidget(btn_edit); hl.addWidget(btn_del); hl.addStretch()
-            self.elevation_table.setCellWidget(r_idx, 4, w)
-            self.elevation_table.setRowHeight(r_idx, 44)
+            self.elevation_table.setCellWidget(r_idx, 5, w)
+            self.elevation_table.setRowHeight(r_idx, 46)
 
     # ── Callbacks ────────────────────────────────
 
@@ -503,8 +530,13 @@ class ConnectionsView(QWidget):
             # Oracle utilisé uniquement par des steps Sqoop ne prévenait jamais l'utilisateur
             # (correctif K1, docs/refonte/LOTS.md).
             used_by = sorted(set(used_by) | set(db.find_pipelines_using_profile("oracle_profile_id", profile_id)))
+            p = db.get_oracle_profile(profile_id)
+            name = p.name if p else str(profile_id)
+        else:
+            p = db.get_database_profile(profile_id)
+            name = p.name if p else str(profile_id)
         label = DB_TYPE_META.get(db_type, {}).get("label", db_type)
-        if not self._confirm_delete(label, used_by):
+        if not self._confirm_delete(label, name, used_by):
             return
         if db_type == "ORACLE":
             db.delete_oracle_profile(profile_id)
@@ -527,8 +559,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_ftp(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_ftp_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("ftp_profile_id", profile_id)
-        if not self._confirm_delete("FTP", used_by):
+        if not self._confirm_delete("FTP", name, used_by):
             return
         db.delete_ftp_profile(profile_id)
         self._refresh_ftp()
@@ -548,8 +582,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_smtp(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_smtp_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("smtp_profile_id", profile_id)
-        if not self._confirm_delete("SMTP", used_by):
+        if not self._confirm_delete("SMTP", name, used_by):
             return
         db.delete_smtp_profile(profile_id)
         self._refresh_smtp()
@@ -569,9 +605,11 @@ class ConnectionsView(QWidget):
 
     def _on_delete_ssh(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_ssh_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("edge_profile_id", profile_id)
         bastion_users = db.find_ssh_profiles_using_as_bastion(profile_id)
-        if not self._confirm_delete("SSH", used_by, bastion_users=bastion_users):
+        if not self._confirm_delete("SSH", name, used_by, bastion_users=bastion_users):
             return
         db.delete_ssh_profile(profile_id)
         self._refresh_ssh()
@@ -591,8 +629,10 @@ class ConnectionsView(QWidget):
 
     def _on_delete_kerberos(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_kerberos_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("kerberos_profile_id", profile_id)
-        if not self._confirm_delete("Kerberos", used_by):
+        if not self._confirm_delete("Kerberos", name, used_by):
             return
         db.delete_kerberos_profile(profile_id)
         self._refresh_kerberos()
@@ -612,30 +652,18 @@ class ConnectionsView(QWidget):
 
     def _on_delete_elevation(self, profile_id: int):
         from database import db_manager as db
+        p = db.get_elevation_profile(profile_id)
+        name = p.name if p else str(profile_id)
         used_by = db.find_pipelines_using_profile("elevation_profile_id", profile_id)
-        if not self._confirm_delete("d'élévation", used_by):
+        if not self._confirm_delete("d'élévation", name, used_by):
             return
         db.delete_elevation_profile(profile_id)
         self._refresh_elevation()
 
-    def _confirm_delete(self, profile_kind: str, used_by: list,
+    def _confirm_delete(self, profile_kind: str, profile_name: str, used_by: list,
                          bastion_users: list | None = None) -> bool:
-        """Confirmation de suppression — avertit si des pipelines utilisent ce profil, et (pour
-        un profil SSH) si d'autres profils SSH l'utilisent comme bastion."""
-        lines = []
-        if used_by:
-            names = ", ".join(used_by)
-            lines.append(f"utilisé par {len(used_by)} pipeline(s) : {names}")
-        if bastion_users:
-            names = ", ".join(bastion_users)
-            lines.append(f"utilisé comme bastion par {len(bastion_users)} profil(s) SSH : {names}"
-                          " (ils repasseront en connexion directe)")
-        if lines:
-            msg = (
-                f"Ce profil {profile_kind} est " + " et ".join(lines) + ".\n\n"
-                f"Le(s) supprimer quand même ? Ces pipelines échoueront à leur prochaine exécution."
-            )
-        else:
-            msg = f"Supprimer ce profil {profile_kind} ?"
-        reply = QMessageBox.question(self, "Supprimer", msg, QMessageBox.Yes | QMessageBox.No)
-        return reply == QMessageBox.Yes
+        """Confirmation de suppression (A11) — avertit si des pipelines utilisent ce profil, et
+        (pour un profil SSH) si d'autres profils SSH l'utilisent comme bastion."""
+        from ui.dialogs import ConnectionDeleteDialog
+        dlg = ConnectionDeleteDialog(self, profile_kind, profile_name, used_by, bastion_users)
+        return dlg.exec() == QDialog.Accepted

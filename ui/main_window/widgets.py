@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal, QPropertyAnimation, QEasingCurve, QRectF, QPointF, QEvent
 from PySide6.QtGui import QIcon, QPainter, QFont, QPen, QColor, QBrush, QPainterPath
 from ui.styles import COLORS, FONT_MONO, FONT_UI, FONT_MONO_STACK, FONT_UI_STACK, FONT_SIZES
+from ui.time_display import fmt_relative
 
 
 # ──────────────────────────────────────────────
@@ -107,8 +108,10 @@ def _configure_columns(table: QTableWidget, stretch_cols: set) -> None:
 
 def _filter_table_rows(table: QTableWidget, needle: str, columns: list) -> None:
     """Cache les lignes qui ne contiennent pas `needle` (insensible à la casse)
-    dans les colonnes indiquées — fonctionne pour les cellules texte (QTableWidgetItem)
-    et les badges (QLabel en cellWidget)."""
+    dans les colonnes indiquées — fonctionne pour les cellules texte (QTableWidgetItem),
+    les badges (QLabel en cellWidget) et les cellules composites à plusieurs lignes (refonte,
+    lot A-Connexions, `_two_line_cell`/`_last_test_cell` : cherche dans tous leurs QLabel
+    enfants)."""
     needle = needle.strip().lower()
     for row in range(table.rowCount()):
         if not needle:
@@ -119,10 +122,12 @@ def _filter_table_rows(table: QTableWidget, needle: str, columns: list) -> None:
             item = table.item(row, col)
             if item:
                 haystack.append(item.text().lower())
-            else:
-                w = table.cellWidget(row, col)
-                if isinstance(w, QLabel):
-                    haystack.append(w.text().lower())
+                continue
+            w = table.cellWidget(row, col)
+            if isinstance(w, QLabel):
+                haystack.append(w.text().lower())
+            elif w is not None:
+                haystack.extend(lbl.text().lower() for lbl in w.findChildren(QLabel))
         table.setRowHidden(row, needle not in " ".join(haystack))
 
 
@@ -911,6 +916,140 @@ def _make_status_badge(text: str, object_name: str) -> QLabel:
 
 def _status_str(val) -> str:
     return val.value if hasattr(val, "value") else str(val or "IDLE")
+
+
+# ──────────────────────────────────────────────
+#  CONNEXIONS (refonte, lot A-Connexions) — icône/couleur par type, cellules composites
+#  partagées par connections_view.py (A3/A5/A7), les 7 dialogues de profil (A8) et le bilan de
+#  santé (A10) : un seul endroit pour le mapping type -> (icône, couleur), au lieu de le
+#  dupliquer dans chaque consommateur.
+# ──────────────────────────────────────────────
+
+_TYPE_ICON = {
+    "oracle":    ("fa5s.database",     "signal_pale"),
+    "database":  ("fa5s.database",     "signal_pale"),
+    "ftp":       ("fa5s.folder-open",  "family_files"),
+    "smtp":      ("fa5s.envelope",     "family_notification"),
+    "ssh":       ("fa5s.terminal",     "family_bigdata"),
+    "kerberos":  ("fa5s.key",          "family_bigdata"),
+    "elevation": ("fa5s.user-shield",  "family_bigdata"),
+}
+
+# Au-delà de ce nombre de jours sans nouveau test, un profil est signalé comme à revérifier
+# (chantier identité, vague 1, idée 11 ; refonte lot A-Connexions, A5).
+_STALE_AFTER_DAYS = 30
+
+
+def _type_icon_badge(category: str, size: int = 30) -> QLabel:
+    """Pastille d'icône de famille (A7) — `category` une des clés de `_TYPE_ICON` ci-dessus."""
+    icon_name, color_key = _TYPE_ICON.get(category, ("fa5s.plug", "text_muted"))
+    lbl = QLabel()
+    lbl.setFixedSize(size, size)
+    lbl.setAlignment(Qt.AlignCenter)
+    lbl.setStyleSheet(
+        f"background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
+        f"border-radius: 7px;"
+    )
+    icon = _icon(icon_name, COLORS[color_key])
+    if icon:
+        lbl.setPixmap(icon.pixmap(int(size * 0.55), int(size * 0.55)))
+    return lbl
+
+
+def _two_line_cell(main_text: str, main_color: str, sub_text: str = "", sub_color: str = None,
+                    mono_main: bool = False) -> QWidget:
+    """Cellule à deux niveaux (A3/A5) : ligne principale 14px + sous-ligne 11.5px — remplace les
+    colonnes auparavant séparées (Nom/Type, Hôte+Port/Utilisateur) des 6 tableaux de Connexions.
+    `sub_text` vide -> pas de seconde ligne (ex. Kerberos/Élévation, qui n'ont pas de second
+    niveau d'info)."""
+    cell = QWidget()
+    cell.setStyleSheet("background: transparent; border: none;")
+    layout = QVBoxLayout(cell)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+
+    main_font = f"font-family: {FONT_MONO_STACK}; " if mono_main else ""
+    main_lbl = QLabel(main_text)
+    main_lbl.setStyleSheet(
+        f"{main_font}font-size: 14px; font-weight: 600; color: {main_color}; "
+        f"background: transparent; border: none;"
+    )
+    layout.addWidget(main_lbl)
+
+    if sub_text:
+        sub_lbl = QLabel(sub_text)
+        sub_lbl.setStyleSheet(
+            f"font-size: 11.5px; color: {sub_color or COLORS['text_dim']}; "
+            f"background: transparent; border: none;"
+        )
+        layout.addWidget(sub_lbl)
+
+    return cell
+
+
+def _status_dot_row(text: str, color: str, dashed: bool = False) -> QWidget:
+    """Point coloré + mot (jamais la couleur seule) sur une seule ligne — extrait de
+    `_last_test_cell` (A5) pour être réutilisé tel quel par le bilan de santé (A10), où le statut
+    et l'heure relative sont deux colonnes séparées plutôt que deux lignes empilées d'une même
+    cellule. `dashed` : contour pointillé plutôt que rempli (ex. « jamais testé »)."""
+    row = QWidget()
+    row.setStyleSheet("background: transparent; border: none;")
+    layout = QHBoxLayout(row)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(6)
+    dot = QLabel()
+    dot.setFixedSize(7, 7)
+    dot.setStyleSheet(
+        f"border-radius: 3px; border: 1.5px dashed {color}; background: transparent;" if dashed
+        else f"border-radius: 3px; background: {color};"
+    )
+    layout.addWidget(dot)
+    word = QLabel(text)
+    word.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {color}; border: none;")
+    layout.addWidget(word)
+    layout.addStretch()
+    return row
+
+
+def _last_test_cell(success, last_tested_at=None) -> QWidget:
+    """Colonne « Dernier test » (A5) — point coloré + mot (jamais la couleur seule) puis, sur une
+    seconde ligne VISIBLE (pas une infobulle, contrairement à l'ancien `_health_badge` qu'elle
+    remplace dans les tableaux de cette vue), l'heure relative (`fmt_relative`, FONDATIONS §4,
+    citée par la fiche pour cet item) — en `warning` avec le suffixe « · à retester » au-delà de
+    `_STALE_AFTER_DAYS` jours, comme avant mais visible plutôt qu'en infobulle."""
+    if success is True:
+        text, color = "OK", COLORS["success"]
+    elif success is False:
+        text, color = "Échec", COLORS["danger"]
+    else:
+        text, color = "Jamais testé", COLORS["text_dim"]
+
+    cell = QWidget()
+    cell.setStyleSheet("background: transparent; border: none;")
+    layout = QVBoxLayout(cell)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(2)
+    layout.addWidget(_status_dot_row(text, color, dashed=success is None))
+
+    is_stale = False
+    if last_tested_at is not None:
+        from datetime import datetime, timezone
+        age_days = (datetime.now(timezone.utc).replace(tzinfo=None) - last_tested_at).days
+        is_stale = age_days > _STALE_AFTER_DAYS
+        sub_text = fmt_relative(last_tested_at) + (" · à retester" if is_stale else "")
+        sub = QLabel(sub_text)
+        sub.setStyleSheet(
+            f"font-size: 11px; color: {COLORS['warning'] if is_stale else COLORS['text_dim']}; "
+            f"border: none;"
+        )
+        layout.addWidget(sub)
+
+    if is_stale:
+        effect = QGraphicsOpacityEffect(cell)
+        effect.setOpacity(0.62)
+        cell.setGraphicsEffect(effect)
+
+    return cell
 
 
 def _ordered_with_chains(pipelines) -> list:

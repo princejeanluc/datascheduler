@@ -6,23 +6,13 @@ chaque profil (Oracle/base de données/FTP/SMTP), avec un bouton pour tout retes
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QTableWidget, QTableWidgetItem, QAbstractItemView,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtGui import QColor
-from ui.styles import COLORS, DIALOG_STYLE
-from ui.time_display import fmt_datetime
-from ui.main_window.widgets import _configure_columns
-
-_CATEGORY_LABELS = {
-    "oracle":   "Oracle",
-    "database": "Base de données",
-    "ftp":      "FTP",
-    "smtp":     "SMTP",
-    "ssh":      "SSH",
-    "kerberos": "Kerberos",
-}
-
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
+from ui.time_display import fmt_relative
+from ui.main_window.widgets import _configure_columns, _type_icon_badge, _status_dot_row
 
 def _collect_profiles() -> list[dict]:
     from database import db_manager as db
@@ -140,7 +130,9 @@ class ConnectionHealthDialog(QDialog):
         self._thread = None
         self._rows: list[dict] = []
         self.setWindowTitle("Bilan de santé des connexions")
-        self.setMinimumSize(620, 460)
+        # A10 : élargi (620 -> 720) — le message (auparavant seulement en infobulle) est
+        # maintenant visible en permanence, dans sa propre colonne à côté du nom et de l'heure.
+        self.setMinimumSize(720, 460)
         self.setStyleSheet(DIALOG_STYLE)
         self._build_ui()
         self._load_rows()
@@ -150,27 +142,51 @@ class ConnectionHealthDialog(QDialog):
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(14)
 
+        # A10 : surtitre + titre + sous-titre (même patron que les autres en-têtes de dialogue
+        # restylés) — remplace l'unique QLabel "Bilan de santé des connexions" d'avant ce lot.
+        title_col = QVBoxLayout()
+        title_col.setSpacing(4)
+        eyebrow = QLabel("BILAN DE SANTÉ")
+        eyebrow.setStyleSheet(
+            f"font-family: {FONT_MONO}; font-size: 10px; letter-spacing: 0.06em; "
+            f"color: {COLORS['text_dim']};"
+        )
+        title_col.addWidget(eyebrow)
+        title = QLabel("Test de toutes les connexions")
+        title.setStyleSheet(f"font-size: 17px; font-weight: 600; color: {COLORS['text_main']};")
+        title_col.addWidget(title)
+        subtitle = QLabel("Les connexions sont testées une par une, sans rien écrire ni lancer.")
+        subtitle.setStyleSheet(f"font-size: 12px; color: {COLORS['text_dim']};")
+        title_col.addWidget(subtitle)
+
         header = QHBoxLayout()
-        title = QLabel("Bilan de santé des connexions")
-        title.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        header.addWidget(title); header.addStretch()
+        header.addLayout(title_col); header.addStretch()
         self.btn_test_all = QPushButton("Tester tout")
         self.btn_test_all.setFixedHeight(32)
         self.btn_test_all.clicked.connect(self._on_test_all)
-        header.addWidget(self.btn_test_all)
+        header.addWidget(self.btn_test_all, alignment=Qt.AlignTop)
         root.addLayout(header)
 
         sep = QFrame(); sep.setFrameShape(QFrame.HLine)
         sep.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
         root.addWidget(sep)
 
-        self.table = QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["Catégorie", "Nom", "Dernier test", "Statut"])
+        # A10 : icône de type (remplace la colonne "Catégorie" en texte) / Nom / Statut (point +
+        # mot, même vocabulaire que A5 — jamais _health_badge/émoji) / Message en clair (plus
+        # seulement en infobulle) / heure relative (plus `fmt_datetime` absolu).
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["", "Nom", "Statut", "Message", "Dernier test"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        _configure_columns(self.table, stretch_cols={1})
+        _configure_columns(self.table, stretch_cols={3})
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
+        self.table.setColumnWidth(0, 36)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        self.table.setColumnWidth(2, 110)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table.setColumnWidth(4, 110)
         root.addWidget(self.table, stretch=1)
 
         btn_row = QHBoxLayout(); btn_row.addStretch()
@@ -189,27 +205,34 @@ class ConnectionHealthDialog(QDialog):
 
     def _render_row(self, row_idx: int, last_tested_at, last_test_success, message: str = None):
         row = self._rows[row_idx]
-        cells = [
-            _CATEGORY_LABELS.get(row["category"], row["category"]),
-            row["name"],
-            fmt_datetime(last_tested_at) if last_tested_at else "Jamais testé",
-        ]
-        for c_idx, cell in enumerate(cells):
-            item = QTableWidgetItem(cell)
-            item.setForeground(QColor(COLORS["text_main"]))
-            self.table.setItem(row_idx, c_idx, item)
+        self.table.setCellWidget(row_idx, 0, _type_icon_badge(row["category"], size=26))
 
-        if last_test_success is None:
-            status_text, color = "—", COLORS["text_dim"]
-        elif last_test_success:
-            status_text, color = "✅ OK", COLORS["success"]
+        name_item = QTableWidgetItem(row["name"])
+        name_item.setForeground(QColor(COLORS["text_main"]))
+        self.table.setItem(row_idx, 1, name_item)
+
+        if row["category"] == "kerberos":
+            # Jamais testable en masse (voir _test_one) — même texte que la maquette, quel que
+            # soit le dernier résultat persisté (toujours None pour ce type en pratique).
+            status_text, color, dashed = "non testable ici", COLORS["text_dim"], False
+        elif last_test_success is True:
+            status_text, color, dashed = "OK", COLORS["success"], False
+        elif last_test_success is False:
+            status_text, color, dashed = "Échec", COLORS["danger"], False
         else:
-            status_text, color = "❌ Échec", COLORS["danger"]
-        status_item = QTableWidgetItem(status_text)
-        status_item.setForeground(QColor(color))
-        if message:
-            status_item.setToolTip(message)
-        self.table.setItem(row_idx, 3, status_item)
+            status_text, color, dashed = "Jamais testé", COLORS["text_dim"], True
+        self.table.setCellWidget(row_idx, 2, _status_dot_row(status_text, color, dashed=dashed))
+
+        message_item = QTableWidgetItem(message or "")
+        message_item.setForeground(QColor(COLORS["text_dim"]))
+        message_item.setFont(QFont(FONT_MONO, 10))
+        self.table.setItem(row_idx, 3, message_item)
+
+        time_item = QTableWidgetItem(fmt_relative(last_tested_at) if last_tested_at else "—")
+        time_item.setForeground(QColor(COLORS["text_dim"]))
+        time_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.table.setItem(row_idx, 4, time_item)
+
         self.table.setRowHeight(row_idx, 36)
 
     def _on_test_all(self):

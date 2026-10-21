@@ -411,6 +411,107 @@ def _pipelines_view_suppression():
     return PipelineDeleteDialog(None, parent, dependents, db.count_runs(parent.id))
 
 
+def _connections_view():
+    """Connexions : les 7 types de profils, avec un échec, un jamais testé, un lien de bastion
+    SSH (A4) et une estompe « à retester » (A5) — critère d'acceptation de la fiche."""
+    from datetime import datetime, timedelta
+    from database.models import OracleProfile
+    from ui.main_window.connections_view import ConnectionsView
+
+    ora = db.create_oracle_profile(
+        name="Oracle CRM_PROD", host="crm-db01.interne", port=1521, service_name="CRMP",
+        username="svc_kulu", password="pw",
+    )
+    db.record_profile_test_result("oracle", ora.id, False)
+    with db.get_session() as s:
+        s.get(OracleProfile, ora.id).last_tested_at = datetime.utcnow()
+
+    ref = db.create_database_profile(
+        name="Postgres REF", db_type="POSTGRESQL", host="ref.interne", port=5432,
+        username="etl_writer", password="pw", database_name="referentiel",
+    )
+    db.record_profile_test_result("database", ref.id, True)
+    with db.get_session() as s:
+        from database.models import DatabaseProfile
+        s.get(DatabaseProfile, ref.id).last_tested_at = datetime.utcnow() - timedelta(days=41)
+
+    sftp = db.create_ftp_profile(
+        name="SFTP Partenaire", host="sftp.partner.fr", port=22, protocol="SFTP",
+        username="kulu_partner", password="pw",
+    )   # jamais testé — délibérément sans record_profile_test_result
+
+    db.create_smtp_profile(
+        name="SMTP Interne", host="smtp.interne", port=587, use_tls=True,
+        from_address="kulu@entreprise.fr",
+    )
+
+    bastion = db.create_ssh_profile(
+        name="Bastion DMZ", host="bastion.dmz", port=22, username="kulu", password="pw",
+    )
+    db.record_profile_test_result("ssh", bastion.id, True)
+    edge = db.create_ssh_profile(
+        name="Edge Hadoop", host="edge01.hadoop", port=22, username="kulu", password="pw",
+        jump_via_id=bastion.id,
+    )
+    db.record_profile_test_result("ssh", edge.id, True)
+
+    db.create_kerberos_profile(name="Kerberos KULU@HADOOP", principal="kulu@HADOOP.INTERNE", password="pw")
+    db.create_elevation_profile(name="sudo hdfs", target_user="hdfs", password="pw")
+
+    view = ConnectionsView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.refresh()
+    return view
+
+
+def _connections_view_formulaire():
+    """Connexions-formulaire : modification d'un profil FTP avec le bandeau d'échec affiché."""
+    from ui.dialogs import FtpDialog
+
+    p = db.create_ftp_profile(
+        name="SFTP Partenaire-form", host="sftp.partner.fr", port=22, protocol="SFTP",
+        username="kulu_partner", password="pw",
+    )
+    dlg = FtpDialog(None, profile=p)
+    dlg._on_test_result(False, "Authentication failed for user kulu_partner")
+    return dlg
+
+
+def _connections_view_sante():
+    """Connexions-sante : bilan de santé avec un échec, une réussite et un Kerberos "non
+    testable ici" (A10)."""
+    from ui.dialogs import ConnectionHealthDialog
+
+    ora = db.create_oracle_profile(
+        name="Oracle CRM_PROD-sante", host="crm-db01.interne", port=1521, service_name="CRMP",
+        username="svc_kulu", password="pw",
+    )
+    db.create_ftp_profile(
+        name="Partage ventes-sante", host="ftp.interne", port=990, protocol="FTPS",
+        username="kulu", password="pw",
+    )
+    db.create_kerberos_profile(name="Kerberos KULU@HADOOP-sante", principal="kulu@HADOOP.INTERNE", password="pw")
+
+    dlg = ConnectionHealthDialog(None)
+    row_ora = next(i for i, r in enumerate(dlg._rows) if r["id"] == ora.id)
+    dlg._on_row_tested(row_ora, False, "ORA-12541: TNS:no listener")
+    return dlg
+
+
+def _connections_view_suppression():
+    """Connexions-suppression : confirmation de suppression d'un SSH utilisé comme bastion,
+    avec un pipeline dépendant (A11)."""
+    from ui.dialogs import ConnectionDeleteDialog
+
+    pipeline = db.create_pipeline(name="depot-partenaire-hebdo-suppr")
+    return ConnectionDeleteDialog(
+        None, "SFTP", "SFTP Partenaire-suppr",
+        used_by=[pipeline.name], bastion_users=["Edge Hadoop-suppr"],
+    )
+
+
 def _history_backdate_run(run_id: int, days_ago: int, duration_seconds: int = 180):
     """db.finish_run() date toujours avec datetime.utcnow() — appelé APRÈS, pour replacer un run
     dans un groupe de jour plus ancien (A5 : AUJOURD'HUI/HIER/date) sans dupliquer sa logique de
@@ -581,6 +682,12 @@ REGISTRY = [
     ("historique-jour", _history_view_jour),
     ("historique-run", _history_view_run),
     ("historique-modifications", _history_view_modifications),
+    # Connexions-nouvelle/-detail non capturés : C4/C6, entièrement gated — voir
+    # docs/refonte/impact/a-connexions.md.
+    ("connexions", _connections_view),
+    ("connexions-formulaire", _connections_view_formulaire),
+    ("connexions-sante", _connections_view_sante),
+    ("connexions-suppression", _connections_view_suppression),
 ]
 
 
