@@ -111,4 +111,21 @@ commits de ce lot, aucune migration à défaire.
    elle seule aurait suffi au critère d'acceptation minimal.
 
 ## État final
-À compléter en fin de lot (version, nombre de tests, écarts constatés en capturant).
+- Repéré en capturant (`scripts/capture_views.py`) et corrigé dans la foulée : l'aperçu Mono
+  d'une carte (jusqu'à 80 caractères, non tronqué par un retour à la ligne) pouvait dépasser la
+  largeur du panneau et faire apparaître une barre de défilement horizontale native (non stylée
+  par `GLOBAL_STYLE`, qui ne couvre que `QScrollBar:vertical`) — désactivée, rognage silencieux
+  préféré ; `inp_name` affichait la fin d'un nom trop long au lieu de son début au chargement
+  d'une requête (`setCursorPosition(0)` ajouté). Les deux étaient des comportements préexistants,
+  non introduits par ce lot, mais directement liés aux widgets restylés (A3/A4).
+- `scripts/capture_views.py` : le champ « Nom » de `SqlQueryDialog` recevait à tort le focus
+  clavier (premier widget focusable après `.show()` sans parent, REGLES.md section 6 point 3) —
+  nettoyé explicitement dans la fabrique de capture `SQL-depuis-etape`, pas dans le dialogue
+  lui-même.
+- Suite complète (`python -m pytest tests -q`) : verte après chaque commit. Un crash Windows
+  (« access violation ») isolé est survenu une fois dans `test_pipelines_view_validation_panel.py`
+  lors d'une exécution de la suite complète, non reproductible en relançant ce fichier seul ni la
+  suite complète une seconde fois — même classe de flake Qt/Windows non déterministe déjà
+  rencontrée et documentée dans les lots précédents (ex. `test_connection_health.py` lors du lot
+  A-Connexions), sans rapport avec les fichiers modifiés par ce lot.
+- Version : `0.52.0` → `0.53.0` (MINOR — nouvel écran aligné, aucune rupture de compatibilité).
