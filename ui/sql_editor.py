@@ -217,7 +217,8 @@ class _FindBar(QFrame):
         self.inp_find.setStyleSheet(self._input_style())
         self.lbl_count = QLabel("0/0")
         self.lbl_count.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_muted']}; font-size: 10.5px;"
+            f"background: transparent; color: {COLORS['text_dim']}; font-size: 10.5px; "
+            f"font-family: {FONT_MONO};"
         )
         self.lbl_count.setFixedWidth(40)
         self.lbl_count.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
