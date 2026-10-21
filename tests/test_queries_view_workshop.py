@@ -344,3 +344,13 @@ def test_containers_use_qualified_stylesheet_selectors(qapp, test_db):
     card = view.list_widget.itemWidget(view.list_widget.item(0))
     assert card.objectName() == "queryCard"
     assert "#queryCard" in card.styleSheet()
+
+
+def test_icon_only_action_buttons_have_tooltips(qapp, test_db):
+    """A5 (Requêtes SQL) : Formater/Dupliquer/Importer/Exporter sont passés en boutons à icône
+    seule — sans infobulle, l'action de chacun ne serait plus devinable."""
+    from ui.main_window.queries_view import QueriesView
+
+    view = QueriesView()
+    for btn in (view.btn_format, view.btn_dup, view.btn_import, view.btn_export):
+        assert btn.toolTip().strip(), f"{btn.objectName()} : infobulle manquante"

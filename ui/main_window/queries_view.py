@@ -254,13 +254,17 @@ class QueriesView(QWidget):
         row2.addWidget(lbl_profile); row2.addWidget(self.cb_oracle)
         row2.addStretch()
 
-        self.btn_dup    = QPushButton("⧉ Dupliquer");     self.btn_dup.setObjectName("secondary")
-        self.btn_import = QPushButton("⇪ Importer .sql"); self.btn_import.setObjectName("secondary")
-        self.btn_export = QPushButton("⇩ Exporter .sql"); self.btn_export.setObjectName("secondary")
-        self.btn_format = QPushButton("✦ Formater");      self.btn_format.setObjectName("secondary")
+        self.btn_format = _action_btn("fa5s.magic", object_name="secondary",
+                                       tooltip="Formater", size=(30, 30))
+        self.btn_dup    = _action_btn("fa5s.clone", object_name="secondary",
+                                       tooltip="Dupliquer", size=(30, 30))
+        self.btn_import = _action_btn("fa5s.file-import", object_name="secondary",
+                                       tooltip="Importer un .sql", size=(30, 30))
+        self.btn_export = _action_btn("fa5s.file-export", object_name="secondary",
+                                       tooltip="Exporter en .sql", size=(30, 30))
         self.btn_save   = QPushButton("Enregistrer")
-        for b in (self.btn_dup, self.btn_import, self.btn_export, self.btn_format, self.btn_save):
-            b.setFixedHeight(30)
+        self.btn_save.setFixedHeight(30)
+        for b in (self.btn_format, self.btn_dup, self.btn_import, self.btn_export, self.btn_save):
             row2.addWidget(b)
         h_layout.addLayout(row2)
 
