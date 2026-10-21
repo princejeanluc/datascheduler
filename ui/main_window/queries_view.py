@@ -172,6 +172,13 @@ class QueriesView(QWidget):
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QAbstractItemView.NoSelection)
         self.list_widget.setFocusPolicy(Qt.NoFocus)
+        # L'aperçu SQL d'une carte (Mono, jusqu'à 80 caractères, non tronqué par un retour à la
+        # ligne — _QueryCard) peut dépasser la largeur du panneau : sans ceci, Qt affiche une
+        # barre de défilement horizontale native (non stylée par GLOBAL_STYLE, qui ne couvre que
+        # QScrollBar:vertical) — bug constaté en capturant. Un simple rognage silencieux à droite
+        # est préférable à cette barre, l'aperçu n'ayant de toute façon jamais vocation à montrer
+        # la requête en entier.
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet(
             "QListWidget { background: transparent; border: none; }"
             "QListWidget::item { border: none; padding: 0px; margin: 1px 0; }"
@@ -374,6 +381,7 @@ class QueriesView(QWidget):
             self._set_workshop_enabled(False)
             return
         self.inp_name.setText(q.name)
+        self.inp_name.setCursorPosition(0)   # sinon un nom long affiche sa fin, pas son début
         self.inp_desc.setText(q.description or "")
         self.editor.set_text(q.sql_text or "")
         if q.oracle_profile_id:
