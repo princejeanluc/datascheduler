@@ -29,6 +29,23 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.53.0] - 2026-10-21
+
+### Modifié
+- **Refonte, Lot A-Requetes-SQL** — l'atelier Requêtes SQL (`ui/main_window/queries_view.py`,
+  `ui/sql_editor.py`, `ui/dialogs/sql_query_dialog.py`) est aligné sur sa maquette validée :
+  en-tête de la bibliothèque avec surtitre dynamique (« N dans la bibliothèque », aide en italique
+  retirée), bouton « + Nouvelle requête » en secondaire bordé accent pleine largeur, carte de
+  requête restylée (tailles de police, bord gauche accent sur la carte active), Formater/
+  Dupliquer/Importer/Exporter passés en boutons à icône seule avec infobulle, couleurs de
+  l'éditeur SQL reprises dans `COLORS` (mots-clés, nouvelle catégorie fonctions, commentaires,
+  nombres — plus aucune couleur en dur), jetons `{…}` surlignés (y compris dans une chaîne SQL
+  ordinaire), liste de jetons de la barre d'état complétée avec l'ensemble réellement résolu par
+  `StepContext.resolve_tokens` (manquement « Jetons incomplets »), barre rechercher/remplacer
+  restylée, modale de création rapide enrichie d'un surtitre contextuel optionnel (« NOUVELLE
+  REQUÊTE · POUR L'ÉTAPE « X » DE Y ») câblé depuis les 3 dialogues d'étape concernés (DB_EXTRACT,
+  DB_EXECUTE, SPARK_SQL).
+
 ## [0.52.0] - 2026-10-20
 
 ### Modifié
