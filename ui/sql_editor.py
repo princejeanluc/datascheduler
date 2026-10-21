@@ -50,30 +50,54 @@ class SqlHighlighter(QSyntaxHighlighter):
         "ROWNUM", "ROWID", "CONNECT", "START", "PRIOR", "LEVEL",
     )
 
+    # Fonctions SQL courantes — catégorie distincte des mots-clés (refonte, lot A-Requetes-SQL,
+    # A6) : pas besoin d'exhaustivité, juste de couvrir les fonctions les plus utilisées pour que
+    # la distinction visuelle mots-clés/fonctions soit perceptible.
+    _FUNCTIONS = (
+        "TO_DATE", "TO_CHAR", "TO_NUMBER", "SUBSTR", "UPPER", "LOWER", "TRIM",
+        "COUNT", "SUM", "AVG", "MIN", "MAX", "COALESCE", "NVL", "CAST", "ROUND",
+    )
+
     def __init__(self, document):
         super().__init__(document)
 
         kw_fmt = QTextCharFormat()
-        kw_fmt.setForeground(QColor("#FF7900"))
+        kw_fmt.setForeground(QColor(COLORS["accent"]))
         kw_fmt.setFontWeight(700)
+
+        fn_fmt = QTextCharFormat()
+        fn_fmt.setForeground(QColor(COLORS["signal_pale"]))
 
         str_fmt = QTextCharFormat()
         str_fmt.setForeground(QColor(COLORS["sql_string"]))
 
         cmt_fmt = QTextCharFormat()
-        cmt_fmt.setForeground(QColor("#666666"))
+        cmt_fmt.setForeground(QColor(COLORS["text_muted"]))
         cmt_fmt.setFontItalic(True)
 
+        # Les nombres n'ont pas de couleur dédiée dans la fiche (A6) : réutilise le traitement des
+        # littéraux de chaîne plutôt qu'introduire une clé COLORS non demandée (écart documenté
+        # dans la note d'impact).
         num_fmt = QTextCharFormat()
-        num_fmt.setForeground(QColor("#b5cea8"))
+        num_fmt.setForeground(QColor(COLORS["sql_string"]))
+
+        # Jeton {...} (A7) : surligné même à l'intérieur d'une chaîne SQL ordinaire — appliqué en
+        # dernier dans self._rules pour gagner sur le format de chaîne déjà posé par setFormat.
+        token_fmt = QTextCharFormat()
+        token_fmt.setForeground(QColor(COLORS["accent_pale"]))
+        token_fmt.setBackground(QColor(COLORS["token_bg"]))
 
         self._rules = []
         for kw in self._KEYWORDS:
             pat = QRegularExpression(rf"\b{kw}\b", QRegularExpression.CaseInsensitiveOption)
             self._rules.append((pat, kw_fmt))
+        for fn in self._FUNCTIONS:
+            pat = QRegularExpression(rf"\b{fn}\b", QRegularExpression.CaseInsensitiveOption)
+            self._rules.append((pat, fn_fmt))
         self._rules.append((QRegularExpression(r"'[^']*'"), str_fmt))
         self._rules.append((QRegularExpression(r"--[^\n]*"),  cmt_fmt))
         self._rules.append((QRegularExpression(r"\b\d+(\.\d+)?\b"), num_fmt))
+        self._rules.append((QRegularExpression(r"\{[^{}]*\}"), token_fmt))
 
     def highlightBlock(self, text: str):
         for pattern, fmt in self._rules:

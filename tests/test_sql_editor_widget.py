@@ -165,6 +165,59 @@ def test_find_bar_count_label_has_transparent_background(qapp):
     assert "transparent" in w._find_bar.lbl_count.styleSheet()
 
 
+def test_no_hardcoded_hex_colors_in_sql_editor_module():
+    """A6 (Requêtes SQL) : critère d'acceptation explicite de la fiche — aucune couleur en dur
+    dans ui/sql_editor.py, tout passe par COLORS."""
+    import re
+    import ui.sql_editor as mod
+
+    with open(mod.__file__, "r", encoding="utf-8") as f:
+        source = f.read()
+    assert not re.findall(r"#[0-9a-fA-F]{6}", source)
+
+
+def _colors_at(widget, pos: int):
+    """Renvoie (couleur de texte, couleur de fond) appliquées par le highlighter à la position
+    `pos` (0-indexé, tout le texte tient sur un seul bloc dans ces tests) — extrait les couleurs
+    immédiatement : le QTextCharFormat d'un QTextLayout.FormatRange ne survit pas à la portée de
+    l'appel qui l'a produit (objet C++ libéré dès que le wrapper Python est collecté)."""
+    block = widget.editor.document().findBlock(pos)
+    offset = pos - block.position()
+    fg = bg = None
+    for rng in block.layout().formats():
+        if rng.start <= offset < rng.start + rng.length:
+            fg = rng.format.foreground().color().name().lower()
+            bg = rng.format.background().color().name().lower()
+    return fg, bg
+
+
+def test_tokens_are_highlighted_with_accent_and_token_background(qapp):
+    """A7 (Requêtes SQL) : un jeton {...} est surligné (texte accent_pale sur fond token_bg)."""
+    from ui.sql_editor import SqlEditorWidget
+    from ui.styles import COLORS
+
+    w = SqlEditorWidget()
+    w.set_text("SELECT {var:region}")
+    pos = w.text().index("{")
+    fg, bg = _colors_at(w, pos + 1)   # à l'intérieur du jeton
+    assert fg == COLORS["accent_pale"].lower()
+    assert bg == COLORS["token_bg"].lower()
+
+
+def test_tokens_are_highlighted_even_inside_an_ordinary_string(qapp):
+    """A7 : un jeton entre accolades à l'intérieur d'une chaîne SQL ordinaire suit la même règle
+    (acceptance criterion explicite de la fiche) — le format de jeton doit gagner sur le format de
+    chaîne pour ce fragment."""
+    from ui.sql_editor import SqlEditorWidget
+    from ui.styles import COLORS
+
+    w = SqlEditorWidget()
+    w.set_text("WHERE d = TO_DATE('{yyyy}-{MM}-{dd}', 'YYYY-MM-DD')")
+    pos = w.text().index("{yyyy}") + 1
+    fg, _bg = _colors_at(w, pos)
+    assert fg == COLORS["accent_pale"].lower()
+
+
 def test_close_bar_hides_and_clears_matches(qapp):
     from ui.sql_editor import SqlEditorWidget
 
