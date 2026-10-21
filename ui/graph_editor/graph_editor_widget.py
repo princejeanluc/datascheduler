@@ -482,6 +482,7 @@ class PipelineGraphEditorWidget(QWidget):
             # Lecture fraîche à chaque ouverture (jamais mise en cache) — une variable ajoutée
             # dans les Paramètres doit apparaître immédiatement dans "+ Variable".
             pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
+            pipeline_name=getattr(self._pipeline, "name", "") or "",
         )
         if config_dlg and config_dlg.exec():
             step = config_dlg.result_step()
@@ -505,6 +506,7 @@ class PipelineGraphEditorWidget(QWidget):
             timeout_s=step.get("timeout_s", 0),
             prior_steps=self._incoming_prior_steps(node),
             pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
+            pipeline_name=getattr(self._pipeline, "name", "") or "",
         )
         if config_dlg and config_dlg.exec():
             # prepareGeometryChange() avant de réassigner step : le nombre de faits affichés

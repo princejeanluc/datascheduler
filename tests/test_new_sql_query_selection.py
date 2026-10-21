@@ -30,8 +30,10 @@ class _FakeSqlQueryDialog:
         self._new_query_id = new_query_id
         self.result_query_id = None
 
-    def __call__(self, parent=None):
+    def __call__(self, parent=None, step_label=None, pipeline_name=None):
         self.result_query_id = self._new_query_id
+        self.received_step_label = step_label
+        self.received_pipeline_name = pipeline_name
         return self
 
     def exec(self):
@@ -52,6 +54,21 @@ def test_db_extract_selects_the_newly_created_query(qapp, test_db, monkeypatch):
     dlg = _DbExtractConfigDialog({}, None, "test-label")
     dlg._new_sql_query(dlg.cb_query)
     assert dlg.cb_query.currentData() == new_query.id
+
+
+def test_db_extract_passes_step_label_and_pipeline_name_to_modal(qapp, test_db, monkeypatch):
+    """A10 (Requêtes SQL) : la modale rapide reçoit le libellé de l'étape et le nom du pipeline
+    en cours d'édition, pour son surtitre contextuel (paramètres facultatifs)."""
+    from ui.step_editor.db_extract_config_dialog import _DbExtractConfigDialog
+
+    new_query = db.create_sql_query(name="Q", sql_text="SELECT 1")
+    fake = _FakeSqlQueryDialog(new_query.id)
+    monkeypatch.setattr(dialogs_module, "SqlQueryDialog", fake)
+
+    dlg = _DbExtractConfigDialog({}, None, "Extraire ventes J-1", pipeline_name="Reporting ventes J-1")
+    dlg._new_sql_query(dlg.cb_query)
+    assert fake.received_step_label == "Extraire ventes J-1"
+    assert fake.received_pipeline_name == "Reporting ventes J-1"
 
 
 def test_db_execute_selects_the_newly_created_query(qapp, test_db, monkeypatch):
