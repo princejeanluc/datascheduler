@@ -820,7 +820,7 @@ class SettingsView(QWidget):
     def _on_frequency_changed(self):
         weekly = self.cb_frequency.currentData() == "WEEKLY"
         for row in self._row_widgets:
-            if row["label"] == "jour (si hebdomadaire)":
+            if row["label"] == "jour":
                 row["wrapper"].setVisible(weekly and self._active_category == "notifications"
                                            and not self.inp_search.text().strip())
 

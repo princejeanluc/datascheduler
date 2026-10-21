@@ -55,8 +55,12 @@ def test_successful_run_is_not_highlighted(qapp, test_db):
 
 def _row_wrapper(view, label_substr: str):
     """Retrouve le wrapper d'une ligne de SettingsView par une sous-chaîne (insensible à la
-    casse) de son libellé — évite de dépendre de l'ordre d'ajout des lignes."""
-    return next(r["wrapper"] for r in view._row_widgets if label_substr in r["label"])
+    casse) de son libellé — évite de dépendre de l'ordre d'ajout des lignes. Correspondance
+    exacte (pas une simple sous-chaîne) : depuis que le libellé "Jour" a perdu son suffixe
+    "(si hebdomadaire)" (écart maquette corrigé), une sous-chaîne comme "jour" matchait aussi
+    "Niveau de journalisation", dans une autre catégorie."""
+    return next(r["wrapper"] for r in view._row_widgets
+                if r["label"].strip().lower() == label_substr.strip().lower())
 
 
 def test_settings_view_saves_notification_fields(qapp, test_db):
@@ -95,7 +99,7 @@ def test_settings_view_day_row_only_visible_for_weekly_notifications_category(qa
 
     view = SettingsView()
     view.select_category("notifications")
-    day_row = _row_wrapper(view, "jour (si")
+    day_row = _row_wrapper(view, "jour")
     assert day_row.isHidden()   # DAILY par défaut
 
     view.cb_frequency.setCurrentIndex(view.cb_frequency.findData("WEEKLY"))
@@ -140,7 +144,7 @@ def test_settings_view_prefill_restores_time_and_day(qapp, test_db):
     assert view.cb_day.currentData() == 2
 
     view.select_category("notifications")
-    assert not _row_wrapper(view, "jour (si").isHidden()
+    assert not _row_wrapper(view, "jour").isHidden()
 
 
 def test_settings_view_rejects_invalid_time(qapp, test_db, monkeypatch):
