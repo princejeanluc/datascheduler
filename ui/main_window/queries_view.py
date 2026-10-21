@@ -146,11 +146,15 @@ class QueriesView(QWidget):
         layout.setContentsMargins(16, 18, 16, 12)
         layout.setSpacing(8)
 
+        title_row = QHBoxLayout(); title_row.setSpacing(6)
         title = QLabel("Requêtes SQL")
         title.setStyleSheet(f"background: transparent; font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
         self._subtitle = QLabel("")
         self._subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
-        layout.addWidget(title); layout.addWidget(self._subtitle)
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(self._subtitle)
+        layout.addLayout(title_row)
 
         self.inp_search = _make_search_input("Nom, description ou SQL…")
         self.inp_search.setMinimumWidth(0)
