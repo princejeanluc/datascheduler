@@ -52,7 +52,7 @@ class _QueryCard(QFrame):
         # le fond réel de la carte (transparent ou bg_active selon la sélection) — bug réel constaté
         # à l'usage, même correctif que partout ailleurs dans l'appli (voir les autres vues).
         name.setStyleSheet(
-            f"background: transparent; font-size: 12.5px; font-weight: 600; color: {COLORS['text_main']};"
+            f"background: transparent; font-size: 13px; font-weight: 600; color: {COLORS['text_main']};"
         )
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         top.addWidget(name, stretch=1)
@@ -73,7 +73,7 @@ class _QueryCard(QFrame):
         root.addLayout(top)
 
         desc = QLabel(query.description or "—")
-        desc.setStyleSheet(f"background: transparent; font-size: 10.5px; color: {COLORS['text_dim']};")
+        desc.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_dim']};")
         desc.setWordWrap(False)
         root.addWidget(desc)
 
@@ -96,10 +96,11 @@ class _QueryCard(QFrame):
 
     def set_active(self, active: bool):
         self._active = active
-        border = f"2px solid {COLORS['accent']}" if active else "1px solid transparent"
+        border_left = f"3px solid {COLORS['accent']}" if active else "3px solid transparent"
         bg = COLORS["bg_active"] if active else "transparent"
         self.setStyleSheet(
-            f"QFrame#queryCard {{ background: {bg}; border-left: {border}; border-radius: 4px; }}"
+            f"QFrame#queryCard {{ background: {bg}; border: none; "
+            f"border-left: {border_left}; border-radius: 4px; }}"
         )
 
     def mouseReleaseEvent(self, event):
