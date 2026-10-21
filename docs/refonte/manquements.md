@@ -52,7 +52,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Type | Sujet | Détail | Où |
 |---|---|---|---|
 | Manquement | Pas d'exécution | Impossible de lancer une requête pour voir ce qu'elle renvoie | `ui/main_window/queries_view.py` |
-| Manquement | Jetons incomplets | La barre d'état ne liste que les jetons de date, alors que `{var:}`, `{expr:}`, `{artifact:}` fonctionnent dans le SQL (`ctx.resolve_tokens`) | `queries_view.py::_build_workshop`, `core/steps/db_extract.py` |
+| Manquement | Jetons incomplets | La barre d'état ne liste que les jetons de date, alors que `{var:}`, `{expr:}`, `{artifact:}` fonctionnent dans le SQL (`ctx.resolve_tokens`) | `queries_view.py::_build_workshop`, `core/steps/db_extract.py` — fait (lot A-Requetes-SQL) |
 | Manquement | Champ Profil trompeur | Ne propose que des profils Oracle et n'est pas utilisé à l'exécution (l'étape choisit la connexion) | `queries_view.py::_load_oracle_profiles`, `SqlQuery.oracle_profile_id` |
 | Manquement | Modification non signalée | Rien n'indique qu'une requête est modifiée mais pas enregistrée | `queries_view.py` |
 | Manquement | Import .sql | Remplace le texte de l'éditeur sans confirmation | `queries_view.py::_on_import_sql` |

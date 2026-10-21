@@ -346,6 +346,22 @@ def test_containers_use_qualified_stylesheet_selectors(qapp, test_db):
     assert "#queryCard" in card.styleSheet()
 
 
+def test_status_bar_lists_every_token_resolved_by_resolve_tokens(qapp, test_db):
+    """A8 (Requêtes SQL) : la barre d'état listait seulement les jetons de date — complétée avec
+    l'ensemble réellement résolu par StepContext.resolve_tokens (manquement « Jetons incomplets »,
+    docs/refonte/manquements.md)."""
+    from ui.main_window.queries_view import QueriesView
+
+    view = QueriesView()
+    text = view.lbl_tokens.text()
+    for token in (
+        "{yyyy}", "{yy}", "{MM}", "{dd}", "{HH}", "{mm}", "{ss}",
+        "{yyyyMMdd}", "{yyyyMMddHHmm}", "{rows_count}", "{error}",
+        "{failed_step}", "{output_file}", "{artifact:", "{var:", "{expr:",
+    ):
+        assert token in text, f"jeton {token!r} absent de la barre d'état"
+
+
 def test_icon_only_action_buttons_have_tooltips(qapp, test_db):
     """A5 (Requêtes SQL) : Formater/Dupliquer/Importer/Exporter sont passés en boutons à icône
     seule — sans infobulle, l'action de chacun ne serait plus devinable."""

@@ -292,14 +292,15 @@ class QueriesView(QWidget):
         )
         s_layout.addWidget(self.lbl_usage)
         s_layout.addStretch()
-        tokens = QLabel(
-            "Jetons : {yyyy} {MM} {dd} {HH} {mm} {ss} {yyyyMMdd} {yyyyMMddHHmm}"
+        self.lbl_tokens = QLabel(
+            "Jetons : {yyyy} {yy} {MM} {dd} {HH} {mm} {ss} {yyyyMMdd} {yyyyMMddHHmm} "
+            "{rows_count} {error} {failed_step} {output_file} {artifact:…} {var:…} {expr:…}"
         )
-        tokens.setStyleSheet(
+        self.lbl_tokens.setStyleSheet(
             f"background: transparent; font-family: {FONT_MONO}; font-size: 10px; "
             f"color: {COLORS['accent_pale']};"
         )
-        s_layout.addWidget(tokens)
+        s_layout.addWidget(self.lbl_tokens)
         layout.addWidget(status)
 
         self._workshop = panel
