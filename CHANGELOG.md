@@ -29,6 +29,23 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.53.0] - 2026-10-23
+
+### Modifié
+- **Refonte, Lot A-Atelier-grammaire** — rendu des nœuds et liaisons du canevas de l'Atelier
+  (frame « Grammaire ») aligné sur la maquette : carte d'étape en 3 lignes (surtitre « FAMILLE ·
+  MOTEUR », titre, objet principal), point de famille à la place du badge d'icône, puces lues/
+  écrites en signal_pale/accent_pale, nœuds de routage en losange avec leur symbole (« ? », « + »,
+  « ET »/« OU ») et leur nom désormais au-dessus, liaisons colorées/pointillées selon leur port de
+  départ (erreur en pointillé ambre, vrai/faux avec le mot entier sur la liaison). Aucun
+  changement de donnée ni de comportement d'exécution.
+- Corrections relevées en comparant une capture à la maquette : coins du losange arrondis (étaient
+  des pointes nettes), symbole central agrandi et mieux centré, points de port en anneau (bordure
+  colorée, intérieur sombre) au lieu d'un disque plein, valeur longue du contenu déplié tronquée
+  avec « … » au lieu d'être coupée net en plein milieu d'un caractère. A4 (sélection) implémenté :
+  bordure accent sur le nœud sélectionné, les autres nœuds atténués, ses liaisons en accent (son
+  propre chemin d'erreur en warning).
+
 ## [0.52.1] - 2026-10-21
 
 ### Corrigé

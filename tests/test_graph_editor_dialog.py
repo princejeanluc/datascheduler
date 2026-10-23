@@ -37,7 +37,9 @@ def test_port_visual_true_false_and_error_have_distinct_colors():
     false_color, false_label = _port_visual("false")
     error_color, error_label = _port_visual("error")
     assert len({true_color, false_color, error_color}) == 3
-    assert (true_label, false_label, error_label) == ("V", "F", "!")
+    # true/false n'ont plus d'étiquette au point depuis le lot A-Atelier-grammaire (A5) : le mot
+    # entier ("vrai"/"faux") est désormais porté par la liaison (edge_item.py), pas le point.
+    assert (true_label, false_label, error_label) == ("", "", "!")
 
 
 def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
@@ -234,6 +236,130 @@ def test_regular_step_output_ports_unaffected_by_diamond_change():
     assert node.output_port_pos("output_file").x() == node.pos().x() + node.WIDTH
     assert node.output_port_pos("error").x() == node.pos().x() + node.WIDTH / 2
     assert node.output_port_pos("error").y() == node.pos().y() + node.HEIGHT
+
+
+# ──────────────────────────────────────────────
+#  Symbole des passerelles + nom au-dessus (refonte, lot A-Atelier-grammaire, A3)
+# ──────────────────────────────────────────────
+
+def test_routing_symbol_condition_is_a_question_mark():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("CONDITION", {}) == "?"
+
+
+def test_routing_symbol_gateway_parallel_is_a_plus():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("GATEWAY_PARALLEL", {}) == "+"
+
+
+def test_routing_symbol_gateway_join_reflects_join_mode():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("GATEWAY_JOIN", {"join_mode": "AND"}) == "ET"
+    assert _routing_symbol("GATEWAY_JOIN", {"join_mode": "OR"}) == "OU"
+    assert _routing_symbol("GATEWAY_JOIN", {}) == "OU"   # OR par défaut, comme get_join_mode()
+
+
+# ──────────────────────────────────────────────
+#  Couleur/pointillé d'une liaison selon son port (refonte, lot A-Atelier-grammaire, A5)
+# ──────────────────────────────────────────────
+
+def test_edge_base_visual_error_is_warning_and_dashed():
+    from ui.graph_editor.edge_item import edge_base_visual
+    color_key, dashed = edge_base_visual("error")
+    assert color_key == "warning"
+    assert dashed is True
+
+
+def test_edge_base_visual_true_false_are_solid_and_colored_distinctly():
+    from ui.graph_editor.edge_item import edge_base_visual
+    true_color, true_dashed = edge_base_visual("true")
+    false_color, false_dashed = edge_base_visual("false")
+    assert true_dashed is False and false_dashed is False
+    assert true_color != false_color
+
+
+def test_edge_base_visual_normal_port_is_neutral_and_solid():
+    from ui.graph_editor.edge_item import edge_base_visual
+    color_key, dashed = edge_base_visual("output_file")
+    assert color_key == "text_dim"
+    assert dashed is False
+
+
+# ──────────────────────────────────────────────
+#  Sélection : bordure accent, nœuds non sélectionnés atténués, liaisons touchées en accent/
+#  warning (correctif A4, relevé en comparant une capture à la maquette Grammaire)
+# ──────────────────────────────────────────────
+
+def test_node_opacity_full_when_nothing_selected():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=False, any_selected=False) == 1.0
+
+
+def test_node_opacity_full_for_the_selected_node_itself():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=True, any_selected=True) == 1.0
+
+
+def test_node_opacity_dimmed_for_other_nodes_when_something_is_selected():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=False, any_selected=True) < 1.0
+
+
+def test_edge_selection_color_is_warning_for_error_port_accent_otherwise():
+    from ui.graph_editor.edge_item import edge_selection_color_key
+    assert edge_selection_color_key("error") == "warning"
+    assert edge_selection_color_key("true") == "accent"
+    assert edge_selection_color_key("false") == "accent"
+    assert edge_selection_color_key("output_file") == "accent"
+
+
+def test_selecting_a_node_dims_its_sibling_in_a_real_scene(qapp):
+    """Intégration légère (vraie QGraphicsScene) : sélectionner un nœud atténue l'autre, jamais
+    lui-même — vérifié via l'opacité effectivement utilisée par paint() (même patron que
+    test_routing_node_paint_does_not_crash, un vrai repaint plutôt qu'un appel nu)."""
+    from PySide6.QtWidgets import QGraphicsScene
+    from PySide6.QtGui import QPixmap, QPainter as RealQPainter
+
+    scene = QGraphicsScene()
+    a = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    b = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}})
+    b.setPos(300, 0)
+    scene.addItem(a)
+    scene.addItem(b)
+    a.setSelected(True)
+
+    captured_opacity = {}
+    rect = b.boundingRect()
+    pixmap = QPixmap(int(rect.width()) + 20, int(rect.height()) + 20)
+    painter = RealQPainter(pixmap)
+    try:
+        painter.translate(-rect.left(), -rect.top())
+        b.paint(painter, None, None)
+        captured_opacity["b"] = painter.opacity()
+    finally:
+        painter.end()
+
+    assert captured_opacity["b"] < 1.0
+
+
+# ──────────────────────────────────────────────
+#  Losange aux coins arrondis + symbole central (correctif, relevé en comparant une capture à la
+#  maquette Grammaire)
+# ──────────────────────────────────────────────
+
+def test_rounded_diamond_path_is_closed_and_has_no_sharp_moveto_at_each_vertex():
+    from ui.graph_editor.node_item import _rounded_diamond_path
+    path = _rounded_diamond_path(200, 64)
+    assert path.elementCount() > 4   # plus que les 4 sommets bruts d'un losange à angles vifs
+    assert not path.isEmpty()
+
+
+def test_rounded_diamond_path_stays_within_the_bounding_box():
+    from ui.graph_editor.node_item import _rounded_diamond_path
+    path = _rounded_diamond_path(200, 64)
+    bounds = path.boundingRect()
+    assert bounds.left() >= -0.01 and bounds.right() <= 200.01
+    assert bounds.top() >= -0.01 and bounds.bottom() <= 64.01
 
 
 def test_edge_item_arrow_points_toward_the_target_node(qapp):

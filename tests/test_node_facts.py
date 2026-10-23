@@ -5,7 +5,7 @@ Fonctions pures de ui/graph_editor/node_facts.py (chantier relooking des nœuds)
 
 from ui.graph_editor.node_facts import (
     extract_var_references, extract_var_references_from_config,
-    compute_written_variables, compute_node_facts,
+    compute_written_variables, compute_node_facts, engine_label,
 )
 
 
@@ -287,3 +287,43 @@ def test_facts_set_variable():
 
 def test_facts_unknown_type_returns_empty():
     assert compute_node_facts("INCONNU", {}, {}) == []
+
+
+# ──────────────────────────────────────────────
+#  engine_label — surtitre de carte "FAMILLE · MOTEUR" (refonte, lot A-Atelier-grammaire, A1)
+# ──────────────────────────────────────────────
+
+def test_engine_label_db_types_read_db_type_directly_from_config():
+    assert engine_label("DB_EXTRACT", {"db_type": "ORACLE"}, {}) == "ORACLE"
+    assert engine_label("DB_EXECUTE", {"db_type": "POSTGRESQL"}, {}) == "POSTGRESQL"
+    assert engine_label("DB_LOAD", {"db_type": "MYSQL"}, {}) == "MYSQL"
+
+
+def test_engine_label_db_type_without_config_is_none():
+    assert engine_label("DB_EXTRACT", {}, {}) is None
+
+
+def test_engine_label_ftp_resolves_protocol_from_profile_names():
+    pn = {"ftp_protocol": {7: "SFTP"}}
+    assert engine_label("FTP_UPLOAD", {"ftp_profile_id": 7}, pn) == "SFTP"
+    assert engine_label("FTP_DOWNLOAD", {"ftp_profile_id": 7}, pn) == "SFTP"
+
+
+def test_engine_label_ftp_falls_back_to_generic_ftp_when_unresolved():
+    assert engine_label("FTP_UPLOAD", {"ftp_profile_id": 99}, {}) == "FTP"
+    assert engine_label("FTP_UPLOAD", {}, {}) == "FTP"
+
+
+def test_engine_label_fixed_mapping_for_types_without_a_profile():
+    assert engine_label("SPARK_SQL", {}, {}) == "SPARK"
+    assert engine_label("SQOOP_EXPORT", {}, {}) == "SQOOP"
+    assert engine_label("PYTHON_SCRIPT", {}, {}) == "PYTHON"
+    assert engine_label("EMAIL_NOTIFY", {}, {}) == "SMTP"
+    assert engine_label("HTTP_REQUEST", {}, {}) == "HTTP"
+    assert engine_label("COMPRESS", {}, {}) == "ZIP"
+
+
+def test_engine_label_none_for_types_without_an_engine():
+    assert engine_label("LOCAL_COPY", {}, {}) is None
+    assert engine_label("CONDITION", {}, {}) is None
+    assert engine_label("SET_VARIABLE", {}, {}) is None

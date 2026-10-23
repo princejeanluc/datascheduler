@@ -4,16 +4,16 @@ Nœud du canevas : représente une étape (dict complet step_type/label/config/r
 run_always) — le même objet que celui retourné par _open_config_dialog(...).result_step().
 """
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QSize
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject
 
 from ui.styles import COLORS
 from ui.step_editor import STEP_META
-from ui.step_editor.common import _icon
-from core.steps import get_step_output_ports, is_routing_node
+from core.steps import get_step_output_ports, is_routing_node, get_join_mode
 from .node_facts import (
     compute_node_facts, extract_var_references_from_config, compute_written_variables,
+    engine_label,
 )
 
 PORT_RADIUS = 6
@@ -31,13 +31,12 @@ _CHEVRON_HIT_PADDING = 4
 
 def _chevron_rect(width: float, height: float, routing: bool) -> tuple[float, float, float, float]:
     """Rectangle LOCAL (x, y, w, h) du chevron ▾/▸ — géométrie pure, testable sans Qt (même
-    philosophie que _diamond_port_local_pos/_error_port_local_pos)."""
+    philosophie que _diamond_port_local_pos/_error_port_local_pos). Même coin haut-droite de la
+    boîte englobante pour un nœud normal ET un nœud de routage (refonte, lot A-Atelier-grammaire,
+    A3) : depuis que le nom d'un losange est peint AU-DESSUS de lui plutôt qu'en dessous, ce coin
+    est un espace libre dans les deux cas — plus besoin d'une formule distincte accrochée à
+    l'ancienne légende sous le losange."""
     size = _CHEVRON_SIZE
-    if routing:
-        # Milieu vertical des 2 lignes de légende sous le losange (_ROUTING_CAPTION_TOP/
-        # _ROUTING_CAPTION_LINE_H, définies plus bas dans ce module).
-        cy = height + _ROUTING_CAPTION_TOP + _ROUTING_CAPTION_LINE_H
-        return (width - 6 - size, cy - size / 2, size, size)
     return (width - 8 - size, 8, size, size)
 
 # Port_name -> (clé de couleur COLORS, étiquette courte) — chantier port d'erreur générique.
@@ -48,8 +47,12 @@ def _chevron_rect(width: float, height: float, routing: bool) -> tuple[float, fl
 # d'étiquette, couleur atténuée — c'est ce qui empêche le port normal d'une étape classique de
 # s'afficher par erreur en rouge dès qu'elle gagne un 2e port (le port "error").
 _PORT_STYLE = {
-    "true":  ("success", "V"),
-    "false": ("danger",  "F"),
+    # true/false n'ont plus d'étiquette au POINT depuis le lot A-Atelier-grammaire (A5) : le mot
+    # entier ("vrai"/"faux") est désormais porté par la liaison elle-même (edge_item.py), pas
+    # besoin de la répéter en lettre seule ici (les deux cerclaient le même point, redondant et
+    # encombré sur un losange qui concentre déjà 2-3 ports proches de son sommet droit).
+    "true":  ("success", ""),
+    "false": ("danger",  ""),
     "error": ("warning", "!"),
 }
 _DEFAULT_PORT_STYLE = ("text_dim", "")
@@ -59,6 +62,19 @@ def _port_visual(port: str) -> tuple[str, str]:
     """Couleur (clé COLORS) + étiquette courte pour un port de sortie nommé — factoré hors de
     paint() pour être testable sans contexte Qt (même philosophie que EdgeItem._arrow_points())."""
     return _PORT_STYLE.get(port, _DEFAULT_PORT_STYLE)
+
+
+# Symbole dessiné au centre du losange (refonte, lot A-Atelier-grammaire, A3) — remplace le badge
+# d'icône qtawesome utilisé pour tout autre nœud : fonction pure, testable sans Qt (même
+# philosophie que _port_visual/_tinted_bg).
+def _routing_symbol(step_type: str, config: dict) -> str:
+    if step_type == "CONDITION":
+        return "?"
+    if step_type == "GATEWAY_PARALLEL":
+        return "+"
+    if step_type == "GATEWAY_JOIN":
+        return "ET" if get_join_mode(step_type, config) == "AND" else "OU"
+    return "?"
 
 
 def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -> tuple[float, float]:
@@ -85,6 +101,49 @@ def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -
         x = width - local_t * (width / 2)
         y = height / 2 + local_t * (height / 2)
     return (x, y)
+
+
+# Coins arrondis du losange (correctif, relevé en comparant une capture à la maquette Grammaire
+# — la maquette montre un losange aux coins nettement arrondis, jamais des pointes nettes comme
+# le tracé d'origine moveTo/lineTo). Chaque sommet est remplacé par une courbe quadratique entre
+# deux points reculés le long des arêtes adjacentes, plutôt qu'un angle vif.
+_DIAMOND_CORNER_FRAC = 0.22
+
+
+def _rounded_diamond_path(width: float, height: float, corner_frac: float = _DIAMOND_CORNER_FRAC) -> QPainterPath:
+    top    = QPointF(width / 2, 0)
+    right  = QPointF(width, height / 2)
+    bottom = QPointF(width / 2, height)
+    left   = QPointF(0, height / 2)
+    verts = [top, right, bottom, left]
+
+    def _lerp(a: QPointF, b: QPointF, t: float) -> QPointF:
+        return QPointF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t)
+
+    path = QPainterPath()
+    n = len(verts)
+    start = _lerp(verts[0], verts[-1], corner_frac)
+    path.moveTo(start)
+    for i in range(n):
+        v = verts[i]
+        nxt = verts[(i + 1) % n]
+        prev = verts[(i - 1) % n]
+        into = _lerp(v, prev, corner_frac)
+        out = _lerp(v, nxt, corner_frac)
+        path.lineTo(into)
+        path.quadTo(v, out)
+    path.closeSubpath()
+    return path
+
+
+# Opacité d'un nœud selon l'état de sélection du canevas (A4) — fonction pure, testable sans Qt
+# (même philosophie que _port_visual/_tinted_bg). Un nœud ne s'atténue jamais lui-même, même
+# sélectionné ; tout autre nœud s'atténue dès qu'une sélection existe quelque part.
+_DIMMED_OPACITY = 0.4
+
+
+def _node_opacity(is_self_selected: bool, any_selected: bool) -> float:
+    return _DIMMED_OPACITY if (any_selected and not is_self_selected) else 1.0
 
 
 def _tinted_bg(base: QColor, accent: QColor, ratio: float = 0.13) -> QColor:
@@ -115,24 +174,19 @@ def _error_port_local_pos(width: float, height: float) -> tuple[float, float]:
     return (width / 2, height)
 
 
-# Décalage (depuis HEIGHT) du haut de la légende sous un losange, et hauteur de chaque ligne —
-# chantier identité visuelle. Empilée sous le port d'erreur + son étiquette "!" (déjà là, bord
-# bas) : libellé de type, puis libellé utilisateur s'il existe. Voir boundingRect()/paint().
-_ROUTING_CAPTION_TOP     = 26
-_ROUTING_CAPTION_LINE_H  = 16
-_ROUTING_BOTTOM_MARGIN   = _ROUTING_CAPTION_TOP + 2 * _ROUTING_CAPTION_LINE_H
+# Nom du losange AU-DESSUS de lui (refonte, lot A-Atelier-grammaire, A3 — il était en dessous
+# avant ce chantier). Une seule ligne (jamais de libellé de type en plus : la maquette Grammaire
+# n'en montre qu'une, contrairement à la carte d'une étape normale qui en garde deux) — hauteur
+# réservée au-dessus de la boîte englobante. Voir boundingRect()/paint().
+_ROUTING_LABEL_ABOVE_H = 18
 
-
-# Badge d'icône rond (chantier relooking des nœuds, maquette approuvée) — remplace le glyphe
-# BPMN (_gateway_glyph/_draw_gateway_glyph, retirés) pour TOUS les nœuds, routage compris :
-# même traitement visuel que les icônes STEP_META déjà utilisées partout ailleurs dans l'app,
-# plutôt qu'un vocabulaire de glyphes géométriques propre à cette seule classe.
-_BADGE_RADIUS = 12
 
 # Hiérarchie de texte (chantier relooking des nœuds) : le libellé UTILISATEUR devient le texte
-# PRINCIPAL (gras, text_main) ; le libellé de TYPE redescend en SECONDAIRE (petit, text_dim) et
-# disparaît complètement s'il n'y a pas de libellé utilisateur (jamais affiché deux fois) — même
-# règle appliquée à la carte (nœud normal) et à la légende sous le losange (nœud de routage).
+# PRINCIPAL (gras, text_main) ; le libellé de TYPE (secondaire) sert de repli si l'utilisateur
+# n'en a pas défini. Depuis le lot A-Atelier-grammaire (A1), paint() n'affiche plus `secondary`
+# séparément : le surtitre "FAMILLE · MOTEUR" et le sous-titre "objet" portent désormais le
+# contexte de type — la fonction garde sa forme (tuple) pour ne pas changer sa signature sans
+# raison, `secondary` reste calculé mais ignoré par l'appelant non-routage.
 def _node_text_hierarchy(step: dict, meta: dict) -> tuple[str, str | None]:
     """Fonction pure, testable sans Qt (même philosophie que _port_visual/_tinted_bg)."""
     user_label = step.get("label") or ""
@@ -332,44 +386,48 @@ class StepNodeItem(QGraphicsObject):
         # Marge basse élargie (au-delà du simple PORT_RADIUS des autres côtés) : le port "error"
         # est désormais toujours au bord/sommet bas (_error_port_local_pos), avec son étiquette
         # "!" dessinée EN DESSOUS du point plutôt qu'à côté (voir paint()) — sans cette marge
-        # supplémentaire, l'étiquette déborderait de la zone repeinte par Qt. Un nœud de routage
-        # (losange) a besoin de nettement plus : le glyphe central (chantier identité visuelle)
-        # remplace le texte à l'intérieur de la forme, qui vit désormais SOUS elle, empilé sous
-        # le port d'erreur + son étiquette.
-        bottom_margin = _ROUTING_BOTTOM_MARGIN if self.is_routing_node else _ERROR_LABEL_MARGIN
+        # supplémentaire, l'étiquette déborderait de la zone repeinte par Qt. Même marge pour un
+        # nœud de routage désormais (refonte, lot A-Atelier-grammaire, A3) : son nom vit
+        # au-dessus du losange, pas en dessous — voir top_margin ci-dessous.
+        bottom_margin = _ERROR_LABEL_MARGIN
+        top_margin = PORT_RADIUS + (_ROUTING_LABEL_ABOVE_H if self.is_routing_node else 0)
         # Contenu déplié (chantier relooking des nœuds) : hauteur additionnelle sous la marge
         # basse déjà existante — jamais de cache, voir _facts_and_vars().
         extra = 0.0
         if self._expanded:
             facts, read_vars, written_vars = self._facts_and_vars()
             extra = _expanded_content_height(len(facts), len(read_vars), len(written_vars))
-        return QRectF(-PORT_RADIUS, -PORT_RADIUS,
-                      self.WIDTH + 2 * PORT_RADIUS, self.HEIGHT + PORT_RADIUS + bottom_margin + extra)
+        return QRectF(-PORT_RADIUS, -top_margin,
+                      self.WIDTH + 2 * PORT_RADIUS, top_margin + self.HEIGHT + bottom_margin + extra)
 
     def paint(self, painter, option, widget=None):
         step_type = self.step.get("step_type", "")
         meta = STEP_META.get(step_type, {"label": step_type, "color": COLORS["accent"]})
         routing = self.is_routing_node
 
-        path = QPainterPath()
         if routing:
-            # Losange inscrit dans WIDTH×HEIGHT (chantier UX éditeur) — distingue un nœud de
-            # routage/jonction (CONDITION, futur GATEWAY) d'une étape normale au premier coup
-            # d'œil, sans avoir à lire le texte. boundingRect() reste inchangé (le rectangle
-            # englobant reste une boîte de collision valide, juste plus large que la forme
-            # peinte).
-            path.moveTo(self.WIDTH / 2, 0)
-            path.lineTo(self.WIDTH, self.HEIGHT / 2)
-            path.lineTo(self.WIDTH / 2, self.HEIGHT)
-            path.lineTo(0, self.HEIGHT / 2)
-            path.closeSubpath()
+            # Losange inscrit dans WIDTH×HEIGHT, coins arrondis (correctif — voir
+            # _rounded_diamond_path) — distingue un nœud de routage/jonction d'une étape normale
+            # au premier coup d'œil, sans avoir à lire le texte. boundingRect() reste inchangé
+            # (le rectangle englobant reste une boîte de collision valide, juste plus large que
+            # la forme peinte).
+            path = _rounded_diamond_path(self.WIDTH, self.HEIGHT)
         else:
+            path = QPainterPath()
             # Coins 12px (chantier relooking des nœuds, "carte plus aérée" — maquette
             # approuvée) : avant, 8px.
             rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
             path.addRoundedRect(rect, 12, 12)
 
         painter.setRenderHint(QPainter.Antialiasing)
+
+        # Sélection (A4) : bordure accent, et tout AUTRE nœud atténué tant qu'une sélection
+        # existe quelque part sur le canevas — jamais l'inverse (un nœud sélectionné ne s'atténue
+        # jamais lui-même). Opacité globale du paint() le temps de ce nœud, remise à 1 en sortie.
+        scene = self.scene()
+        any_selected = bool(scene.selectedItems()) if scene else False
+        painter.setOpacity(_node_opacity(self.isSelected(), any_selected))
+
         # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
         # discrète en plus, jamais un remplacement de la bordure épaisse colorée qui reste le
         # signal prioritaire pour _is_failed/_is_executing/_is_search_hit (inchangés ci-dessous).
@@ -378,6 +436,8 @@ class StepNodeItem(QGraphicsObject):
             border_color = QColor(COLORS["danger"])
         elif self._is_executing:
             border_color = QColor(COLORS["signal"])
+        elif self.isSelected():
+            border_color = QColor(COLORS["accent"])
         elif self._is_search_hit:
             border_color = QColor(COLORS["signal_pale"])
         else:
@@ -387,62 +447,73 @@ class StepNodeItem(QGraphicsObject):
         painter.setPen(pen)
         painter.drawPath(path)
 
-        primary_text, secondary_text = _node_text_hierarchy(self.step, meta)
-
-        # Badge d'icône rond (chantier relooking des nœuds) — remplace l'ancien glyphe BPMN pour
-        # un nœud de routage (centré dans le losange, même emplacement) et l'icône de coin pour
-        # un nœud normal (déplacée en haut-gauche) : substitution, pas addition.
-        bx, by = (self.WIDTH / 2, self.HEIGHT / 2) if routing else (18, 18)
-        painter.setBrush(QBrush(QColor(meta["color"])))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(bx, by), _BADGE_RADIUS, _BADGE_RADIUS)
-        badge_icon = _icon(meta.get("icon", "fa5s.circle"), "#ffffff")
-        if badge_icon:
-            painter.drawPixmap(int(bx - 7), int(by - 7), badge_icon.pixmap(QSize(14, 14)))
+        primary_text, _ = _node_text_hierarchy(self.step, meta)
 
         if routing:
-            # Libellés SOUS la forme, empilés sous le port d'erreur + son étiquette "!" (voir
-            # _error_port_local_pos/paint() plus bas) — primary_text (gras, text_main) toujours
-            # présent, secondary_text (text_dim) seulement si un libellé utilisateur existe.
+            # Symbole au centre du losange (refonte, lot A-Atelier-grammaire, A3) — remplace
+            # l'icône qtawesome utilisée par tout autre nœud : "?" (Aiguillage), "+" (Parallèle),
+            # "ET"/"OU" (Jonction, selon join_mode).
+            # Taille proportionnelle à la forme (correctif — trop petit et non centré avant),
+            # pas un point fixe arbitraire : un glyphe seul ("?", "+") plus grand qu'un sigle à
+            # 2 lettres ("ET"/"OU"), pour que les deux occupent une place visuelle comparable.
+            symbol = _routing_symbol(step_type, self.step.get("config") or {})
+            painter.setPen(QColor("#ffffff"))
+            font = QFont(); font.setBold(True); font.setPointSize(15 if len(symbol) == 1 else 12)
+            painter.setFont(font)
+            painter.drawText(QRectF(0, 0, self.WIDTH, self.HEIGHT), Qt.AlignCenter, symbol)
+
+            # Nom AU-DESSUS du losange (A3 — il était en dessous avant ce chantier) : une seule
+            # ligne, le libellé utilisateur s'il existe sinon le libellé de type.
             painter.setPen(QColor(COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
-            cap_y = self.HEIGHT + _ROUTING_CAPTION_TOP
-            painter.drawText(QRectF(-20, cap_y, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
+            painter.drawText(QRectF(-20, -_ROUTING_LABEL_ABOVE_H, self.WIDTH + 40, _ROUTING_LABEL_ABOVE_H),
                               Qt.AlignCenter, primary_text)
-            if secondary_text:
-                painter.setPen(QColor(COLORS["text_dim"]))
-                font.setBold(False); font.setPointSize(8)
-                painter.setFont(font)
-                painter.drawText(
-                    QRectF(-20, cap_y + _ROUTING_CAPTION_LINE_H, self.WIDTH + 40, _ROUTING_CAPTION_LINE_H),
-                    Qt.AlignCenter, secondary_text)
-            # Chevron ▾/▸ à côté de la légende.
             self._paint_chevron(painter, routing)
         else:
-            text_x = 36   # à droite du badge (18 + rayon 12 + marge)
+            # Point de famille (refonte, lot A-Atelier-grammaire, A1) — remplace le badge
+            # d'icône : une pastille pleine suffit, la couleur dit déjà la famille.
+            dot_x, dot_y = 10, 11
+            painter.setBrush(QBrush(QColor(meta["color"])))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPointF(dot_x, dot_y), 4, 4)
+
+            # Surtitre Mono "FAMILLE · MOTEUR" (A1) — couleur de famille, comme le point.
+            engine = engine_label(step_type, self.step.get("config") or {}, self._profile_names)
+            eyebrow = f"{meta.get('family', '').upper()} · {engine}" if engine else meta.get("family", "").upper()
+            painter.setPen(QColor(meta["color"]))
+            font = QFont("JetBrains Mono"); font.setPointSize(6); font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(18, 3, self.WIDTH - 28, 11),
+                              Qt.AlignLeft | Qt.AlignVCenter, eyebrow)
+
+            # Titre (A1) — libellé utilisateur, ou libellé de type à défaut.
             painter.setPen(QColor(COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
-            primary_y = 6 if secondary_text else 15
-            painter.drawText(QRectF(text_x, primary_y, self.WIDTH - text_x - 22, 18),
+            painter.drawText(QRectF(10, 15, self.WIDTH - 20, 18),
                               Qt.AlignLeft | Qt.AlignVCenter, primary_text)
-            if secondary_text:
+
+            # Sous-titre Mono "objet principal" (A1) — premier fait de compute_node_facts (la
+            # requête, le fichier... selon le type), absent s'il n'y a aucun fait.
+            facts, _rv, _wv = self._facts_and_vars()
+            if facts:
                 painter.setPen(QColor(COLORS["text_dim"]))
-                font.setBold(False); font.setPointSize(7)
+                font = QFont("JetBrains Mono"); font.setPointSize(7)
                 painter.setFont(font)
-                painter.drawText(QRectF(text_x, 24, self.WIDTH - text_x - 10, 14),
-                                  Qt.AlignLeft | Qt.AlignVCenter, secondary_text)
+                painter.drawText(QRectF(10, 34, self.WIDTH - 20, 14),
+                                  Qt.AlignLeft | Qt.AlignVCenter, facts[0]["value"])
+
             # Chevron ▾/▸ en haut-droite.
             self._paint_chevron(painter, routing)
 
         if self._expanded:
             self._paint_expanded_content(painter, routing)
 
-        # Port d'entrée (toujours dessiné, connecté ou non).
-        painter.setBrush(QBrush(QColor(COLORS["text_dim"])))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(0, self.HEIGHT / 2), PORT_RADIUS, PORT_RADIUS)
+        # Port d'entrée (toujours dessiné, connecté ou non) — anneau, pas un disque plein
+        # (correctif, relevé en comparant une capture à la maquette Grammaire : bordure colorée,
+        # intérieur sombre, jamais un point plein).
+        self._draw_port_ring(painter, QPointF(0, self.HEIGHT / 2), COLORS["text_dim"])
 
         # Port(s) de sortie — même géométrie que output_port_pos() (coordonnées locales ici,
         # scène là-bas), pour que le point dessiné coïncide toujours avec la zone cliquable.
@@ -459,8 +530,7 @@ class StepNodeItem(QGraphicsObject):
                 x, y = self.WIDTH, step * (i + 1)
             color_key, label = _port_visual(port)
             color = COLORS[color_key]
-            painter.setBrush(QBrush(QColor(color)))
-            painter.drawEllipse(QPointF(x, y), PORT_RADIUS, PORT_RADIUS)
+            self._draw_port_ring(painter, QPointF(x, y), color)
             if label:
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(x - 22, y - 9, 16, 18),
@@ -470,11 +540,18 @@ class StepNodeItem(QGraphicsObject):
             ex, ey = _error_port_local_pos(self.WIDTH, self.HEIGHT)
             color_key, label = _port_visual("error")
             color = COLORS[color_key]
-            painter.setBrush(QBrush(QColor(color)))
-            painter.drawEllipse(QPointF(ex, ey), PORT_RADIUS, PORT_RADIUS)
+            self._draw_port_ring(painter, QPointF(ex, ey), color)
             if label:
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
+
+    def _draw_port_ring(self, painter, pos: QPointF, color: str) -> None:
+        """Anneau d'un point de port — bordure colorée, intérieur sombre (correctif, relevé en
+        comparant une capture à la maquette Grammaire : les points étaient pleins avant ce
+        correctif, la maquette les montre toujours creux)."""
+        painter.setBrush(QBrush(QColor(COLORS["bg_main"])))
+        painter.setPen(QPen(QColor(color), 2))
+        painter.drawEllipse(pos, PORT_RADIUS, PORT_RADIUS)
 
     def _paint_chevron(self, painter, routing: bool) -> None:
         """▾ (déplié) / ▸ (replié) — même rectangle que le hit-test de mousePressEvent
@@ -499,8 +576,9 @@ class StepNodeItem(QGraphicsObject):
         (bottom_margin, voir boundingRect()). Placeholder générique si rien à montrer (ex.
         GATEWAY_PARALLEL, config toujours vide) plutôt que de masquer le chevron au cas par cas."""
         facts, read_vars, written_vars = self._facts_and_vars()
-        bottom_margin = _ROUTING_BOTTOM_MARGIN if routing else _ERROR_LABEL_MARGIN
-        y = self.HEIGHT + bottom_margin + _EXPANDED_TOP_PAD
+        # Même marge basse pour un nœud de routage depuis ce chantier (A3 — son nom est passé
+        # au-dessus du losange), voir boundingRect().
+        y = self.HEIGHT + _ERROR_LABEL_MARGIN + _EXPANDED_TOP_PAD
 
         if not facts and not read_vars and not written_vars:
             painter.setPen(QColor(COLORS["text_muted"]))
@@ -510,22 +588,31 @@ class StepNodeItem(QGraphicsObject):
                               Qt.AlignLeft | Qt.AlignVCenter, "Aucun détail de configuration.")
             return
 
+        # Valeur tronquée avec "…" (correctif, relevé en comparant une capture à la maquette : un
+        # chemin Windows complet débordait du contenu déplié, coupé net en plein milieu d'un
+        # caractère, sans indication visuelle qu'il manque la fin — même principe d'ellipse déjà
+        # utilisé ailleurs dans l'appli, ex. settings_view.py::_make_category_row).
+        value_width = self.WIDTH - 20 - 86
         base_font = QFont(); base_font.setPointSize(8)
+        value_fm = QFontMetrics(base_font)
         for fact in facts:
             painter.setFont(base_font)
             painter.setPen(QColor(COLORS["text_dim"]))
             painter.drawText(QRectF(10, y, 84, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
                               f"{fact['label']} :")
             painter.setPen(QColor(COLORS["text_main"]))
-            painter.drawText(QRectF(96, y, self.WIDTH - 106, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
-                              fact["value"])
+            elided_value = value_fm.elidedText(fact["value"], Qt.ElideRight, int(value_width))
+            painter.drawText(QRectF(96, y, value_width, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
+                              elided_value)
             y += _FACT_LINE_H
 
+        # Couleurs des puces (refonte, lot A-Atelier-grammaire, A2) : lit var:x en signal_pale,
+        # écrit y en accent_pale — avant ce chantier, respectivement text_dim/border et accent.
         for name in read_vars:
-            painter.setPen(QPen(QColor(COLORS["border"]), 1))
+            painter.setPen(QPen(QColor(COLORS["signal_pale"]), 1))
             painter.setBrush(Qt.NoBrush)
             painter.drawRect(QRectF(12, y + 4, 6, 6))   # pastille creuse — variable LUE
-            painter.setPen(QColor(COLORS["text_dim"]))
+            painter.setPen(QColor(COLORS["signal_pale"]))
             painter.setFont(base_font)
             painter.drawText(QRectF(24, y, self.WIDTH - 34, _VAR_BULLET_LINE_H),
                               Qt.AlignLeft | Qt.AlignVCenter, f"↳ lit var:{name}")
@@ -533,10 +620,10 @@ class StepNodeItem(QGraphicsObject):
 
         written_font = QFont(base_font); written_font.setBold(True)
         for name in written_vars:
-            painter.setBrush(QBrush(QColor(COLORS["accent"])))
+            painter.setBrush(QBrush(QColor(COLORS["accent_pale"])))
             painter.setPen(Qt.NoPen)
             painter.drawRect(QRectF(12, y + 4, 6, 6))   # pastille pleine accent — variable ÉCRITE
-            painter.setPen(QColor(COLORS["accent"]))
+            painter.setPen(QColor(COLORS["accent_pale"]))
             painter.setFont(written_font)
             painter.drawText(QRectF(24, y, self.WIDTH - 34, _VAR_BULLET_LINE_H),
                               Qt.AlignLeft | Qt.AlignVCenter, f"↳ écrit {name}")

@@ -288,3 +288,33 @@ def compute_node_facts(step_type: str, config: dict, profile_names: dict | None 
     if builder is None:
         return []
     return builder(config or {}, profile_names or {}, source_label)
+
+
+# ──────────────────────────────────────────────
+#  Moteur (refonte, lot A-Atelier-grammaire, A1) — surtitre de carte "FAMILLE · MOTEUR" ; le
+#  moteur n'existe pas comme champ unique en base, il se déduit du type et, pour les deux types
+#  qui en dépendent, d'un profil déjà résolu — jamais une nouvelle requête DB depuis ce module.
+# ──────────────────────────────────────────────
+
+_ENGINE_FIXED = {
+    "SPARK_SQL": "SPARK", "SQOOP_EXPORT": "SQOOP", "SQOOP_IMPORT": "SQOOP",
+    "PYTHON_SCRIPT": "PYTHON", "EMAIL_NOTIFY": "SMTP", "HTTP_REQUEST": "HTTP",
+    "COMPRESS": "ZIP",
+}
+
+
+def engine_label(step_type: str, config: dict, profile_names: dict | None = None) -> str | None:
+    """Moteur affiché dans le surtitre de carte, ou None si non applicable (LOCAL_COPY, les
+    nœuds de routage, EXTRACT_VARIABLES/SET_VARIABLE — aucun moteur à nommer pour ces types).
+    DB_* : `db_type` est déjà dans la config (pas de résolution de profil nécessaire). FTP_* :
+    le protocole n'est pas dans la config (seul `ftp_profile_id` l'est) — lu dans
+    `profile_names["ftp_protocol"]`, construit par l'appelant (PipelineGraphEditorWidget), pas
+    résolu ici (ce module ne fait jamais de requête DB)."""
+    config = config or {}
+    profile_names = profile_names or {}
+    if step_type in ("DB_EXTRACT", "DB_EXECUTE", "DB_LOAD"):
+        return config.get("db_type") or None
+    if step_type in ("FTP_UPLOAD", "FTP_DOWNLOAD"):
+        protocol = (profile_names.get("ftp_protocol") or {}).get(config.get("ftp_profile_id"))
+        return protocol or "FTP"
+    return _ENGINE_FIXED.get(step_type)

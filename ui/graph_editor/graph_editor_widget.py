@@ -165,6 +165,9 @@ class PipelineGraphEditorWidget(QWidget):
             "db":        {(p["db_type"], p["id"]): p["name"] for p in self._db_profiles},
             "oracle":    {p.id: p.name for p in self._oracle_profiles},
             "ftp":       {p.id: p.name for p in self._ftp_profiles},
+            # Moteur affiché au surtitre de carte (A1, node_facts.py::engine_label) — le
+            # protocole n'est pas dans la config de l'étape (seul ftp_profile_id l'est).
+            "ftp_protocol": {p.id: p.protocol.value for p in self._ftp_profiles},
             "smtp":      {p.id: p.name for p in self._smtp_profiles},
             "ssh":       {p.id: p.name for p in self._ssh_profiles},
             "kerberos":  {p.id: p.name for p in self._kerberos_profiles},
