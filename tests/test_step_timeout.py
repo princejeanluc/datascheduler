@@ -34,7 +34,7 @@ def test_step_within_timeout_succeeds_normally():
     executor = _SleepyStep({"sleep_s": 0})
     result = PipelineResult()
     ctx = StepContext()
-    step_result = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=5), lambda *a: None, result)
+    step_result, _attempts = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=5), lambda *a: None, result)
 
     assert step_result.success
 
@@ -43,7 +43,7 @@ def test_step_exceeding_timeout_fails_cleanly():
     executor = _SleepyStep({"sleep_s": 0.3})
     result = PipelineResult()
     ctx = StepContext()
-    step_result = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=0.1), lambda *a: None, result)
+    step_result, _attempts = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=0.1), lambda *a: None, result)
 
     assert not step_result.success
     assert "Délai dépassé" in step_result.error
@@ -53,7 +53,7 @@ def test_timeout_zero_never_triggers_even_for_a_slow_step():
     executor = _SleepyStep({"sleep_s": 0.2})
     result = PipelineResult()
     ctx = StepContext()
-    step_result = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=0), lambda *a: None, result)
+    step_result, _attempts = _run_step_with_policy(executor, ctx, _fake_step(timeout_s=0), lambda *a: None, result)
 
     assert step_result.success
 
@@ -63,7 +63,7 @@ def test_timeout_counts_as_a_failure_for_retry_count():
     executor = _SleepyStep({"sleep_s": 0.3})
     result = PipelineResult()
     ctx = StepContext()
-    step_result = _run_step_with_policy(
+    step_result, attempts_log = _run_step_with_policy(
         executor, ctx, _fake_step(timeout_s=0.05, retry_count=2), lambda *a: None, result,
     )
 
@@ -71,6 +71,7 @@ def test_timeout_counts_as_a_failure_for_retry_count():
     # 1 tentative initiale + 2 relances = 3 appels au step, chacun démarrant un nouveau
     # thread-traînard indépendant (accepté — voir docstring de _run_step_with_policy).
     assert executor.calls == 3
+    assert len(attempts_log) == 3
 
 
 def test_run_pipeline_continues_after_a_step_timeout(test_db, monkeypatch):

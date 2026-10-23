@@ -98,12 +98,13 @@ def test_run_step_with_policy_never_retries_a_cancelled_step():
     ctx = StepContext()
     result = PipelineResult()
 
-    step_result = _run_step_with_policy(
+    step_result, attempts_log = _run_step_with_policy(
         _CancellingStep(), ctx, fake_step, lambda *a: None, result, cancel_event,
     )
 
     assert not step_result.success
     assert call_count["n"] == 1   # jamais retenté malgré retry_count=3
+    assert len(attempts_log) == 1
 
 
 def test_run_step_with_policy_still_retries_a_genuine_failure():
@@ -120,9 +121,10 @@ def test_run_step_with_policy_still_retries_a_genuine_failure():
     ctx = StepContext()
     result = PipelineResult()
 
-    step_result = _run_step_with_policy(
+    step_result, attempts_log = _run_step_with_policy(
         _FailingStep(), ctx, fake_step, lambda *a: None, result, cancel_event=None,
     )
 
     assert not step_result.success
     assert call_count["n"] == 3   # 1 tentative initiale + 2 relances
+    assert len(attempts_log) == 3

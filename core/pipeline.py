@@ -244,6 +244,12 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
     `cancel_event` (chantier annulation coopérative) : transmis tel quel à l'étape, qui peut
     choisir de le consulter pour s'interrompre plus tôt qu'un simple timeout (voir
     core/steps/base.py::BaseStep.run). Ne change rien pour un type d'étape qui l'ignore.
+
+    Retourne (step_result, attempts_log) — attempts_log (refonte, DONNEES.md::D1) est la liste
+    [{"n", "started_at", "finished_at", "error"}] de CHAQUE tentative réelle, horodatée. Ajouté
+    au retour plutôt que recalculé par l'appelant : c'est ici, et seulement ici, que chaque
+    tentative individuelle a lieu — recalculer ces horodatages depuis l'extérieur dupliquerait
+    la boucle de relance.
     """
     retry_count      = step.retry_count or 0
     # Contrairement à retry_count/timeout_s (où 0 signifie "désactivé"), 0 est une valeur de
@@ -254,7 +260,9 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
         retry_interval_s = RETRY_DELAY_S_DEFAULT
     timeout_s        = step.timeout_s or 0
     attempt          = 0
+    attempts_log: list = []
     while True:
+        attempt_started = datetime.utcnow()
         if not timeout_s:
             step_result = executor.run(ctx, cancel_event=cancel_event, on_progress=step_progress)
         else:
@@ -268,6 +276,13 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
                 step_result = StepResult(success=False, error=f"Délai dépassé ({timeout_s}s) — étape abandonnée.")
             else:
                 step_result = box.get("result") or StepResult(success=False, error="Étape terminée sans résultat.")
+        attempt_finished = datetime.utcnow()
+        attempts_log.append({
+            "n": attempt + 1,
+            "started_at": attempt_started.isoformat(),
+            "finished_at": attempt_finished.isoformat(),
+            "error": None if step_result.success else step_result.error,
+        })
 
         for line in ctx.log_lines:
             result.log_lines.append(line)
@@ -275,7 +290,7 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
 
         cancelled = cancel_event is not None and cancel_event.is_set()
         if step_result.success or cancelled or attempt >= retry_count:
-            return step_result
+            return step_result, attempts_log
         attempt += 1
         result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
         _interruptible_sleep(retry_interval_s, cancel_event)
@@ -294,6 +309,50 @@ def _interruptible_sleep(duration_s: float, cancel_event) -> None:
         chunk = min(_CANCEL_POLL_INTERVAL_S, remaining)
         time.sleep(chunk)
         remaining -= chunk
+
+
+# ──────────────────────────────────────────────
+#  DÉTAIL PAR ÉTAPE (refonte, DONNEES.md::D1, fiche Atelier B1)
+# ──────────────────────────────────────────────
+
+def _output_path_info(path) -> tuple:
+    """(chemin str, taille en octets) pour une valeur d'artefact — None, None si `path` n'est
+    pas un Path réel (ctx.output_file peut rester None, ou porter une valeur non-fichier selon
+    le type d'étape) ou si le fichier a déjà disparu (nettoyage des temporaires, voir
+    run_pipeline())."""
+    if not isinstance(path, Path):
+        return None, None
+    try:
+        size = path.stat().st_size if path.exists() else None
+    except OSError:
+        size = None
+    return str(path), size
+
+
+def _record_run_step(result, *, step_key, step_type, step_label, status,
+                      attempts=1, attempts_log=None, started_at=None, finished_at=None,
+                      rows_count=None, output_path=None, port_taken=None,
+                      error_message=None, reused_from_resume=False) -> None:
+    """Écrit une ligne `pipeline_run_steps` pour une étape exécutée ou sautée — jamais fatal
+    (même garde que _trigger_downstream_pipelines/_persist_active_steps : un incident ici ne
+    doit jamais faire échouer un run réel pour un simple souci de détail d'historique). Pas
+    d'effet si le run n'a pas encore de run_id (échec anticipé avant create_run(), voir
+    run_pipeline()) — aucune étape n'est de toute façon atteinte dans ce cas."""
+    if not result.run_id:
+        return
+    out_path, out_size = _output_path_info(output_path)
+    try:
+        db.record_run_step(
+            result.run_id, step_key=step_key, step_type=step_type, step_label=step_label,
+            status=status, attempts=attempts,
+            attempts_json=json.dumps(attempts_log) if attempts_log else None,
+            started_at=started_at, finished_at=finished_at, rows_count=rows_count,
+            output_path=out_path, output_size_bytes=out_size, port_taken=port_taken,
+            error_message=error_message, reused_from_resume=reused_from_resume,
+        )
+    except Exception:
+        logger.warning("Échec de l'enregistrement du détail d'étape (run %s, %s) — ignoré.",
+                        result.run_id, step_key)
 
 
 # ──────────────────────────────────────────────
@@ -402,9 +461,13 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
             next_pct = int((i + 1) * 90 / total)
             result.log(f"--- Étape {i + 1}/{total} : {step_label} déjà réussie (reprise) — ignorée. ---")
             progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
+            _record_run_step(result, step_key=step_key, step_type=step_type, step_label=step_label,
+                              status="SKIPPED_RESUME", reused_from_resume=True)
             continue
 
         if pipeline_failed and not step.run_always:
+            _record_run_step(result, step_key=step_key, step_type=step_type, step_label=step_label,
+                              status="SKIPPED")
             continue
 
         # Ciblage explicite d'une source antérieure (sélecteur "Source" de l'éditeur) —
@@ -431,7 +494,9 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
+        step_result, attempts_log = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
+        step_started_at  = datetime.fromisoformat(attempts_log[0]["started_at"])
+        step_finished_at = datetime.fromisoformat(attempts_log[-1]["finished_at"])
 
         if step_result.success:
             # Publie en plus sous la clé stable de CETTE étape, pour qu'une étape
@@ -467,6 +532,12 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
             if cancel_event.is_set():
                 pipeline_cancelled = True
                 result.fail("Exécution interrompue par l'utilisateur.")
+                _record_run_step(
+                    result, step_key=step_key, step_type=step_type, step_label=step_label,
+                    status="CANCELLED", attempts=len(attempts_log), attempts_log=attempts_log,
+                    started_at=step_started_at, finished_at=step_finished_at,
+                    rows_count=ctx.rows_count, error_message=step_result.error,
+                )
                 break
             if not pipeline_failed:
                 ctx.extra["failed_step_label"] = step_label
@@ -476,6 +547,17 @@ def _execute_linear(steps, ctx, progress, result, cancel_event,
                 pipeline_failed = True
             elif step.run_always:
                 result.log(f"Étape 'toujours exécutée' {i + 1} ({step_label}) en échec : {step_result.error}")
+
+        if step_result.success or not cancel_event.is_set():
+            _record_run_step(
+                result, step_key=step_key, step_type=step_type, step_label=step_label,
+                status="SUCCESS" if step_result.success else "FAILED",
+                attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=ctx.rows_count,
+                output_path=ctx.artifacts.get(step_key) if step_result.success else None,
+                error_message=None if step_result.success else step_result.error,
+            )
 
     return pipeline_failed, pipeline_cancelled, completed_step_keys, {}
 
@@ -590,6 +672,9 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             next_pct = int((i + 1) * 90 / total)
             result.log(f"--- Étape {i + 1}/{total} : {step_label} déjà réussie (reprise) — ignorée. ---")
             progress(f"Étape {i + 1}/{total} : {step_label} (reprise)", next_pct)
+            _record_run_step(result, step_key=step_key, step_type=step_type, step_label=step_label,
+                              status="SKIPPED_RESUME", reused_from_resume=True,
+                              port_taken=active_port.get(step_key))
             continue
 
         # Disponibilité d'une arête entrante (chantier port d'erreur générique) : une source
@@ -636,6 +721,8 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = error_msg
                 result.fail(f"Étape {i + 1} ({step_label}) : {error_msg}")
+            _record_run_step(result, step_key=step_key, step_type=step_type, step_label=step_label,
+                              status="FAILED", port_taken="error", error_message=error_msg)
             continue
 
         should_skip = bool(incoming) and len(unavailable) == len(incoming) and not step.run_always
@@ -648,6 +735,8 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
             reason = "dépendance en échec" if failed_upstream else "branche non sélectionnée"
             result.log(f"--- Étape {i + 1}/{total} : {step_label} ignorée ({reason}) ---")
             progress(f"Étape {i + 1}/{total} : {step_label} (ignorée)", next_pct)
+            _record_run_step(result, step_key=step_key, step_type=step_type, step_label=step_label,
+                              status="SKIPPED")
             continue
 
         # Réoriente ctx.output_file vers l'artefact de la source, si une unique arête de donnée
@@ -671,7 +760,9 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
         result.log(f"--- Étape {i + 1}/{total} : {step_label} ({step_type}) ---")
 
         executor    = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
+        step_result, attempts_log = _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_event)
+        step_started_at  = datetime.fromisoformat(attempts_log[0]["started_at"])
+        step_finished_at = datetime.fromisoformat(attempts_log[-1]["finished_at"])
 
         # Port actif par défaut (chantier port d'erreur générique) — ne jamais écraser un choix
         # explicite déjà fait par l'étape elle-même (ex : ConditionStep sur succès). Une étape
@@ -709,6 +800,13 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 # n'est jamais marquée "complétée" pour une future reprise.
                 if not (pipeline_failed and step.run_always):
                     completed_step_keys.add(step_key)
+            _record_run_step(
+                result, step_key=step_key, step_type=step_type, step_label=step_label,
+                status="SUCCESS", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=ctx.rows_count, output_path=ctx.artifacts.get(step_key),
+                port_taken=step_result.active_port,
+            )
         elif cancel_event.is_set():
             # Une étape qui a coopéré à l'annulation (chantier annulation coopérative) renvoie un
             # échec ordinaire — la distinguer d'un vrai échec ici, au même titre que l'annulation
@@ -719,6 +817,13 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 active_port[step_key] = step_result.active_port
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
+            _record_run_step(
+                result, step_key=step_key, step_type=step_type, step_label=step_label,
+                status="CANCELLED", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=ctx.rows_count, port_taken=step_result.active_port,
+                error_message=step_result.error,
+            )
             break
         else:
             if step_key:
@@ -731,6 +836,13 @@ def _execute_graph(steps, edges, ctx, progress, result, cancel_event,
                 ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"Étape {i + 1} ({step_label}) : {step_result.error}")
+            _record_run_step(
+                result, step_key=step_key, step_type=step_type, step_label=step_label,
+                status="FAILED", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=ctx.rows_count, port_taken=step_result.active_port,
+                error_message=step_result.error,
+            )
 
     return pipeline_failed, pipeline_cancelled, completed_step_keys, active_port
 
@@ -809,6 +921,12 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         done_count += 1
         if key in active_ports_seed:
             active_port[key] = active_ports_seed[key]
+        step = by_key[key]
+        _record_run_step(result, step_key=key,
+                          step_type=str(step.step_type).replace("StepType.", ""),
+                          step_label=step.label or str(step.step_type).replace("StepType.", ""),
+                          status="SKIPPED_RESUME", reused_from_resume=True,
+                          port_taken=active_port.get(key))
         for nxt in outgoing_keys.get(key, []):
             in_degree[nxt] -= 1
     for key in by_key:
@@ -844,8 +962,10 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             progress(msg, scaled, step_key)
 
         executor_step = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
-        results_queue.put((step_key, step, step_label, config, step_ctx, before_output_file, step_result))
+        step_result, attempts_log = _run_step_with_policy(
+            executor_step, step_ctx, step, step_progress, result, cancel_event)
+        results_queue.put((step_key, step, step_label, config, step_ctx, before_output_file,
+                           step_result, attempts_log))
 
     def _resolve_skip(step_key, step_label, unavailable):
         step_status[step_key] = "skipped"
@@ -854,6 +974,10 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         )
         reason = "dépendance en échec" if failed_upstream else "branche non sélectionnée"
         result.log(f"--- {step_label} ignorée ({reason}) ---")
+        step = by_key[step_key]
+        _record_run_step(result, step_key=step_key,
+                          step_type=str(step.step_type).replace("StepType.", ""),
+                          step_label=step_label, status="SKIPPED")
         for nxt in outgoing_keys.get(step_key, []):
             in_degree[nxt] -= 1
 
@@ -873,6 +997,11 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             ctx.extra["failed_step_key"]   = step_key
             ctx.extra["error_message"]     = error_msg
             result.fail(f"{step_label} : {error_msg}")
+        step = by_key[step_key]
+        _record_run_step(result, step_key=step_key,
+                          step_type=str(step.step_type).replace("StepType.", ""),
+                          step_label=step_label, status="FAILED", port_taken="error",
+                          error_message=error_msg)
         for nxt in outgoing_keys.get(step_key, []):
             in_degree[nxt] -= 1
 
@@ -962,13 +1091,16 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
         if in_flight == 0:
             break   # plus rien à soumettre (annulé) et plus rien en vol
 
-        step_key, step, step_label, config, step_ctx, before_output_file, step_result = results_queue.get()
+        (step_key, step, step_label, config, step_ctx, before_output_file,
+         step_result, attempts_log) = results_queue.get()
         in_flight -= 1
         in_flight_keys.discard(step_key)
         done_count += 1
         with active_steps_lock:
             active_steps.pop(step_key, None)
             _persist_active_steps()
+        step_started_at  = datetime.fromisoformat(attempts_log[0]["started_at"])
+        step_finished_at = datetime.fromisoformat(attempts_log[-1]["finished_at"])
 
         # Port actif par défaut (chantier port d'erreur générique) — même règle que
         # _execute_graph : jamais écraser un choix explicite déjà fait par l'étape elle-même.
@@ -1004,11 +1136,25 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
             for nxt in outgoing_keys.get(step_key, []):
                 in_degree[nxt] -= 1
             progress(f"{step_label} — terminé", int(done_count * 90 / total), step_key)
+            _record_run_step(
+                result, step_key=step_key, step_type=str(step.step_type).replace("StepType.", ""),
+                step_label=step_label, status="SUCCESS", attempts=len(attempts_log),
+                attempts_log=attempts_log, started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, output_path=ctx.artifacts.get(step_key),
+                port_taken=step_result.active_port,
+            )
         elif cancel_event.is_set():
             step_status[step_key] = "failed"
             active_port[step_key] = step_result.active_port
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
+            _record_run_step(
+                result, step_key=step_key, step_type=str(step.step_type).replace("StepType.", ""),
+                step_label=step_label, status="CANCELLED", attempts=len(attempts_log),
+                attempts_log=attempts_log, started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, port_taken=step_result.active_port,
+                error_message=step_result.error,
+            )
         else:
             step_status[step_key] = "failed"
             active_port[step_key] = step_result.active_port
@@ -1019,6 +1165,13 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
                 ctx.extra["failed_step_key"]   = step_key
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
+            _record_run_step(
+                result, step_key=step_key, step_type=str(step.step_type).replace("StepType.", ""),
+                step_label=step_label, status="FAILED", attempts=len(attempts_log),
+                attempts_log=attempts_log, started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, port_taken=step_result.active_port,
+                error_message=step_result.error,
+            )
             for nxt in outgoing_keys.get(step_key, []):
                 in_degree[nxt] -= 1
 
@@ -1050,16 +1203,31 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
 
         result.log(f"--- {step_label} ({step_type}) ---")
         executor_step = get_step(step_type, config)
-        step_result = _run_step_with_policy(executor_step, step_ctx, step, step_progress, result, cancel_event)
+        step_result, attempts_log = _run_step_with_policy(
+            executor_step, step_ctx, step, step_progress, result, cancel_event)
+        step_started_at  = datetime.fromisoformat(attempts_log[0]["started_at"])
+        step_finished_at = datetime.fromisoformat(attempts_log[-1]["finished_at"])
         done_count += 1
         if step_result.success:
             if step_ctx.output_file is not None:
                 ctx.artifacts["output_file"] = step_ctx.output_file
             if step_ctx.variables:
                 ctx.variables.update(step_ctx.variables)
+            _record_run_step(
+                result, step_key=None, step_type=step_type, step_label=step_label,
+                status="SUCCESS", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, output_path=step_ctx.output_file,
+            )
         elif cancel_event.is_set():
             pipeline_cancelled = True
             result.fail("Exécution interrompue par l'utilisateur.")
+            _record_run_step(
+                result, step_key=None, step_type=step_type, step_label=step_label,
+                status="CANCELLED", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, error_message=step_result.error,
+            )
             break
         else:
             pipeline_failed = True
@@ -1071,6 +1239,12 @@ def _execute_graph_parallel(steps, edges, ctx, progress, result, cancel_event, p
                 ctx.extra["failed_step_key"]   = None
                 ctx.extra["error_message"]     = step_result.error
                 result.fail(f"{step_label} : {step_result.error}")
+            _record_run_step(
+                result, step_key=None, step_type=step_type, step_label=step_label,
+                status="FAILED", attempts=len(attempts_log), attempts_log=attempts_log,
+                started_at=step_started_at, finished_at=step_finished_at,
+                rows_count=step_ctx.rows_count, error_message=step_result.error,
+            )
 
     with active_steps_lock:
         if active_steps:
