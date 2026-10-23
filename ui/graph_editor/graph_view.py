@@ -25,6 +25,7 @@ class PipelineGraphView(QGraphicsView):
         self._minimap = None
         self._rail = None
         self._zoom_widget = None
+        self._search_overlay = None
         # Pan manuel (chantier identité visuelle) — bouton milieu réservé exclusivement au
         # panoramique, jamais transmis à PipelineGraphScene (qui ne filtre par bouton nulle
         # part) : interceptés ici, AVANT tout super()..., le clic gauche existant
@@ -108,3 +109,5 @@ class PipelineGraphView(QGraphicsView):
             self._rail.reposition()
         if self._zoom_widget is not None:
             self._zoom_widget.reposition()
+        if self._search_overlay is not None:
+            self._search_overlay.reposition()
