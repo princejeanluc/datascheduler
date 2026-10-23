@@ -1027,6 +1027,38 @@ def test_search_text_tolerates_missing_user_label():
     assert node.search_text()   # ne plante pas, jamais None
 
 
+def test_atelier_mode_floats_a_search_overlay_instead_of_the_classic_toolbar(qapp, test_db):
+    """A10 (lot A-Atelier-main) : show_settings_shortcut_button=False (vraie vue Atelier) flotte
+    la recherche en haut à droite du canevas au lieu de l'ancienne barre horizontale — le
+    dialogue de compatibilité (show_settings_shortcut_button=True, défaut) garde celle-ci."""
+    from ui.graph_editor import PipelineGraphEditorWidget
+    from ui.graph_editor.node_search_overlay import NodeSearchOverlay
+
+    pipeline = db.create_pipeline(name="search-overlay-test")
+    widget = PipelineGraphEditorWidget(pipeline=pipeline, show_settings_shortcut_button=False)
+
+    assert isinstance(widget._search_overlay, NodeSearchOverlay)
+    assert widget.inp_search is widget._search_overlay.inp_search
+    assert widget._view._search_overlay is widget._search_overlay
+
+    # Flotte bien près du bord droit du viewport, pas accroché à gauche (même formule que
+    # ZoomWidget/GraphMinimapWidget : marge fixe depuis le bord opposé).
+    widget.resize(900, 600)
+    widget._search_overlay.reposition()
+    vp_width = widget._view.viewport().width()
+    expected_x = vp_width - widget._search_overlay.width() - 12
+    assert widget._search_overlay.x() == expected_x
+    assert expected_x > vp_width / 2
+
+
+def test_compat_dialog_still_uses_the_classic_toolbar_search(qapp, test_db):
+    pipeline = db.create_pipeline(name="search-classic-toolbar-test")
+    dlg = PipelineGraphEditorDialog(None, pipeline=pipeline)
+
+    assert not hasattr(dlg._editor, "_search_overlay")
+    assert dlg._editor.inp_search is not None
+
+
 def test_on_search_changed_marks_matching_nodes_and_dims_the_rest(qapp, test_db):
     pipeline = db.create_pipeline(name="search-dim-test")
     db.save_pipeline_graph(pipeline.id, steps=[

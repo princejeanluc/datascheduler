@@ -13,17 +13,36 @@ Nom, description, actif, planification, déclenchement conditionnel, variables �
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel,
-    QLineEdit, QSpinBox, QComboBox, QPushButton, QFrame, QRadioButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QSpinBox, QComboBox, QPushButton, QFrame,
     QButtonGroup, QCheckBox, QMessageBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
 )
 from PySide6.QtCore import Qt, Signal
-from ui.styles import COLORS, FONT_MONO_STACK
+from PySide6.QtGui import QFont, QColor
+from ui.styles import COLORS, FONT_MONO_STACK, FONT_MONO, FONT_UI
 from .common import DAYS_OF_WEEK
 from core.expr_lang import compile_expression
 
 _COL_VAR_NAME, _COL_VAR_EXPR = range(2)
+
+
+def _compute_written_variable_sources(pipeline_id: int) -> dict[str, str]:
+    """A15 : une variable par étape du canevas qui l'écrit (SET_VARIABLE/EXTRACT_VARIABLES) —
+    import différé de ui.graph_editor.node_facts pour éviter le cycle d'import décrit dans
+    graph_editor_widget.py (qui importe ui.step_editor au niveau module)."""
+    import json
+    from database import db_manager as db
+    from ui.graph_editor.node_facts import compute_written_variables
+
+    sources: dict[str, str] = {}
+    for s in db.get_steps(pipeline_id):
+        step_type = str(s.step_type).replace("StepType.", "")
+        config = json.loads(s.config_json or "{}")
+        label = s.label or step_type.replace("_", " ").title()
+        for var_name in compute_written_variables(step_type, config):
+            sources.setdefault(var_name, label)
+    return sources
 
 
 class PipelineSettingsPanel(QWidget):
@@ -47,92 +66,97 @@ class PipelineSettingsPanel(QWidget):
 
     def _build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(28, 20, 28, 12)
-        root.setSpacing(18)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # ① Général
-        root.addWidget(self._section_label("① Informations générales"))
-        f1 = self._form()
-        self.inp_name = self._input("ex : EXPORT_VENTES_QUOTIDIEN")
-        self.inp_desc = self._input("Description optionnelle")
-        f1.addRow(self._label("Nom *"),       self.inp_name)
-        f1.addRow(self._label("Description"), self.inp_desc)
-        root.addLayout(f1)
+        # A11 : surtitre PIPELINE + case Actif sur la même ligne, nom en titre éditable,
+        # description — bloc d'en-tête du panneau (maquette Main.html).
+        header = QVBoxLayout()
+        header.setContentsMargins(18, 16, 18, 12)
+        header.setSpacing(8)
 
-        self.chk_active = QCheckBox("Pipeline actif")
-        self.chk_active.setStyleSheet(f"color: {COLORS['text_main']};")
+        top_row = QHBoxLayout()
+        surtitle = QLabel("PIPELINE")
+        surtitle.setStyleSheet(
+            f"color: {COLORS['accent_pale']}; font-family: {FONT_MONO_STACK}; font-size: 10px; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
+        )
+        top_row.addWidget(surtitle)
+        top_row.addStretch()
+        self.chk_active = QCheckBox("Actif")
+        self.chk_active.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px;")
         self.chk_active.setToolTip(
             "Un pipeline désactivé reste utilisable manuellement (bouton Exécuter), mais ne se "
             "déclenche jamais tout seul — planification et déclenchement conditionnel ignorés."
         )
-        root.addWidget(self.chk_active)
+        top_row.addWidget(self.chk_active)
+        header.addLayout(top_row)
+
+        self.inp_name = QLineEdit()
+        self.inp_name.setPlaceholderText("ex : EXPORT_VENTES_QUOTIDIEN")
+        self.inp_name.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none; "
+            f"border-bottom: 1px solid {COLORS['border']}; color: {COLORS['text_main']}; "
+            f"font-size: 17px; font-weight: 600; padding: 2px 0 6px 0; }}"
+            f"QLineEdit:focus {{ border-bottom-color: {COLORS['accent']}; }}"
+        )
+        header.addWidget(self.inp_name)
+
+        self.inp_desc = QLineEdit()
+        self.inp_desc.setPlaceholderText("Description optionnelle")
+        self.inp_desc.setStyleSheet(
+            f"QLineEdit {{ background: transparent; border: none; color: {COLORS['text_dim']}; "
+            f"font-size: 12px; padding: 0; }}"
+        )
+        header.addWidget(self.inp_desc)
+
+        root.addLayout(header)
         root.addWidget(self._sep())
 
-        # ② Planification
-        root.addWidget(self._section_label("② Planification"))
-        root.addLayout(self._build_schedule_ui())
-        root.addWidget(self._sep())
+        content = QVBoxLayout()
+        content.setContentsMargins(18, 14, 18, 12)
+        content.setSpacing(18)
 
-        # ③ Déclenchement conditionnel
-        root.addWidget(self._section_label("③ Déclenchement conditionnel"))
-        root.addLayout(self._build_trigger_ui())
-        root.addWidget(self._sep())
+        content.addWidget(self._section_label("PLANIFICATION"))
+        content.addLayout(self._build_schedule_ui())
 
-        # ④ Variables
-        root.addWidget(self._section_label("④ Variables"))
-        root.addLayout(self._build_variables_ui())
-        root.addStretch()
+        content.addWidget(self._section_label("DÉCLENCHEMENT EN CHAÎNE"))
+        content.addLayout(self._build_trigger_ui())
+
+        content.addWidget(self._section_label("EXÉCUTION"))
+        content.addLayout(self._build_execution_ui())
+
+        content.addLayout(self._build_variables_ui())
+        content.addStretch()
+
+        root.addLayout(content)
 
     def _build_schedule_ui(self) -> QVBoxLayout:
         vl = QVBoxLayout(); vl.setSpacing(10)
 
-        self.chk_prevent_overlap = QCheckBox("Empêcher les exécutions simultanées de ce pipeline")
-        self.chk_prevent_overlap.setStyleSheet(f"color: {COLORS['text_main']};")
-        self.chk_prevent_overlap.setToolTip(
-            "Si activé, un déclenchement (manuel ou planifié) qui trouve ce pipeline déjà en "
-            "cours d'exécution est ignoré (planifié) ou vous propose de l'interrompre (manuel)."
+        # A12 : boutons segmentés (Jour/Semaine/Mois/Cron) remplaçant les anciens QRadioButton —
+        # même groupe exclusif, mêmes clés DAILY/WEEKLY/MONTHLY/CUSTOM, même connexion.
+        freq_bar = QWidget()
+        freq_bar.setStyleSheet(
+            f"QWidget {{ background: {COLORS['bg_main']}; border: 1px solid {COLORS['border']}; "
+            f"border-radius: 6px; }}"
         )
-        vl.addWidget(self.chk_prevent_overlap)
-
-        self.chk_parallel_execution = QCheckBox("Exécuter les branches indépendantes en parallèle")
-        self.chk_parallel_execution.setStyleSheet(f"color: {COLORS['text_main']};")
-        self.chk_parallel_execution.setToolTip(
-            "Si activé, les étapes de ce pipeline dont toutes les dépendances sont déjà résolues "
-            "s'exécutent en même temps (jusqu'au plafond ci-dessous) au lieu de s'enchaîner une "
-            "par une — un vrai gain de temps sur un pipeline à branches indépendantes. Sans effet "
-            "sur un pipeline linéaire (aucune branche à paralléliser)."
-        )
-        self.chk_parallel_execution.toggled.connect(self._on_parallel_execution_toggled)
-        vl.addWidget(self.chk_parallel_execution)
-
-        self._w_parallel_branches = QWidget()
-        pb_row = QHBoxLayout(self._w_parallel_branches)
-        pb_row.setContentsMargins(20, 0, 0, 0); pb_row.setSpacing(8)
-        self.spin_max_parallel_branches = QSpinBox()
-        self.spin_max_parallel_branches.setRange(1, 16)
-        self.spin_max_parallel_branches.setValue(4)
-        self.spin_max_parallel_branches.setFixedWidth(70)
-        self.spin_max_parallel_branches.setStyleSheet(self._spinbox_style())
-        pb_row.addWidget(QLabel("Branches en parallèle max :"))
-        pb_row.addWidget(self.spin_max_parallel_branches)
-        pb_row.addStretch()
-        vl.addWidget(self._w_parallel_branches)
-        self._w_parallel_branches.setVisible(False)
-
-        freq_row = QHBoxLayout(); freq_row.setSpacing(14)
-        self._freq_group   = QButtonGroup()
+        freq_row = QHBoxLayout(freq_bar)
+        freq_row.setContentsMargins(2, 2, 2, 2); freq_row.setSpacing(2)
+        self._freq_group   = QButtonGroup(self)
         self._freq_buttons = {}
-        for lbl, key in [("Quotidien","DAILY"), ("Hebdomadaire","WEEKLY"),
-                         ("Mensuel","MONTHLY"), ("Personnalisé","CUSTOM")]:
-            rb = QRadioButton(lbl)
-            rb.setStyleSheet(f"color: {COLORS['text_main']}; font-size: 13px;")
-            self._freq_group.addButton(rb)
-            self._freq_buttons[key] = rb
-            freq_row.addWidget(rb)
-        freq_row.addStretch()
+        for lbl, key in [("Jour","DAILY"), ("Semaine","WEEKLY"),
+                         ("Mois","MONTHLY"), ("Cron","CUSTOM")]:
+            btn = QPushButton(lbl)
+            btn.setCheckable(True)
+            btn.setFixedHeight(28)
+            btn.setStyleSheet(self._segment_button_style())
+            self._freq_group.addButton(btn)
+            self._freq_buttons[key] = btn
+            freq_row.addWidget(btn, stretch=1)
         self._freq_buttons["DAILY"].setChecked(True)
         self._freq_group.buttonClicked.connect(self._on_freq_changed)
-        vl.addLayout(freq_row)
+        vl.addWidget(freq_bar)
 
         self._w_daily = QWidget()
         hl = QHBoxLayout(self._w_daily); hl.setContentsMargins(0,0,0,0); hl.setSpacing(8)
@@ -185,40 +209,86 @@ class PipelineSettingsPanel(QWidget):
         self._on_freq_changed()
         return vl
 
+    def _build_execution_ui(self) -> QVBoxLayout:
+        """A14 : section EXÉCUTION séparée de la planification — mêmes deux cases et le même
+        plafond que l'ancien bloc (déplacés hors de _build_schedule_ui, comportement inchangé)."""
+        vl = QVBoxLayout(); vl.setSpacing(10)
+
+        self.chk_prevent_overlap = QCheckBox("Empêcher les exécutions simultanées de ce pipeline")
+        self.chk_prevent_overlap.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_prevent_overlap.setToolTip(
+            "Si activé, un déclenchement (manuel ou planifié) qui trouve ce pipeline déjà en "
+            "cours d'exécution est ignoré (planifié) ou vous propose de l'interrompre (manuel)."
+        )
+        vl.addWidget(self.chk_prevent_overlap)
+
+        self.chk_parallel_execution = QCheckBox("Exécuter les branches indépendantes en parallèle")
+        self.chk_parallel_execution.setStyleSheet(f"color: {COLORS['text_main']};")
+        self.chk_parallel_execution.setToolTip(
+            "Si activé, les étapes de ce pipeline dont toutes les dépendances sont déjà résolues "
+            "s'exécutent en même temps (jusqu'au plafond ci-dessous) au lieu de s'enchaîner une "
+            "par une — un vrai gain de temps sur un pipeline à branches indépendantes. Sans effet "
+            "sur un pipeline linéaire (aucune branche à paralléliser)."
+        )
+        self.chk_parallel_execution.toggled.connect(self._on_parallel_execution_toggled)
+        vl.addWidget(self.chk_parallel_execution)
+
+        self._w_parallel_branches = QWidget()
+        pb_row = QHBoxLayout(self._w_parallel_branches)
+        pb_row.setContentsMargins(20, 0, 0, 0); pb_row.setSpacing(8)
+        self.spin_max_parallel_branches = QSpinBox()
+        self.spin_max_parallel_branches.setRange(1, 16)
+        self.spin_max_parallel_branches.setValue(4)
+        self.spin_max_parallel_branches.setFixedWidth(70)
+        self.spin_max_parallel_branches.setStyleSheet(self._spinbox_style())
+        pb_row.addWidget(QLabel("Branches en parallèle max :"))
+        pb_row.addWidget(self.spin_max_parallel_branches)
+        pb_row.addStretch()
+        vl.addWidget(self._w_parallel_branches)
+        self._w_parallel_branches.setVisible(False)
+
+        return vl
+
     def _on_parallel_execution_toggled(self, checked: bool):
         self._w_parallel_branches.setVisible(checked)
 
     def _build_trigger_ui(self) -> QVBoxLayout:
         """Additif à la planification cron ci-dessus, ne la remplace jamais : un pipeline peut
         avoir les deux (un planning ET un déclenchement après un autre pipeline). Hors
-        export/import — voir database/db_manager.py::set_pipeline_trigger()."""
-        vl = QVBoxLayout(); vl.setSpacing(10)
+        export/import — voir database/db_manager.py::set_pipeline_trigger().
+        A13 : phrase « Lancer aussi après [pipeline] si elle [réussit/échoue/se termine] »
+        remplaçant les labels « Après : »/« Si : » — mêmes combos, mêmes valeurs SUCCESS/
+        FAILURE/ALWAYS (seuls les libellés affichés changent, en verbe plutôt qu'en nom).
+        Sur deux lignes plutôt qu'une seule (la maquette laisse le navigateur passer "si elle
+        [...]" à la ligne quand ça ne tient pas — un QHBoxLayout ne le fait jamais tout seul et
+        forcerait sinon toute la largeur du panneau à s'élargir pour tout faire tenir)."""
+        vl = QVBoxLayout(); vl.setSpacing(8)
 
-        hint = QLabel(
-            "En plus de sa planification, ce pipeline peut se lancer automatiquement quand un "
-            "autre pipeline se termine."
-        )
-        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
-        hint.setWordWrap(True)
-        vl.addWidget(hint)
-
-        row = QHBoxLayout(); row.setSpacing(10)
+        row1 = QHBoxLayout(); row1.setSpacing(6)
+        row1.addWidget(QLabel("Lancer aussi après"))
         self.cb_trigger_parent = QComboBox()
         self.cb_trigger_parent.setStyleSheet(self._combo_style())
         self.cb_trigger_parent.addItem("— Aucun (planification seule) —", None)
         for p in self._other_pipelines:
             self.cb_trigger_parent.addItem(p.name, p.id)
         self.cb_trigger_parent.currentIndexChanged.connect(self._on_trigger_parent_changed)
+        row1.addWidget(self.cb_trigger_parent, stretch=1)
+        vl.addLayout(row1)
 
+        row2 = QHBoxLayout(); row2.setSpacing(6)
+        row2.addWidget(QLabel("si elle"))
         self.cb_trigger_condition = QComboBox()
         self.cb_trigger_condition.setStyleSheet(self._combo_style())
-        self.cb_trigger_condition.addItem("Succès", "SUCCESS")
-        self.cb_trigger_condition.addItem("Échec", "FAILURE")
-        self.cb_trigger_condition.addItem("Toujours", "ALWAYS")
+        self.cb_trigger_condition.addItem("réussit", "SUCCESS")
+        self.cb_trigger_condition.addItem("échoue", "FAILURE")
+        self.cb_trigger_condition.addItem("se termine", "ALWAYS")
+        row2.addWidget(self.cb_trigger_condition)
+        row2.addStretch()
+        vl.addLayout(row2)
 
-        row.addWidget(QLabel("Après :")); row.addWidget(self.cb_trigger_parent, stretch=1)
-        row.addWidget(QLabel("Si :")); row.addWidget(self.cb_trigger_condition)
-        vl.addLayout(row)
+        caption = QLabel("Choix possibles : réussit, échoue, se termine.")
+        caption.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px;")
+        vl.addWidget(caption)
 
         self._on_trigger_parent_changed()
         return vl
@@ -232,8 +302,26 @@ class PipelineSettingsPanel(QWidget):
         (ui/step_editor/set_variable_config_dialog.py), 2 colonnes seulement : evaluate() renvoie
         déjà une valeur typée, pas de colonne Type/Format. L'ORDRE des lignes compte : la valeur
         par défaut d'une variable peut référencer var:nom d'une variable déclarée plus haut
-        (core/pipeline.py les évalue une par une, dans l'ordre déclaré)."""
+        (core/pipeline.py les évalue une par une, dans l'ordre déclaré).
+        A15 : surtitre VARIABLES et lien « + Ajouter » sur la même ligne, table en police Mono,
+        variables écrites par une étape du canevas (compute_written_variables) affichées en
+        lecture seule « écrite par <étape> » si elles ne sont pas déjà déclarées ici."""
         vl = QVBoxLayout(); vl.setSpacing(10)
+
+        header_row = QHBoxLayout()
+        header_row.addWidget(self._section_label("VARIABLES"))
+        header_row.addStretch()
+        btn_add = QPushButton("+ Ajouter")
+        btn_add.setFlat(True)
+        btn_add.setCursor(Qt.PointingHandCursor)
+        btn_add.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; color: {COLORS['accent_pale']}; "
+            f"font-size: 12px; font-weight: 600; padding: 0; }}"
+            f"QPushButton:hover {{ color: {COLORS['accent']}; }}"
+        )
+        btn_add.clicked.connect(lambda: self._add_variable_row())
+        header_row.addWidget(btn_add)
+        vl.addLayout(header_row)
 
         hint = QLabel(
             "Amorce ctx.variables avant la première étape — une ligne par variable (var:nom). "
@@ -254,20 +342,19 @@ class PipelineSettingsPanel(QWidget):
         self.tbl_variables.setMinimumHeight(120)
         self.tbl_variables.setStyleSheet(
             f"QTableWidget {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']}; "
-            f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; }}"
+            f"border-radius: 4px; color: {COLORS['text_main']}; gridline-color: {COLORS['border']}; "
+            f"font-family: {FONT_MONO_STACK}; font-size: 11.5px; }}"
             f"QHeaderView::section {{ background: {COLORS['bg_active']}; color: {COLORS['text_dim']}; "
-            f"padding: 4px; border: none; font-size: 11px; }}"
+            f"padding: 4px; border: none; font-size: 11px; font-family: inherit; }}"
             f"QTableWidget::item:selected {{ background-color: {COLORS['bg_hover']}; "
             f"color: {COLORS['text_main']}; border-left: 2px solid {COLORS['accent']}; }}"
         )
         vl.addWidget(self.tbl_variables)
 
         btn_row = QHBoxLayout(); btn_row.setSpacing(8)
-        btn_add = QPushButton("+ Ajouter"); btn_add.setObjectName("secondary")
-        btn_add.setFixedHeight(30); btn_add.clicked.connect(lambda: self._add_variable_row())
         btn_remove = QPushButton("− Retirer"); btn_remove.setObjectName("secondary")
         btn_remove.setFixedHeight(30); btn_remove.clicked.connect(self._remove_selected_variable_row)
-        btn_row.addWidget(btn_add); btn_row.addWidget(btn_remove); btn_row.addStretch()
+        btn_row.addWidget(btn_remove); btn_row.addStretch()
         vl.addLayout(btn_row)
 
         return vl
@@ -278,6 +365,23 @@ class PipelineSettingsPanel(QWidget):
         self.tbl_variables.setItem(row, _COL_VAR_NAME, QTableWidgetItem(name))
         self.tbl_variables.setItem(row, _COL_VAR_EXPR, QTableWidgetItem(default_expression))
 
+    def _add_written_only_variable_row(self, name: str, source_label: str):
+        """A15 : ligne informative pour une variable écrite par une étape du canevas (
+        compute_written_variables) mais jamais déclarée dans cette table — non éditable, non
+        sélectionnable (pas de vraie ligne à enregistrer), exclue de _collect_variables()."""
+        row = self.tbl_variables.rowCount()
+        self.tbl_variables.insertRow(row)
+        name_item = QTableWidgetItem(name)
+        name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
+        name_item.setData(Qt.UserRole, True)
+        self.tbl_variables.setItem(row, _COL_VAR_NAME, name_item)
+
+        expr_item = QTableWidgetItem(f"écrite par {source_label}")
+        expr_item.setFlags(expr_item.flags() & ~Qt.ItemIsEditable & ~Qt.ItemIsSelectable)
+        expr_item.setForeground(QColor(COLORS["text_muted"]))
+        expr_item.setFont(QFont(FONT_UI))
+        self.tbl_variables.setItem(row, _COL_VAR_EXPR, expr_item)
+
     def _remove_selected_variable_row(self):
         rows = {i.row() for i in self.tbl_variables.selectedIndexes()}
         for row in sorted(rows, reverse=True):
@@ -287,6 +391,8 @@ class PipelineSettingsPanel(QWidget):
         variables = []
         for row in range(self.tbl_variables.rowCount()):
             name_item = self.tbl_variables.item(row, _COL_VAR_NAME)
+            if name_item is not None and name_item.data(Qt.UserRole):
+                continue   # ligne "écrite par X" (A15) — informative seulement
             expr_item = self.tbl_variables.item(row, _COL_VAR_EXPR)
             name = name_item.text().strip() if name_item else ""
             expr = expr_item.text().strip() if expr_item else ""
@@ -468,21 +574,25 @@ class PipelineSettingsPanel(QWidget):
         self._on_trigger_parent_changed()
 
         from database import db_manager as db
+        declared_names = set()
         for v in db.get_pipeline_variables(p.id):
             self._add_variable_row(v.name, v.default_expression)
+            declared_names.add(v.name)
+
+        # A15 : variables écrites par une étape du canevas (SET_VARIABLE/EXTRACT_VARIABLES),
+        # affichées en lecture seule si elles ne sont pas déjà une variable déclarée ci-dessus.
+        for name, source_label in _compute_written_variable_sources(p.id).items():
+            if name not in declared_names:
+                self._add_written_only_variable_row(name, source_label)
 
     # ── Helpers visuels ──────────────────────
 
     def _section_label(self, text: str) -> QLabel:
         l = QLabel(text)
         l.setStyleSheet(
-            f"color: {COLORS['accent']}; font-size: 12px; font-weight: 700; letter-spacing: 0.5px;"
+            f"color: {COLORS['text_dim']}; font-size: 11px; font-weight: 600; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
         )
-        return l
-
-    def _label(self, text: str) -> QLabel:
-        l = QLabel(text)
-        l.setStyleSheet(f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 500;")
         return l
 
     def _input(self, placeholder="") -> QLineEdit:
@@ -499,6 +609,17 @@ class PipelineSettingsPanel(QWidget):
             f"QLineEdit {{ background: {COLORS['bg_card']}; border: 1px solid {border}; "
             f"border-radius: 4px; padding: 6px 10px; color: {COLORS['text_main']}; font-size: 13px; }}"
             f"QLineEdit:focus {{ border-color: {COLORS['accent']}; }}"
+        )
+
+    def _segment_button_style(self) -> str:
+        """A12 : boutons segmentés de fréquence — fond plein `bg_hover` + texte plein quand
+        coché, transparent/atténué sinon, sans bordure individuelle (la bordure vit sur le
+        conteneur `freq_bar`)."""
+        return (
+            f"QPushButton {{ background: transparent; border: none; border-radius: 4px; "
+            f"color: {COLORS['text_dim']}; font-size: 12px; font-weight: 600; padding: 0; }}"
+            f"QPushButton:checked {{ background: {COLORS['bg_hover']}; color: {COLORS['text_main']}; }}"
+            f"QPushButton:hover:!checked {{ color: {COLORS['text_main']}; }}"
         )
 
     def _spinbox_style(self) -> str:
@@ -518,12 +639,6 @@ class PipelineSettingsPanel(QWidget):
             f"border: 1px solid {COLORS['border']}; "
             f"selection-background-color: {COLORS['bg_active']}; color: {COLORS['text_main']}; }}"
         )
-
-    def _form(self) -> QFormLayout:
-        f = QFormLayout(); f.setSpacing(10)
-        f.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        f.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        return f
 
     def _sep(self) -> QFrame:
         f = QFrame(); f.setFrameShape(QFrame.HLine)

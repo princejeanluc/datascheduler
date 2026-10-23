@@ -13,6 +13,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from ui.step_editor.pipeline_settings_dialog import PipelineSettingsDialog
@@ -354,6 +355,77 @@ def test_variables_prefilled_from_existing_pipeline(qapp, test_db):
     assert dlg.tbl_variables.rowCount() == 2
     assert dlg.tbl_variables.item(0, 0).text() == "base_date"
     assert dlg.tbl_variables.item(1, 1).text() == "date_add(var:base_date, -7)"
+
+
+# ──────────────────────────────────────────────
+#  Lot A-Atelier-main : boutons segmentés (A12), phrase de déclenchement (A13),
+#  variables écrites par une étape du canevas (A15)
+# ──────────────────────────────────────────────
+
+def test_frequency_segmented_buttons_keep_the_same_keys_as_the_old_radio_group(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-freq-segmented")
+    dlg = _dialog_for(p)
+
+    assert set(dlg._freq_buttons.keys()) == {"DAILY", "WEEKLY", "MONTHLY", "CUSTOM"}
+    for btn in dlg._freq_buttons.values():
+        assert btn.isCheckable()
+    assert dlg._freq_buttons["DAILY"].isChecked()
+
+
+def test_trigger_condition_combo_shows_verb_phrasing_but_keeps_the_same_stored_values(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-trigger-phrase")
+    dlg = _dialog_for(p)
+
+    texts = [dlg.cb_trigger_condition.itemText(i) for i in range(dlg.cb_trigger_condition.count())]
+    values = [dlg.cb_trigger_condition.itemData(i) for i in range(dlg.cb_trigger_condition.count())]
+    assert texts == ["réussit", "échoue", "se termine"]
+    assert values == ["SUCCESS", "FAILURE", "ALWAYS"]
+
+
+def test_variable_written_by_a_canvas_step_shows_a_read_only_row(qapp, test_db):
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-written-var")
+    db.save_steps(p.id, [{
+        "step_type": "SET_VARIABLE",
+        "label": "Calcule le seuil",
+        "config": {"assignments": [{"target": "seuil", "expression": "1000"}]},
+    }])
+
+    dlg = _dialog_for(db.get_pipeline(p.id))
+
+    assert dlg.tbl_variables.rowCount() == 1
+    name_item = dlg.tbl_variables.item(0, 0)
+    expr_item = dlg.tbl_variables.item(0, 1)
+    assert name_item.text() == "seuil"
+    assert expr_item.text() == "écrite par Calcule le seuil"
+    assert not (name_item.flags() & Qt.ItemIsEditable)
+    assert not (name_item.flags() & Qt.ItemIsSelectable)
+
+    # Ligne purement informative : jamais enregistrée comme vraie variable de pipeline.
+    assert dlg._collect_variables() == []
+
+
+def test_a_declared_variable_is_not_duplicated_as_a_written_only_row(qapp, test_db):
+    """Si la variable est DÉJÀ déclarée (table de gauche), pas de seconde ligne "écrite par X" —
+    la déclaration fait foi."""
+    from database import db_manager as db
+
+    p = db.create_pipeline(name="settings-written-var-already-declared")
+    db.save_pipeline_variables(p.id, [{"name": "seuil", "default_expression": "500"}])
+    db.save_steps(p.id, [{
+        "step_type": "SET_VARIABLE",
+        "config": {"assignments": [{"target": "seuil", "expression": "1000"}]},
+    }])
+
+    dlg = _dialog_for(db.get_pipeline(p.id))
+
+    assert dlg.tbl_variables.rowCount() == 1
+    assert dlg.tbl_variables.item(0, 1).text() == "500"
 
 
 def test_variables_round_trip_through_save(qapp, test_db):
