@@ -25,6 +25,13 @@ def edge_base_visual(from_port: str) -> tuple[str, bool]:
     color_key, _ = _port_visual(from_port)
     return color_key, from_port == "error"
 
+
+def edge_selection_color_key(from_port: str) -> str:
+    """Couleur (clé COLORS) d'une liaison qui touche le nœud sélectionné (A4) — accent, sauf son
+    propre chemin d'erreur qui passe en warning plutôt qu'accent (la fiche distingue les deux
+    explicitement). Fonction pure, même philosophie que edge_base_visual."""
+    return "warning" if from_port == "error" else "accent"
+
 # Géométrie de la pointe de flèche — la tangente en fin de tracé (update_path()) est toujours
 # strictement horizontale par construction (le point de contrôle d'arrivée a la même ordonnée
 # que le point d'arrivée), donc une flèche droite pointant vers +x reste correcte quels que
@@ -85,15 +92,21 @@ class EdgeItem(QGraphicsPathItem):
         # toujours prioritaire sur cette base.
         base_color_key, base_dashed = edge_base_visual(self.from_port)
 
+        # A4 : une liaison touchant le nœud sélectionné (pas seulement la liaison elle-même
+        # sélectionnée) passe en accent — sauf son propre chemin d'erreur, qui passe en warning
+        # plutôt qu'accent (la fiche distingue explicitement les deux).
+        node_selected = self.from_node.isSelected() or self.to_node.isSelected()
+        selected = self.isSelected() or node_selected
+
         if self._is_failed:
             color = QColor(COLORS["danger"])
         elif self._is_executing:
             color = QColor(COLORS["signal"])
-        elif self.isSelected():
-            color = QColor(COLORS["accent"])
+        elif selected:
+            color = QColor(COLORS[edge_selection_color_key(self.from_port)])
         else:
             color = QColor(COLORS[base_color_key])
-        state_active = self.isSelected() or self._is_executing or self._is_failed
+        state_active = selected or self._is_executing or self._is_failed
         pen = QPen(color, 2.5 if state_active else 1.8)
         if base_dashed and not state_active:
             pen.setStyle(Qt.DashLine)

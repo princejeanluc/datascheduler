@@ -39,6 +39,12 @@ bas pour son introduction).
   « ET »/« OU ») et leur nom désormais au-dessus, liaisons colorées/pointillées selon leur port de
   départ (erreur en pointillé ambre, vrai/faux avec le mot entier sur la liaison). Aucun
   changement de donnée ni de comportement d'exécution.
+- Corrections relevées en comparant une capture à la maquette : coins du losange arrondis (étaient
+  des pointes nettes), symbole central agrandi et mieux centré, points de port en anneau (bordure
+  colorée, intérieur sombre) au lieu d'un disque plein, valeur longue du contenu déplié tronquée
+  avec « … » au lieu d'être coupée net en plein milieu d'un caractère. A4 (sélection) implémenté :
+  bordure accent sur le nœud sélectionné, les autres nœuds atténués, ses liaisons en accent (son
+  propre chemin d'erreur en warning).
 
 ## [0.52.1] - 2026-10-21
 

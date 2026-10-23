@@ -285,6 +285,83 @@ def test_edge_base_visual_normal_port_is_neutral_and_solid():
     assert dashed is False
 
 
+# ──────────────────────────────────────────────
+#  Sélection : bordure accent, nœuds non sélectionnés atténués, liaisons touchées en accent/
+#  warning (correctif A4, relevé en comparant une capture à la maquette Grammaire)
+# ──────────────────────────────────────────────
+
+def test_node_opacity_full_when_nothing_selected():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=False, any_selected=False) == 1.0
+
+
+def test_node_opacity_full_for_the_selected_node_itself():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=True, any_selected=True) == 1.0
+
+
+def test_node_opacity_dimmed_for_other_nodes_when_something_is_selected():
+    from ui.graph_editor.node_item import _node_opacity
+    assert _node_opacity(is_self_selected=False, any_selected=True) < 1.0
+
+
+def test_edge_selection_color_is_warning_for_error_port_accent_otherwise():
+    from ui.graph_editor.edge_item import edge_selection_color_key
+    assert edge_selection_color_key("error") == "warning"
+    assert edge_selection_color_key("true") == "accent"
+    assert edge_selection_color_key("false") == "accent"
+    assert edge_selection_color_key("output_file") == "accent"
+
+
+def test_selecting_a_node_dims_its_sibling_in_a_real_scene(qapp):
+    """Intégration légère (vraie QGraphicsScene) : sélectionner un nœud atténue l'autre, jamais
+    lui-même — vérifié via l'opacité effectivement utilisée par paint() (même patron que
+    test_routing_node_paint_does_not_crash, un vrai repaint plutôt qu'un appel nu)."""
+    from PySide6.QtWidgets import QGraphicsScene
+    from PySide6.QtGui import QPixmap, QPainter as RealQPainter
+
+    scene = QGraphicsScene()
+    a = StepNodeItem({"step_type": "DB_EXTRACT", "config": {"_step_key": "a"}})
+    b = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "b"}})
+    b.setPos(300, 0)
+    scene.addItem(a)
+    scene.addItem(b)
+    a.setSelected(True)
+
+    captured_opacity = {}
+    rect = b.boundingRect()
+    pixmap = QPixmap(int(rect.width()) + 20, int(rect.height()) + 20)
+    painter = RealQPainter(pixmap)
+    try:
+        painter.translate(-rect.left(), -rect.top())
+        b.paint(painter, None, None)
+        captured_opacity["b"] = painter.opacity()
+    finally:
+        painter.end()
+
+    assert captured_opacity["b"] < 1.0
+
+
+# ──────────────────────────────────────────────
+#  Losange aux coins arrondis + symbole central (correctif, relevé en comparant une capture à la
+#  maquette Grammaire)
+# ──────────────────────────────────────────────
+
+def test_rounded_diamond_path_is_closed_and_has_no_sharp_moveto_at_each_vertex():
+    from ui.graph_editor.node_item import _rounded_diamond_path
+    path = _rounded_diamond_path(200, 64)
+    assert path.elementCount() > 4   # plus que les 4 sommets bruts d'un losange à angles vifs
+    assert not path.isEmpty()
+
+
+def test_rounded_diamond_path_stays_within_the_bounding_box():
+    from ui.graph_editor.node_item import _rounded_diamond_path
+    path = _rounded_diamond_path(200, 64)
+    bounds = path.boundingRect()
+    assert bounds.left() >= -0.01 and bounds.right() <= 200.01
+    assert bounds.top() >= -0.01 and bounds.bottom() <= 64.01
+
+
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
     """Flèche de direction (chantier identité, vague 1, idée 14a) — la pointe recule juste avant
     le port d'entrée sans le chevaucher, et le triangle pointe vers +x (la tangente en fin de

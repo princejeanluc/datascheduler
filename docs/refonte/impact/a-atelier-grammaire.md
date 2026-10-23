@@ -1,5 +1,44 @@
 # Note d'impact : lot A-Atelier-grammaire — rendu des nœuds et liaisons du canevas
 
+## Correctifs (relevés en comparant une capture à la maquette, après la 1ʳᵉ version du lot)
+- Losange : coins arrondis (`node_item.py::_rounded_diamond_path`, nouveau — quatre courbes
+  quadratiques remplacent les quatre `lineTo` à angle vif).
+- Symbole central du losange agrandi (9/8pt → 15/12pt) et mieux centré.
+- Points de port (entrée, sortie normale, erreur) en ANNEAU — bordure colorée, intérieur sombre
+  (`bg_main`) — au lieu d'un disque plein (`StepNodeItem._draw_port_ring`, nouveau).
+- Contenu déplié : une valeur de fait trop longue pour sa largeur allouée était coupée net en
+  plein milieu d'un caractère, sans indication qu'il en manque la fin. Tronquée avec « … »
+  (`QFontMetrics.elidedText`), même principe déjà utilisé ailleurs dans l'appli
+  (`settings_view.py::_make_category_row`).
+- **A4 implémenté** (absent de la 1ʳᵉ version de ce lot, alors qu'explicitement dans le tableau
+  Lot A de la fiche) : bordure `accent` sur le nœud sélectionné (remplace la bordure de couleur
+  de famille, simplement épaissie, d'avant ce correctif) ; tout AUTRE nœud du canevas atténué
+  (opacité 0.4) tant qu'une sélection existe quelque part ; les liaisons touchant le nœud
+  sélectionné passent en `accent`, sauf le propre chemin d'erreur du nœud sélectionné qui passe
+  en `warning` (la fiche distingue explicitement les deux). Nouvelles fonctions pures
+  `node_item.py::_node_opacity` et `edge_item.py::edge_selection_color_key`.
+
+## Liaisons et états — ce qui est couvert, ce qui ne l'est pas (question de l'utilisateur)
+La maquette Grammaire liste 5 styles de liaison (« Donnée transmise », « Branche prise au dernier
+passage », « Branche non prise », « Chemin d'erreur, en attente », « Chemin d'erreur déclenché »)
+et 4 états de nœud (« Sélectionnée », « En cours · N% », « En échec », « Non exécutée »).
+- **Couverts par ce lot (A5, A4)** : « Donnée transmise » (port normal, neutre `text_dim`) ;
+  « Chemin d'erreur, en attente » (port `error`, pointillé `warning` — c'est l'état par défaut
+  tant qu'aucune exécution n'a eu lieu) ; « Sélectionnée » (bordure `accent`, nœud).
+- **Hors de portée d'un lot A pur (besoin de B1, `pipeline_run_steps`)** : « Branche prise au
+  dernier passage » / « Branche non prise » et « Chemin d'erreur déclenché » (vs « en attente »)
+  décrivent le résultat du DERNIER run réel — quelle branche a été empruntée, si le chemin
+  d'erreur a effectivement été pris. Rien de tout cela n'est en base aujourd'hui pour une liaison
+  individuelle (seul `PipelineRun.active_ports` existe, et seulement en cas d'échec reprenable).
+  De même « Non exécutée » (nœud) et le pourcentage de « En cours · N% » (déjà noté comme
+  question ouverte n°7 de la fiche) dépendent de B1.
+- **Mécanisme déjà existant, volontairement non touché** : `EdgeItem.set_failed()`/
+  `StepNodeItem.set_failed()` surlignent en ROUGE (`danger`) le nœud en échec et ses liaisons
+  entrantes pendant le traçage lumineux d'un run réel ou un lien "Voir dans le graphe" — un
+  mécanisme séparé, antérieur à ce lot, listé dans « À garder tel quel » de la fiche. Il n'est pas
+  le même concept que « chemin d'erreur déclenché » de la légende (qui serait ambre, pas rouge) ;
+  les deux coexistent sans conflit (priorité : échec réel rouge > sélection accent > base).
+
 ## Ce que le lot change
 Première tranche du Lot A de l'écran Atelier (`docs/refonte/ecrans/Atelier.md`), limitée à la
 frame « Grammaire » : A1, A2, A3 et A5, qui ne touchent que `ui/graph_editor/node_item.py`,

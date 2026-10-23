@@ -247,6 +247,33 @@ def test_paint_does_not_crash_when_expanded_with_no_facts_or_vars(qapp):
     _paint_smoke(node)
 
 
+def test_expanded_long_fact_value_is_elided_not_cut_mid_character(qapp):
+    """Correctif, relevé en comparant une capture à la maquette : un chemin Windows complet
+    débordait de la largeur allouée, coupé net en plein milieu d'un caractère sans aucune
+    indication qu'il manque la fin. La valeur affichée doit désormais tenir dans la largeur et
+    se terminer par l'ellipse "…", jamais un fragment de mot brut."""
+    node = StepNodeItem({
+        "step_type": "LOCAL_COPY", "label": "",
+        "config": {
+            "_step_key": "a",
+            "dest_dir": r"C:\Users\jean luc\Documents\orange\DataScheduler\exports\ventes",
+            "filename_tpl": "export_{yyyyMMdd}.zip",
+        },
+    })
+    node.set_expanded(True)
+    facts, _rv, _wv = node._facts_and_vars()
+    long_value = next(f["value"] for f in facts if f["label"] == "Dossier cible")
+
+    from PySide6.QtGui import QFont, QFontMetrics
+    value_width = node.WIDTH - 20 - 86
+    base_font = QFont(); base_font.setPointSize(8)
+    elided = QFontMetrics(base_font).elidedText(long_value, Qt.ElideRight, int(value_width))
+
+    assert elided != long_value   # trop long pour tenir tel quel
+    assert elided.endswith("…")
+    _paint_smoke(node)   # et ça peint toujours sans lever
+
+
 def test_paint_does_not_crash_when_expanded_with_variable_chips(qapp):
     node = StepNodeItem({
         "step_type": "SET_VARIABLE", "label": "",

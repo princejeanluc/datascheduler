@@ -5,7 +5,7 @@ run_always) — le même objet que celui retourné par _open_config_dialog(...).
 """
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QBrush, QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsObject
 
 from ui.styles import COLORS
@@ -101,6 +101,49 @@ def _diamond_port_local_pos(width: float, height: float, idx: int, count: int) -
         x = width - local_t * (width / 2)
         y = height / 2 + local_t * (height / 2)
     return (x, y)
+
+
+# Coins arrondis du losange (correctif, relevé en comparant une capture à la maquette Grammaire
+# — la maquette montre un losange aux coins nettement arrondis, jamais des pointes nettes comme
+# le tracé d'origine moveTo/lineTo). Chaque sommet est remplacé par une courbe quadratique entre
+# deux points reculés le long des arêtes adjacentes, plutôt qu'un angle vif.
+_DIAMOND_CORNER_FRAC = 0.22
+
+
+def _rounded_diamond_path(width: float, height: float, corner_frac: float = _DIAMOND_CORNER_FRAC) -> QPainterPath:
+    top    = QPointF(width / 2, 0)
+    right  = QPointF(width, height / 2)
+    bottom = QPointF(width / 2, height)
+    left   = QPointF(0, height / 2)
+    verts = [top, right, bottom, left]
+
+    def _lerp(a: QPointF, b: QPointF, t: float) -> QPointF:
+        return QPointF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t)
+
+    path = QPainterPath()
+    n = len(verts)
+    start = _lerp(verts[0], verts[-1], corner_frac)
+    path.moveTo(start)
+    for i in range(n):
+        v = verts[i]
+        nxt = verts[(i + 1) % n]
+        prev = verts[(i - 1) % n]
+        into = _lerp(v, prev, corner_frac)
+        out = _lerp(v, nxt, corner_frac)
+        path.lineTo(into)
+        path.quadTo(v, out)
+    path.closeSubpath()
+    return path
+
+
+# Opacité d'un nœud selon l'état de sélection du canevas (A4) — fonction pure, testable sans Qt
+# (même philosophie que _port_visual/_tinted_bg). Un nœud ne s'atténue jamais lui-même, même
+# sélectionné ; tout autre nœud s'atténue dès qu'une sélection existe quelque part.
+_DIMMED_OPACITY = 0.4
+
+
+def _node_opacity(is_self_selected: bool, any_selected: bool) -> float:
+    return _DIMMED_OPACITY if (any_selected and not is_self_selected) else 1.0
 
 
 def _tinted_bg(base: QColor, accent: QColor, ratio: float = 0.13) -> QColor:
@@ -362,25 +405,29 @@ class StepNodeItem(QGraphicsObject):
         meta = STEP_META.get(step_type, {"label": step_type, "color": COLORS["accent"]})
         routing = self.is_routing_node
 
-        path = QPainterPath()
         if routing:
-            # Losange inscrit dans WIDTH×HEIGHT (chantier UX éditeur) — distingue un nœud de
-            # routage/jonction (CONDITION, futur GATEWAY) d'une étape normale au premier coup
-            # d'œil, sans avoir à lire le texte. boundingRect() reste inchangé (le rectangle
-            # englobant reste une boîte de collision valide, juste plus large que la forme
-            # peinte).
-            path.moveTo(self.WIDTH / 2, 0)
-            path.lineTo(self.WIDTH, self.HEIGHT / 2)
-            path.lineTo(self.WIDTH / 2, self.HEIGHT)
-            path.lineTo(0, self.HEIGHT / 2)
-            path.closeSubpath()
+            # Losange inscrit dans WIDTH×HEIGHT, coins arrondis (correctif — voir
+            # _rounded_diamond_path) — distingue un nœud de routage/jonction d'une étape normale
+            # au premier coup d'œil, sans avoir à lire le texte. boundingRect() reste inchangé
+            # (le rectangle englobant reste une boîte de collision valide, juste plus large que
+            # la forme peinte).
+            path = _rounded_diamond_path(self.WIDTH, self.HEIGHT)
         else:
+            path = QPainterPath()
             # Coins 12px (chantier relooking des nœuds, "carte plus aérée" — maquette
             # approuvée) : avant, 8px.
             rect = QRectF(0, 0, self.WIDTH, self.HEIGHT)
             path.addRoundedRect(rect, 12, 12)
 
         painter.setRenderHint(QPainter.Antialiasing)
+
+        # Sélection (A4) : bordure accent, et tout AUTRE nœud atténué tant qu'une sélection
+        # existe quelque part sur le canevas — jamais l'inverse (un nœud sélectionné ne s'atténue
+        # jamais lui-même). Opacité globale du paint() le temps de ce nœud, remise à 1 en sortie.
+        scene = self.scene()
+        any_selected = bool(scene.selectedItems()) if scene else False
+        painter.setOpacity(_node_opacity(self.isSelected(), any_selected))
+
         # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
         # discrète en plus, jamais un remplacement de la bordure épaisse colorée qui reste le
         # signal prioritaire pour _is_failed/_is_executing/_is_search_hit (inchangés ci-dessous).
@@ -389,6 +436,8 @@ class StepNodeItem(QGraphicsObject):
             border_color = QColor(COLORS["danger"])
         elif self._is_executing:
             border_color = QColor(COLORS["signal"])
+        elif self.isSelected():
+            border_color = QColor(COLORS["accent"])
         elif self._is_search_hit:
             border_color = QColor(COLORS["signal_pale"])
         else:
@@ -404,9 +453,12 @@ class StepNodeItem(QGraphicsObject):
             # Symbole au centre du losange (refonte, lot A-Atelier-grammaire, A3) — remplace
             # l'icône qtawesome utilisée par tout autre nœud : "?" (Aiguillage), "+" (Parallèle),
             # "ET"/"OU" (Jonction, selon join_mode).
+            # Taille proportionnelle à la forme (correctif — trop petit et non centré avant),
+            # pas un point fixe arbitraire : un glyphe seul ("?", "+") plus grand qu'un sigle à
+            # 2 lettres ("ET"/"OU"), pour que les deux occupent une place visuelle comparable.
             symbol = _routing_symbol(step_type, self.step.get("config") or {})
             painter.setPen(QColor("#ffffff"))
-            font = QFont(); font.setBold(True); font.setPointSize(9 if len(symbol) == 1 else 8)
+            font = QFont(); font.setBold(True); font.setPointSize(15 if len(symbol) == 1 else 12)
             painter.setFont(font)
             painter.drawText(QRectF(0, 0, self.WIDTH, self.HEIGHT), Qt.AlignCenter, symbol)
 
@@ -458,10 +510,10 @@ class StepNodeItem(QGraphicsObject):
         if self._expanded:
             self._paint_expanded_content(painter, routing)
 
-        # Port d'entrée (toujours dessiné, connecté ou non).
-        painter.setBrush(QBrush(QColor(COLORS["text_dim"])))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(QPointF(0, self.HEIGHT / 2), PORT_RADIUS, PORT_RADIUS)
+        # Port d'entrée (toujours dessiné, connecté ou non) — anneau, pas un disque plein
+        # (correctif, relevé en comparant une capture à la maquette Grammaire : bordure colorée,
+        # intérieur sombre, jamais un point plein).
+        self._draw_port_ring(painter, QPointF(0, self.HEIGHT / 2), COLORS["text_dim"])
 
         # Port(s) de sortie — même géométrie que output_port_pos() (coordonnées locales ici,
         # scène là-bas), pour que le point dessiné coïncide toujours avec la zone cliquable.
@@ -478,8 +530,7 @@ class StepNodeItem(QGraphicsObject):
                 x, y = self.WIDTH, step * (i + 1)
             color_key, label = _port_visual(port)
             color = COLORS[color_key]
-            painter.setBrush(QBrush(QColor(color)))
-            painter.drawEllipse(QPointF(x, y), PORT_RADIUS, PORT_RADIUS)
+            self._draw_port_ring(painter, QPointF(x, y), color)
             if label:
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(x - 22, y - 9, 16, 18),
@@ -489,11 +540,18 @@ class StepNodeItem(QGraphicsObject):
             ex, ey = _error_port_local_pos(self.WIDTH, self.HEIGHT)
             color_key, label = _port_visual("error")
             color = COLORS[color_key]
-            painter.setBrush(QBrush(QColor(color)))
-            painter.drawEllipse(QPointF(ex, ey), PORT_RADIUS, PORT_RADIUS)
+            self._draw_port_ring(painter, QPointF(ex, ey), color)
             if label:
                 painter.setPen(QColor(color))
                 painter.drawText(QRectF(ex - 8, ey + 4, 16, 14), Qt.AlignCenter, label)
+
+    def _draw_port_ring(self, painter, pos: QPointF, color: str) -> None:
+        """Anneau d'un point de port — bordure colorée, intérieur sombre (correctif, relevé en
+        comparant une capture à la maquette Grammaire : les points étaient pleins avant ce
+        correctif, la maquette les montre toujours creux)."""
+        painter.setBrush(QBrush(QColor(COLORS["bg_main"])))
+        painter.setPen(QPen(QColor(color), 2))
+        painter.drawEllipse(pos, PORT_RADIUS, PORT_RADIUS)
 
     def _paint_chevron(self, painter, routing: bool) -> None:
         """▾ (déplié) / ▸ (replié) — même rectangle que le hit-test de mousePressEvent
@@ -530,15 +588,22 @@ class StepNodeItem(QGraphicsObject):
                               Qt.AlignLeft | Qt.AlignVCenter, "Aucun détail de configuration.")
             return
 
+        # Valeur tronquée avec "…" (correctif, relevé en comparant une capture à la maquette : un
+        # chemin Windows complet débordait du contenu déplié, coupé net en plein milieu d'un
+        # caractère, sans indication visuelle qu'il manque la fin — même principe d'ellipse déjà
+        # utilisé ailleurs dans l'appli, ex. settings_view.py::_make_category_row).
+        value_width = self.WIDTH - 20 - 86
         base_font = QFont(); base_font.setPointSize(8)
+        value_fm = QFontMetrics(base_font)
         for fact in facts:
             painter.setFont(base_font)
             painter.setPen(QColor(COLORS["text_dim"]))
             painter.drawText(QRectF(10, y, 84, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
                               f"{fact['label']} :")
             painter.setPen(QColor(COLORS["text_main"]))
-            painter.drawText(QRectF(96, y, self.WIDTH - 106, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
-                              fact["value"])
+            elided_value = value_fm.elidedText(fact["value"], Qt.ElideRight, int(value_width))
+            painter.drawText(QRectF(96, y, value_width, _FACT_LINE_H), Qt.AlignLeft | Qt.AlignVCenter,
+                              elided_value)
             y += _FACT_LINE_H
 
         # Couleurs des puces (refonte, lot A-Atelier-grammaire, A2) : lit var:x en signal_pale,
