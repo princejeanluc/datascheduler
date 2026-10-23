@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.55.0] - 2026-10-23
+
+### Modifié
+- **Refonte, Lot A-Atelier-main** — cadre principal de l'Atelier : en-tête en fil d'Ariane
+  « Pipelines / <nom> » avec « Valider à blanc » et « Exécuter » (même chemin que depuis la
+  liste des pipelines, logique désormais factorisée dans `pipeline_actions.run_pipeline_now`) ;
+  recherche de nœud en surimpression du canevas au lieu d'une barre au-dessus ; panneau de
+  paramètres restylé (surtitre + case Actif, planification en boutons segmentés, déclenchement en
+  phrase, section Exécution séparée, variables en police Mono avec les variables écrites par une
+  étape du canevas affichées en lecture seule). Le bouton Pipelines de la navigation reste
+  surligné pendant qu'on est dans l'Atelier.
+- `DECISIONS.md::P11` tranché : le point de couleur de famille (lot Grammaire) est définitif,
+  l'icône de type n'est pas réintroduite. `DECISIONS.md::P1` tranché pour l'Atelier : son Lot C
+  peut démarrer avant le Lot A des autres écrans.
+
 ## [0.54.0] - 2026-10-23
 
 ### Ajouté
