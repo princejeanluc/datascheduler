@@ -24,7 +24,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from PySide6.QtWidgets import QApplication, QDialog, QMenu, QPushButton, QLabel
+from PySide6.QtWidgets import QApplication, QDialog, QMenu, QPushButton, QLabel, QGraphicsScene, QGraphicsView
+from PySide6.QtGui import QPainter, QColor
+from PySide6.QtCore import QRectF
 
 from ui.fonts import register_app_fonts
 from ui.main_window.widgets import GLOBAL_STYLE
@@ -35,6 +37,85 @@ from database import db_manager as db
 # FONDATIONS.md section 5) × hauteur de fenêtre.
 CAPTURE_WIDTH = 1440 - 56
 CAPTURE_HEIGHT = 900
+
+
+def _atelier_grammaire():
+    """Grammaire des nœuds (lot A-Atelier-grammaire) : un nœud de chaque famille (replié), un
+    déplié (faits + puces lit/écrit, A2), les 3 passerelles en losange avec leur symbole et leur
+    nom au-dessus (A3), et des liaisons normale/vrai/faux/erreur (A5)."""
+    from ui.styles import COLORS
+    from ui.graph_editor.node_item import StepNodeItem
+    from ui.graph_editor.edge_item import EdgeItem
+
+    scene = QGraphicsScene()
+    scene.setBackgroundBrush(QColor(COLORS["bg_main"]))
+
+    def _add(step_type, label, config, pos, expanded=False, profile_names=None):
+        node = StepNodeItem({"step_type": step_type, "label": label, "config": config})
+        node.setPos(*pos)
+        if profile_names:
+            node.set_profile_names(profile_names)
+        if expanded:
+            node.set_expanded(True)
+        scene.addItem(node)
+        return node
+
+    pn = {
+        "db": {("ORACLE", 1): "Oracle VENTES"},
+        "sql_query": {1: "Ventes quotidiennes"},
+        "ftp": {1: "SFTP Partenaire"},
+        "ftp_protocol": {1: "SFTP"},
+        "smtp": {1: "SMTP Interne"},
+        "ssh": {1: "Edge Hadoop"},
+    }
+
+    # Une famille par ligne (replié), A1 — surtitre FAMILLE . MOTEUR, point de famille, objet.
+    n_extract = _add("DB_EXTRACT", "Extraire ventes J-1",
+                      {"_step_key": "f1", "db_type": "ORACLE", "profile_id": 1, "sql_query_id": 1,
+                       "reads_from_step_key": None},
+                      (20, 20), profile_names=pn)
+    _add("FTP_UPLOAD", "Depot partenaire",
+         {"_step_key": "f2", "ftp_profile_id": 1, "remote_path_tpl": "/in/ventes/"},
+         (20, 110), profile_names=pn)
+    _add("DB_EXECUTE", "Purge table temporaire",
+         {"_step_key": "f3", "db_type": "POSTGRESQL", "profile_id": 1, "commit": True},
+         (20, 200), profile_names=pn)
+    _add("SPARK_SQL", "Agregats mensuels",
+         {"_step_key": "f4", "edge_profile_id": 1, "fetch_result": False},
+         (20, 290), profile_names=pn)
+    _add("EMAIL_NOTIFY", "Prevenir l'equipe",
+         {"_step_key": "f5", "smtp_profile_id": 1, "to": "equipe@entreprise.fr"},
+         (20, 380), profile_names=pn)
+    _add("SET_VARIABLE", "Fixer le seuil",
+         {"_step_key": "f6", "assignments": [{"target": "seuil", "expression": "1000"}]},
+         (20, 470))
+
+    # Déplié (A2) : faits + puces lit/écrit.
+    n_expanded = _add("FTP_UPLOAD", "Depot partenaire (deplie)",
+                       {"_step_key": "f7", "ftp_profile_id": 1, "remote_path_tpl": "/in/{var:region}/",
+                        "filename_tpl": "ventes_{yyyyMMdd}.zip", "explicit_path": "export.zip"},
+                       (280, 20), expanded=True, profile_names=pn)
+
+    # Passerelles (A3) : symbole au centre, nom au-dessus.
+    n_cond = _add("CONDITION", "Volume > 0 ?", {"_step_key": "g1", "expression": "var:nb_lignes > 0"},
+                   (280, 220))
+    n_par = _add("GATEWAY_PARALLEL", "", {"_step_key": "g2"}, (560, 220))
+    n_join = _add("GATEWAY_JOIN", "Toutes", {"_step_key": "g3", "join_mode": "AND"}, (840, 220))
+
+    # Liaisons (A5) : normale, vrai, faux, erreur pointillee.
+    scene.addItem(EdgeItem(n_extract, list(n_extract.output_ports)[0], n_cond))
+    scene.addItem(EdgeItem(n_cond, "true", n_par))
+    scene.addItem(EdgeItem(n_cond, "false", n_join))
+    scene.addItem(EdgeItem(n_extract, "error", n_join))
+
+    view = QGraphicsView(scene)
+    view._scene_ref = scene   # sinon la scène (sans parent Qt) est ramassée par le GC Python dès
+                               # le retour de cette fonction — QGraphicsView ne garde qu'un
+                               # pointeur C++, pas une référence Python forte (gotcha déjà connu).
+    view.setRenderHint(QPainter.Antialiasing)
+    view.setStyleSheet(f"border: none; background: {COLORS['bg_main']};")
+    view.setSceneRect(QRectF(0, 0, CAPTURE_WIDTH, CAPTURE_HEIGHT))
+    return view
 
 
 def _settings_view():
@@ -648,6 +729,7 @@ def _history_view_modifications():
 # Ressources-plage n'est pas capturé non plus : glisser pour choisir une plage est C2, gated —
 # voir docs/refonte/impact/a-ressources.md.
 REGISTRY = [
+    ("grammaire", _atelier_grammaire),
     ("parametres", _settings_view),
     ("parametres-recherche", _settings_view_recherche),
     ("parametres-arriere-plan", _settings_view_arriere_plan),

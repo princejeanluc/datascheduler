@@ -37,7 +37,9 @@ def test_port_visual_true_false_and_error_have_distinct_colors():
     false_color, false_label = _port_visual("false")
     error_color, error_label = _port_visual("error")
     assert len({true_color, false_color, error_color}) == 3
-    assert (true_label, false_label, error_label) == ("V", "F", "!")
+    # true/false n'ont plus d'étiquette au point depuis le lot A-Atelier-grammaire (A5) : le mot
+    # entier ("vrai"/"faux") est désormais porté par la liaison (edge_item.py), pas le point.
+    assert (true_label, false_label, error_label) == ("", "", "!")
 
 
 def test_port_visual_unknown_port_falls_back_to_neutral_no_label():
@@ -234,6 +236,53 @@ def test_regular_step_output_ports_unaffected_by_diamond_change():
     assert node.output_port_pos("output_file").x() == node.pos().x() + node.WIDTH
     assert node.output_port_pos("error").x() == node.pos().x() + node.WIDTH / 2
     assert node.output_port_pos("error").y() == node.pos().y() + node.HEIGHT
+
+
+# ──────────────────────────────────────────────
+#  Symbole des passerelles + nom au-dessus (refonte, lot A-Atelier-grammaire, A3)
+# ──────────────────────────────────────────────
+
+def test_routing_symbol_condition_is_a_question_mark():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("CONDITION", {}) == "?"
+
+
+def test_routing_symbol_gateway_parallel_is_a_plus():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("GATEWAY_PARALLEL", {}) == "+"
+
+
+def test_routing_symbol_gateway_join_reflects_join_mode():
+    from ui.graph_editor.node_item import _routing_symbol
+    assert _routing_symbol("GATEWAY_JOIN", {"join_mode": "AND"}) == "ET"
+    assert _routing_symbol("GATEWAY_JOIN", {"join_mode": "OR"}) == "OU"
+    assert _routing_symbol("GATEWAY_JOIN", {}) == "OU"   # OR par défaut, comme get_join_mode()
+
+
+# ──────────────────────────────────────────────
+#  Couleur/pointillé d'une liaison selon son port (refonte, lot A-Atelier-grammaire, A5)
+# ──────────────────────────────────────────────
+
+def test_edge_base_visual_error_is_warning_and_dashed():
+    from ui.graph_editor.edge_item import edge_base_visual
+    color_key, dashed = edge_base_visual("error")
+    assert color_key == "warning"
+    assert dashed is True
+
+
+def test_edge_base_visual_true_false_are_solid_and_colored_distinctly():
+    from ui.graph_editor.edge_item import edge_base_visual
+    true_color, true_dashed = edge_base_visual("true")
+    false_color, false_dashed = edge_base_visual("false")
+    assert true_dashed is False and false_dashed is False
+    assert true_color != false_color
+
+
+def test_edge_base_visual_normal_port_is_neutral_and_solid():
+    from ui.graph_editor.edge_item import edge_base_visual
+    color_key, dashed = edge_base_visual("output_file")
+    assert color_key == "text_dim"
+    assert dashed is False
 
 
 def test_edge_item_arrow_points_toward_the_target_node(qapp):
