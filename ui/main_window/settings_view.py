@@ -346,6 +346,16 @@ class SettingsView(QWidget):
         # Texte par défaut "Aucune modification" repris de Parametres.html (pas de pastille
         # "proposé" dessus, contrairement au compteur dynamique "N réglages modifiés" de la même
         # zone sur Parametres-arriere-plan.html — celui-là est C1, gated par la décision P1).
+        # Icône séparée du texte (correctif, écart maquette) : un glyphe Unicode de coche/alerte
+        # inline dans le texte ("✓ Enregistré") n'a pas la même graisse que le reste de la chaîne
+        # — la police embarquée n'a pas ce glyphe en gras, Qt retombe sur une police système plus
+        # fine pour ce seul caractère (constaté en capturant). Icône qtawesome à la place, même
+        # principe que les autres icônes de l'appli (voir le commentaire de ui/sql_editor.py sur
+        # les glyphes texte).
+        self._save_status_icon = QLabel()
+        self._save_status_icon.setFixedSize(14, 14)
+        self._save_status_icon.setVisible(False)
+        footer.addWidget(self._save_status_icon)
         self._save_status_lbl = QLabel("")
         footer.addWidget(self._save_status_lbl)
         self._reset_save_status_lbl()
@@ -599,7 +609,7 @@ class SettingsView(QWidget):
         self.cb_day = QComboBox(); self.cb_day.setStyleSheet(_combo_style())
         for i, d in enumerate(DAYS_OF_WEEK):
             self.cb_day.addItem(d, i)
-        self._add_row("notifications", "Jour (si hebdomadaire)",
+        self._add_row("notifications", "Jour",
                        "Jour d'envoi du résumé hebdomadaire.", self.cb_day, badge="immédiat")
 
         self.inp_time = QLineEdit(); self.inp_time.setFixedHeight(34)
@@ -810,7 +820,7 @@ class SettingsView(QWidget):
     def _on_frequency_changed(self):
         weekly = self.cb_frequency.currentData() == "WEEKLY"
         for row in self._row_widgets:
-            if row["label"] == "jour (si hebdomadaire)":
+            if row["label"] == "jour":
                 row["wrapper"].setVisible(weekly and self._active_category == "notifications"
                                            and not self.inp_search.text().strip())
 
@@ -829,6 +839,7 @@ class SettingsView(QWidget):
         Parametres.html. Pas une vraie détection de modification (ce serait C1, gated) : affiché
         tant qu'aucun enregistrement n'est en cours de confirmation, qu'un champ ait été touché
         ou non."""
+        self._save_status_icon.setVisible(False)
         self._save_status_lbl.setText("Aucune modification")
         self._save_status_lbl.setStyleSheet(
             f"color: {COLORS['text_muted']}; font-size: 12.5px; font-weight: 400; border: none; "
@@ -934,22 +945,35 @@ class SettingsView(QWidget):
         # de dialogue à chaque fois est plus confortable sur un écran de paramètres — et ça évite
         # tout risque de blocage en environnement offscreen (tests) où rien ne clique le bouton.
         if background_activation_failed:
+            self._save_status_icon.setPixmap(_icon("fa5s.exclamation-circle", COLORS["danger"]).pixmap(14, 14))
+            self._save_status_icon.setVisible(True)
             self._save_status_lbl.setStyleSheet(
                 f"color: {COLORS['danger']}; font-size: 12.5px; font-weight: 600; "
                 f"border: none; background: transparent;")
-            # "● " : petit point plein devant le texte, repris de Parametres-refus.html (même
-            # couleur que le texte, pas une icône séparée — un simple caractère suffit).
+            # Texte exact de Parametres-refus.html (footer) : la précision "contactez votre
+            # support informatique" n'y figure pas — elle n'existe que dans le corps du bandeau
+            # persistant ci-dessus (_build_failure_banner), pas dupliquée ici (écart corrigé).
             self._save_status_lbl.setText(
-                "● Échec de l'activation du mode arrière-plan (accès refusé) — contactez votre "
-                "support informatique. Le mode « Dans l'application seulement » reste actif."
+                "Échec de l'activation du mode arrière-plan (accès refusé). "
+                "Le mode « Dans l'application seulement » reste actif."
             )
+            # Le mode était resté sur BACKGROUND à l'écran (choix de l'utilisateur au moment du
+            # clic) alors que la base est revenue à previous_mode ci-dessus : sans ce retour
+            # explicite, le menu déroulant affichait un mode différent de celui réellement actif
+            # (écart constaté en capturant, voir Parametres-refus.html qui montre bien le menu
+            # revenu sur "Dans l'application seulement").
+            idx = self.cb_execution_mode.findData(previous_mode)
+            if idx >= 0:
+                self.cb_execution_mode.setCurrentIndex(idx)
             QTimer.singleShot(10000, self._reset_save_status_lbl)
         else:
+            self._save_status_icon.setPixmap(_icon("fa5s.check", COLORS["success"]).pixmap(14, 14))
+            self._save_status_icon.setVisible(True)
             self._save_status_lbl.setStyleSheet(
                 f"color: {COLORS['success']}; font-size: 12.5px; font-weight: 600; "
                 f"border: none; background: transparent;")
             # Texte simplifié à "Enregistré" (Parametres-enregistre.html) : la mention de ce qui
             # attend un redémarrage appartient au bandeau de succès détaillé de C4 (gated, pas
             # construit dans ce lot) — pas un texte de repli inventé à sa place.
-            self._save_status_lbl.setText("✓ Enregistré")
+            self._save_status_lbl.setText("Enregistré")
             QTimer.singleShot(4000, self._reset_save_status_lbl)

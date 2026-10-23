@@ -29,6 +29,18 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.52.1] - 2026-10-21
+
+### Corrigé
+- **Paramètres** (écarts relevés en comparant la capture à la maquette après coup) : le menu
+  « Mode d'exécution » ne revenait pas visuellement sur « Dans l'application seulement » après un
+  échec d'activation du mode arrière-plan, alors que la base, elle, y revenait bien — l'utilisateur
+  voyait un mode différent de celui réellement actif. Le texte du pied de page dupliquait « contactez
+  votre support informatique », déjà présent dans le bandeau d'échec. Le glyphe de succès (✓) n'a
+  pas de variante grasse dans la police embarquée : Qt retombait sur une police système plus fine
+  pour ce seul caractère, désaccordé du reste du texte en gras — remplacé par une icône. Le libellé
+  du champ « Jour » portait un « (si hebdomadaire) » inventé, absent de la maquette.
+
 ## [0.52.0] - 2026-10-20
 
 ### Modifié
