@@ -150,10 +150,11 @@ def test_run_step_with_policy_succeeds_without_waiting_out_the_full_retry_budget
     result = PipelineResult()
     step = _fake_step(retry_count=4, retry_interval_s=1800)
 
-    step_result = _run_step_with_policy(executor, StepContext(), step, lambda *a: None, result)
+    step_result, attempts_log = _run_step_with_policy(executor, StepContext(), step, lambda *a: None, result)
 
     assert step_result.success
     assert executor.calls == 1   # réussi du premier coup, jamais de sleep appelé (voir monkeypatch)
+    assert len(attempts_log) == 1
 
 
 # ── UI : le nouveau champ dans les deux styles de constructeur de dialogue ──────────────

@@ -29,6 +29,16 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.54.0] - 2026-10-23
+
+### Ajouté
+- **Refonte, B1 (DONNEES.md::D1)** — nouvelle table `pipeline_run_steps` : une ligne par étape
+  exécutée ou sautée pendant un run (statut, tentatives horodatées, lignes traitées, fichier
+  produit, port de passerelle emprunté), écrite par les 3 moteurs d'exécution (linéaire, graphe
+  séquentiel, graphe parallèle) et lors d'une reprise. Prérequis de donnée pour les futurs écrans
+  Atelier (historique par étape, chronogramme, vue d'un run en échec) — aucun écran ne la
+  consomme encore dans ce lot, aucun changement de comportement d'exécution.
+
 ## [0.53.0] - 2026-10-23
 
 ### Modifié

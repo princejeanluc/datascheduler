@@ -15,7 +15,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 
 from . import crypto
-from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, StepTemplate, Pipeline, PipelineRun, PipelineStep, PipelineEdge, PipelineZone, PipelineVariable, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
+from .models import Base, OracleProfile, FtpProfile, SmtpProfile, DatabaseProfile, DbType, SqlQuery, StepTemplate, Pipeline, PipelineRun, PipelineRunStep, PipelineStep, PipelineEdge, PipelineZone, PipelineVariable, StepType, NotificationSettings, AppSettings, ResourceSample, WorkerCommand, AuditEvent, SshProfile, KerberosProfile, ElevationProfile, PipelineStatus
 
 
 # ──────────────────────────────────────────────
@@ -1265,6 +1265,29 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.resumable_state_json = resumable_state_json
         run.resumed_from_run_id  = resumed_from_run_id
         return True
+
+
+def record_run_step(run_id: int, *, step_key: str | None, step_type: str | None,
+                     step_label: str | None, status: str, attempts: int = 1,
+                     attempts_json: str | None = None, started_at=None, finished_at=None,
+                     rows_count: int | None = None, output_path: str | None = None,
+                     output_size_bytes: int | None = None, port_taken: str | None = None,
+                     error_message: str | None = None, reused_from_resume: bool = False) -> PipelineRunStep:
+    """Une ligne par étape exécutée OU sautée pendant un run (DONNEES.md::D1) — appelée par
+    core/pipeline.py::_record_run_step, jamais directement depuis l'UI. Pas de mise à jour
+    (contrairement à finish_run()) : chaque appel crée une nouvelle ligne, une étape ne passe
+    qu'une fois par ce chemin pour un run donné."""
+    with get_session() as s:
+        row = PipelineRunStep(
+            run_id=run_id, step_key=step_key, step_type=step_type, step_label=step_label,
+            status=status, attempts=attempts, attempts_json=attempts_json,
+            started_at=started_at, finished_at=finished_at, rows_count=rows_count,
+            output_path=output_path, output_size_bytes=output_size_bytes,
+            port_taken=port_taken, error_message=error_message,
+            reused_from_resume=reused_from_resume,
+        )
+        s.add(row)
+    return row
 
 
 def update_run_progress(run_id: int, current_step_label: str, log_text: str,

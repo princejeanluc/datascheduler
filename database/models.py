@@ -589,8 +589,13 @@ class PipelineRun(Base):
     # le reste du schéma SQLite de cette app.
     resumed_from_run_id  = Column(Integer, nullable=True)
 
-    # Relation
+    # Relations
     pipeline = relationship("Pipeline", back_populates="runs")
+    # cascade="all, delete-orphan" (DONNEES.md::D1) : supprimer ce run — directement, ou via la
+    # cascade déjà existante de Pipeline.runs — supprime aussi ses lignes PipelineRunStep. Pas de
+    # clé étrangère active en SQLite ici (comme tout le reste de ce schéma) : sans cette cascade
+    # ORM, delete_pipeline() laisserait des lignes orphelines.
+    run_steps = relationship("PipelineRunStep", cascade="all, delete-orphan")
 
     @property
     def duration_seconds(self):
@@ -600,6 +605,53 @@ class PipelineRun(Base):
 
     def __repr__(self):
         return f"<PipelineRun pipeline_id={self.pipeline_id} status={self.status}>"
+
+
+class PipelineRunStep(Base):
+    """
+    Résultat de CHAQUE étape exécutée (ou sautée) pendant un run — refonte, DONNEES.md::D1,
+    fiche Atelier B1. `PipelineRun` ne gardait jusqu'ici que l'étape COURANTE et celle en ÉCHEC ;
+    cette table ajoute l'historique complet, une ligne par étape, SANS rien retirer ni modifier
+    des colonnes existantes de `PipelineRun` (ajout pur, voir REGLES.md section 4).
+
+    Écriture : `core/pipeline.py::_record_run_step`, appelée dans `_execute_linear`,
+    `_execute_graph` et `_execute_graph_parallel`, autour de `_run_step_with_policy`. Un ancien
+    worker n'écrit jamais cette table — les écrans qui la consomment (pas encore construits,
+    Lot C) doivent donc tolérer son absence pour un run donné (aucune ligne), pas seulement une
+    base vide.
+    """
+    __tablename__ = "pipeline_run_steps"
+
+    id       = Column(Integer, primary_key=True, autoincrement=True)
+    run_id   = Column(Integer, ForeignKey("pipeline_runs.id"), nullable=False, index=True)
+    step_key = Column(String(36), nullable=True)
+    step_type  = Column(String(50), nullable=True)
+    step_label = Column(String(255), nullable=True)
+    # String brute plutôt qu'un Enum SQLAlchemy (comme PipelineRun.status) : volontaire — les
+    # valeurs possibles (SUCCESS, FAILED, SKIPPED, SKIPPED_RESUME, CANCELLED) sont documentées
+    # ici et dans DONNEES.md::D1, un Enum figerait un jeu de valeurs qu'un futur lot pourrait
+    # vouloir étendre (ex: TIMEOUT) sans migration de colonne.
+    status = Column(String(20), nullable=False)
+    attempts = Column(Integer, default=1, nullable=False)
+    # JSON [{"n", "started_at", "finished_at", "error"}] — une entrée par tentative réelle (pas
+    # une pour les étapes sautées, qui n'ont jamais tourné). Voir core/pipeline.py::
+    # _run_step_with_policy.
+    attempts_json = Column(Text, nullable=True)
+    started_at  = Column(DateTime, nullable=True)   # UTC naïf, comme PipelineRun.started_at
+    finished_at = Column(DateTime, nullable=True)
+    rows_count  = Column(Integer, nullable=True)     # ctx.rows_count au moment où cette étape finit
+    output_path = Column(String(500), nullable=True)
+    output_size_bytes = Column(Integer, nullable=True)
+    # Sortie d'une passerelle ou port d'erreur emprunté (ex: "true", "error") — None pour une
+    # étape normale sans branchement, ou une étape jamais atteinte.
+    port_taken = Column(String(50), nullable=True)
+    error_message = Column(Text, nullable=True)   # sans aucun secret, même garantie que PipelineRun
+    # Vrai si cette ligne vient d'une reprise (chantier J.2) qui a réutilisé le résultat d'un run
+    # précédent sans ré-exécuter l'étape — status vaut alors "SKIPPED_RESUME".
+    reused_from_resume = Column(Boolean, default=False, nullable=False)
+
+    def __repr__(self):
+        return f"<PipelineRunStep run_id={self.run_id} step_key={self.step_key} status={self.status}>"
 
 
 # ──────────────────────────────────────────────
