@@ -118,6 +118,56 @@ def _atelier_grammaire():
     return view
 
 
+def _atelier_main():
+    """Main (lot A-Atelier-main) : cadre principal de l'Atelier — en-tête (fil d'Ariane, Valider
+    à blanc, Exécuter), recherche de nœud en surimpression, panneau de paramètres complet (A6 à
+    A15). Graphe représentatif (condition, jonction ET, port d'erreur) — noms et chiffres sont
+    des exemples, pas les valeurs réelles d'une fiche (REGLES.md section 2)."""
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    pipeline = db.create_pipeline(
+        name="Reporting ventes J-1",
+        description="Export quotidien des ventes vers le partenaire.",
+        frequency="DAILY", scheduled_time="06:00",
+    )
+    db.save_pipeline_variables(pipeline.id, [
+        {"name": "region", "default_expression": '"FR"'},
+        {"name": "seuil_lignes", "default_expression": "1000"},
+    ])
+    db.save_pipeline_graph(pipeline.id, steps=[
+        {"step_type": "DB_EXTRACT", "label": "Extraire ventes J-1",
+         "config": {"_step_key": "f1", "db_type": "ORACLE"}},
+        {"step_type": "CONDITION", "label": "Volume > 0 ?",
+         "config": {"_step_key": "g1", "expression": "var:nb_lignes > 0"}},
+        {"step_type": "DB_EXECUTE", "label": "Charger l'entrepôt",
+         "config": {"_step_key": "f2", "db_type": "POSTGRESQL"}},
+        {"step_type": "COMPRESS", "label": "Compresser", "config": {"_step_key": "f3"}},
+        {"step_type": "FTP_UPLOAD", "label": "Dépôt partenaire", "config": {"_step_key": "f4"}},
+        {"step_type": "GATEWAY_JOIN", "label": "Toutes",
+         "config": {"_step_key": "g2", "join_mode": "AND"}},
+        {"step_type": "EMAIL_NOTIFY", "label": "Prévenir l'équipe", "config": {"_step_key": "f5"}},
+        {"step_type": "EMAIL_NOTIFY", "label": "Alerte volume nul", "config": {"_step_key": "f6"}},
+        {"step_type": "HTTP_REQUEST", "label": "Signaler l'échec", "config": {"_step_key": "f7"}},
+    ], edges=[
+        {"from_step_key": "f1", "from_port": "output_file", "to_step_key": "g1", "to_port": "input"},
+        {"from_step_key": "g1", "from_port": "true", "to_step_key": "f2", "to_port": "input"},
+        {"from_step_key": "g1", "from_port": "false", "to_step_key": "f6", "to_port": "input"},
+        {"from_step_key": "f2", "from_port": "output_file", "to_step_key": "f3", "to_port": "input"},
+        {"from_step_key": "f3", "from_port": "output_file", "to_step_key": "f4", "to_port": "input"},
+        {"from_step_key": "f4", "from_port": "output_file", "to_step_key": "g2", "to_port": "input"},
+        {"from_step_key": "f4", "from_port": "error", "to_step_key": "f7", "to_port": "input"},
+        {"from_step_key": "g2", "from_port": "output_file", "to_step_key": "f5", "to_port": "input"},
+    ])
+
+    view = AtelierPipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.open_pipeline(pipeline.id)
+    QApplication.instance().processEvents()
+    return view
+
+
 def _settings_view():
     from ui.main_window.settings_view import SettingsView
     return SettingsView()
@@ -730,6 +780,7 @@ def _history_view_modifications():
 # voir docs/refonte/impact/a-ressources.md.
 REGISTRY = [
     ("grammaire", _atelier_grammaire),
+    ("main", _atelier_main),
     ("parametres", _settings_view),
     ("parametres-recherche", _settings_view_recherche),
     ("parametres-arriere-plan", _settings_view_arriere_plan),

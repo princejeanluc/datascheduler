@@ -8,7 +8,7 @@ Les fiches d'écran listent des questions ouvertes. Ce fichier les tranche. Chaq
 
 | # | Question | Réponse par défaut | État |
 |---|---|---|---|
-| P1 | Les maquettes Atelier, Aujourd'hui et Pipelines, dessinées avant la règle des pastilles, montrent beaucoup d'éléments absents du code sans pastille « proposé ». Connexions, Requêtes SQL et Historique en ont quelques-uns. Sont-ils à livrer ? | Oui, comme lots C, après les lots A de tous les écrans. Les fiches les listent déjà en C | à trancher |
+| P1 | Les maquettes Atelier, Aujourd'hui et Pipelines, dessinées avant la règle des pastilles, montrent beaucoup d'éléments absents du code sans pastille « proposé ». Connexions, Requêtes SQL et Historique en ont quelques-uns. Sont-ils à livrer ? | Oui. Pour l'Atelier spécifiquement, le Lot C (C7, C9) démarre dès maintenant, en avance de phase sur le Lot A des autres écrans — écran prioritaire, demande explicite de l'utilisateur à partir des maquettes Atelier-ajout et Atelier-echec. Les autres écrans restent à « après leur Lot A » | tranché |
 | P2 | Atelier : les maquettes montrent « enregistré automatiquement » et plus de bouton d'enregistrement ; le code n'a pas de sauvegarde automatique, par choix | Garder les deux boutons. La sauvegarde automatique et le brouillon (C6, table `pipeline_drafts`) forment un lot à part, décidé plus tard | à trancher |
 | P3 | Atelier : la barre des pipelines à gauche n'apparaît sur aucune maquette | La garder, repliable comme aujourd'hui | par défaut |
 | P4 | Supprimer un pipeline efface ses runs (`cascade="all, delete-orphan"`), alors que les maquettes Pipelines et Historique disent « exécutions conservées » | Garder le comportement, corriger le texte : « Les N exécutions de l'historique seront supprimées. » | à trancher |
@@ -18,7 +18,7 @@ Les fiches d'écran listent des questions ouvertes. Ce fichier les tranche. Chaq
 | P8 | Pipelines : pendant un run, le premier bouton de la ligne arrête le run sur la maquette ; le code en lance un second si `prevent_overlap` est désactivé | Arrêter. Lancer un second run reste possible depuis le menu ⋯ | à trancher |
 | P9 | « Tout exécuter » et le rattrapage lancent aujourd'hui un pipeline enfant deux fois (directement, puis déclenché par son parent) | Lancer dans l'ordre des dépendances et ne plus lancer l'enfant directement | à trancher |
 | P10 | Pipelines : double-clic sur une ligne. Maquette : ouvre l'Atelier. Code : ouvre le détail du pipeline | Garder le code jusqu'à ce que l'Historique filtré par pipeline remplace le dialogue de détail ; ensuite, ouvrir l'Atelier | par défaut |
-| P11 | Atelier : la Grammaire remplace l'icône du type d'étape par un point de couleur de famille | Garder l'icône, en couleur de famille ; le texte du moteur reste sous le nom | à trancher |
+| P11 | Atelier : la Grammaire remplace l'icône du type d'étape par un point de couleur de famille | Garder le point de couleur de famille, comme livré (lot Grammaire, PR #85). L'icône de type n'est pas réintroduite | tranché |
 | P12 | Aperçu des résultats SQL sur SQL Server, qui n'a pas de transaction en lecture seule | Refus par analyse de la requête et `rollback` systématique, plus un avertissement d'utiliser un compte en lecture seule | par défaut |
 
 ## Règles techniques par défaut

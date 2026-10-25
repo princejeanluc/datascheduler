@@ -232,3 +232,66 @@ def test_selecting_a_pipeline_in_the_sidebar_opens_it(qapp, test_db):
     view._sidebar.pipeline_selected.emit(p2.id)
 
     assert view._pipeline_id == p2.id
+
+
+# ──────────────────────────────────────────────
+#  Lot A-Atelier-main : en-tête (A6 fil d'Ariane, A7 Valider à blanc, A8 Exécuter)
+# ──────────────────────────────────────────────
+
+def test_breadcrumb_pipelines_click_triggers_the_same_back_behavior(qapp, test_db):
+    """A6 : le fil d'Ariane "Pipelines" appelle _on_back_clicked, même comportement que l'ancien
+    bouton "Retour aux pipelines" (suppression d'un pipeline neuf sans étape incluse)."""
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = db.create_pipeline(name="atelier-breadcrumb-shell")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id, is_new_pipeline=True)
+
+    emitted = []
+    view.back_requested.connect(lambda: emitted.append(True))
+    view._on_back_clicked()
+
+    assert emitted == [True]
+    assert db.get_pipeline(p.id) is None   # coquille sans étape supprimée
+
+
+def test_validate_button_opens_pipeline_dry_run_dialog_for_the_open_pipeline(qapp, test_db, monkeypatch):
+    """A7 : réutilise PipelineDryRunDialog (modal), orphelin côté PipelinesView mais explicitement
+    demandé ici par la fiche Atelier. Import local (from ui.dialogs import ...) : le monkeypatch
+    doit viser l'attribut sur ui.dialogs, pas sur le module atelier_pipelines_view."""
+    import ui.dialogs as dialogs_module
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = _pipeline_with_step("atelier-validate-btn")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    calls = []
+    monkeypatch.setattr(
+        dialogs_module, "PipelineDryRunDialog",
+        lambda pipeline_id, name, parent: calls.append((pipeline_id, name)) or _DummyExec(),
+    )
+    view._on_validate_pipeline()
+
+    assert calls == [(p.id, p.name)]
+
+
+def test_run_button_delegates_to_the_factored_run_pipeline_now(qapp, test_db, monkeypatch):
+    """A8 : même chemin que depuis la liste des pipelines — pipeline_actions.run_pipeline_now,
+    pas une réimplémentation locale."""
+    from ui.main_window import atelier_pipelines_view as module
+
+    p = _pipeline_with_step("atelier-run-btn")
+    view = module.AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    calls = []
+    monkeypatch.setattr(module, "run_pipeline_now", lambda parent, pipeline_id: calls.append(pipeline_id))
+    view._on_run_pipeline()
+
+    assert calls == [p.id]
+
+
+class _DummyExec:
+    def exec(self):
+        return None

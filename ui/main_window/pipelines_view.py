@@ -905,88 +905,12 @@ class PipelinesView(QWidget):
         self.refresh()
 
     def _on_run_pipeline(self, pipeline_id: int):
-        from database import db_manager as db
-        from ui.dialogs import RunProgressDialog
-        from core.pipeline import is_pipeline_running, request_cancel
-        from core.execution_mode import (
-            is_background_mode_active, is_pipeline_running_anywhere,
-            request_run_now, request_cancel_run,
-        )
-        p = db.get_pipeline(pipeline_id)
-        if not p:
-            return
-
-        # En mode arrière-plan, l'exécution réelle vit dans le process worker, pas ici —
-        # is_pipeline_running()/request_cancel() (core.pipeline) ne lisent/n'écrivent qu'un état
-        # en mémoire propre au process courant, donc toujours "pas en cours" côté appli desktop
-        # même si le worker l'exécute réellement. is_pipeline_running_anywhere() lit le statut en
-        # base (écrit par n'importe quel process qui exécute), fiable dans les deux modes.
-        background = is_background_mode_active()
-        currently_running = (
-            is_pipeline_running_anywhere(pipeline_id) if background
-            else is_pipeline_running(pipeline_id)
-        )
-
-        if p.prevent_overlap and currently_running:
-            box = QMessageBox(self)
-            box.setWindowTitle("Pipeline déjà en cours")
-            box.setText(
-                f"« {p.name} » est déjà en cours d'exécution.\n\n"
-                "L'interruption est coopérative : elle prend effet à la fin de l'étape en "
-                "cours, pas instantanément si celle-ci est longue (ex: une extraction Oracle "
-                "de plusieurs minutes). Relancez manuellement une fois le run arrêté."
-            )
-            btn_interrupt = box.addButton("Interrompre l'exécution en cours", QMessageBox.DestructiveRole)
-            box.addButton("Annuler", QMessageBox.RejectRole)
-            box.setDefaultButton(box.buttons()[-1])
-            box.exec()
-            if box.clickedButton() == btn_interrupt:
-                if not request_cancel_run(pipeline_id):
-                    request_cancel(pipeline_id)
-                # Reflète l'état "Arrêt en cours" tout de suite dans le tableau (colonne Statut)
-                # plutôt que d'attendre le prochain rafraîchissement automatique (30s) — sans ça,
-                # rien n'indique visuellement que la demande a bien été prise en compte.
-                self.refresh()
-                QMessageBox.information(
-                    self, "Demande envoyée",
-                    "L'arrêt a été demandé — le statut affichera « Arrêt en cours » jusqu'à ce "
-                    "que l'étape en cours se termine."
-                )
-            return
-
-        # Validation structurelle avant tout lancement (chantier UX éditeur, Lot 1) — nœuds
-        # orphelins, ports requis non connectés, cycles, références de profil disparues.
-        # test_connections=False : jamais de test réseau réel ici, cette phase reste rapide et
-        # synchrone (0 accès réseau, quelques lectures DB) — les tests de connexion réels restent
-        # le domaine exclusif de "Valider (à blanc)" (menu "⋯"), plus lent, jamais déclenché
-        # automatiquement. Validé à CHAQUE clic, pas seulement le premier : dry_run_pipeline sans
-        # test_connections est trop rapide pour justifier un cache invalidé sur chaque point
-        # d'édition (un chemin d'édition oublié réutiliserait silencieusement une passe périmée).
-        from core.pipeline import dry_run_pipeline
-        dry_run = dry_run_pipeline(pipeline_id, test_connections=False)
-        if dry_run.errors:
-            QMessageBox.warning(
-                self, "Pipeline invalide",
-                f"« {p.name} » ne peut pas s'exécuter tel quel :\n\n"
-                + "\n".join(f"• {e}" for e in dry_run.errors),
-            )
-            return
-        if dry_run.warnings:
-            reply = QMessageBox.question(
-                self, "Avertissement",
-                f"« {p.name} » pourrait tourner sans les données attendues :\n\n"
-                + "\n".join(f"• {w}" for w in dry_run.warnings)
-                + "\n\nContinuer quand même ?",
-                QMessageBox.Yes | QMessageBox.No,
-            )
-            if reply != QMessageBox.Yes:
-                return
-
-        if request_run_now(pipeline_id):
-            from .remote_run_dialog import open_remote_run_dialog
-            open_remote_run_dialog(self, pipeline_id, p.name)
-        else:
-            RunProgressDialog(pipeline_id, p.name, self).exec()
+        """A8 (lot A-Atelier-main) : corps factorisé dans `pipeline_actions.run_pipeline_now`,
+        partagé avec le bouton « Exécuter » de l'en-tête de l'Atelier — même chemin, mêmes
+        messages. Seul `self.refresh()` reste propre à cette vue (reflète "Arrêt en cours" tout
+        de suite dans le tableau sans attendre le prochain rafraîchissement périodique)."""
+        from .pipeline_actions import run_pipeline_now
+        run_pipeline_now(self, pipeline_id)
         self.refresh()
 
     def _on_resume_pipeline(self, pipeline_id: int, pipeline_name: str, resume_from_run_id: int):

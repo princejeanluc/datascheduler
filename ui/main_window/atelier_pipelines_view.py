@@ -30,6 +30,7 @@ from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from ui.styles import COLORS
 from .widgets import _icon, HEADER_H, _status_str
 from .atelier_sidebar import AtelierSidebar
+from .pipeline_actions import run_pipeline_now
 
 
 def _vline() -> QFrame:
@@ -75,14 +76,26 @@ class AtelierPipelinesView(QWidget):
         )
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 0, 16, 0)
-        hl.setSpacing(14)
-        btn_back = QPushButton("  Retour aux pipelines")
-        btn_back.setObjectName("secondary")
-        btn_back.setFixedHeight(32)
-        btn_back.setIcon(_icon("fa5s.arrow-left", COLORS["text_main"]))
-        btn_back.setIconSize(QSize(13, 13))
-        btn_back.clicked.connect(self._on_back_clicked)
-        hl.addWidget(btn_back)
+        hl.setSpacing(10)
+
+        # A6 (lot A-Atelier-main) : fil d'Ariane « Pipelines / <nom> » — remplace l'ancien bouton
+        # "Retour aux pipelines". _on_back_clicked garde son nom public et son comportement
+        # (suppression d'un pipeline neuf sans étape, stop_polling, back_requested).
+        btn_crumb_pipelines = QPushButton("Pipelines")
+        btn_crumb_pipelines.setObjectName("atelierBreadcrumb")
+        btn_crumb_pipelines.setCursor(Qt.PointingHandCursor)
+        btn_crumb_pipelines.setStyleSheet(
+            f"QPushButton#atelierBreadcrumb {{ color: {COLORS['text_dim']}; background: transparent; "
+            f"border: none; font-size: 13px; padding: 0; }}"
+            f"QPushButton#atelierBreadcrumb:hover {{ color: {COLORS['text_main']}; }}"
+        )
+        btn_crumb_pipelines.clicked.connect(self._on_back_clicked)
+        hl.addWidget(btn_crumb_pipelines)
+
+        crumb_sep = QLabel("/")
+        crumb_sep.setStyleSheet(f"color: {COLORS['text_muted']}; background: transparent; border: none;")
+        hl.addWidget(crumb_sep)
+
         self._title_lbl = QLabel("")
         self._title_lbl.setStyleSheet(
             f"color: {COLORS['text_main']}; font-size: 14px; font-weight: 700; "
@@ -90,6 +103,23 @@ class AtelierPipelinesView(QWidget):
         )
         hl.addWidget(self._title_lbl)
         hl.addStretch()
+
+        # A7 : réutilise PipelineDryRunDialog (modal), orphelin depuis que PipelinesView valide
+        # dans un panneau latéral — la fiche Atelier demande explicitement ce dialogue ici.
+        btn_validate = QPushButton("Valider à blanc")
+        btn_validate.setObjectName("secondary")
+        btn_validate.setFixedHeight(32)
+        btn_validate.clicked.connect(self._on_validate_pipeline)
+        hl.addWidget(btn_validate)
+
+        # A8 : même chemin que la liste (pipeline_actions.run_pipeline_now).
+        btn_run = QPushButton("  Exécuter")
+        btn_run.setFixedHeight(32)
+        btn_run.setIcon(_icon("fa5s.play", "#000000"))
+        btn_run.setIconSize(QSize(11, 11))
+        btn_run.clicked.connect(self._on_run_pipeline)
+        hl.addWidget(btn_run)
+
         root.addWidget(header)
 
         body = QWidget()
@@ -232,6 +262,21 @@ class AtelierPipelinesView(QWidget):
         from .pipelines_view import PipelinesView
         if self._pipeline_id is not None:
             PipelinesView._schedule_if_possible(self._pipeline_id)
+
+    def _on_validate_pipeline(self):
+        """A7 : réutilise le dialogue modal PipelineDryRunDialog, orphelin côté PipelinesView
+        (qui valide désormais dans un panneau latéral) mais explicitement demandé ici par la
+        fiche Atelier."""
+        if self._pipeline_id is None:
+            return
+        from ui.dialogs import PipelineDryRunDialog
+        PipelineDryRunDialog(self._pipeline_id, self._title_lbl.text(), self).exec()
+
+    def _on_run_pipeline(self):
+        """A8 : même chemin que depuis la liste des pipelines (pipeline_actions.run_pipeline_now)."""
+        if self._pipeline_id is None:
+            return
+        run_pipeline_now(self, self._pipeline_id)
 
     def _on_back_clicked(self):
         if self._is_new_pipeline and self._pipeline_id is not None:

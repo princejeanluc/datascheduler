@@ -183,6 +183,10 @@ class MainWindow(QMainWindow):
         self._views[8].open_pipeline(pipeline_id, highlight_step_key=highlight_step_key,
                                       is_new_pipeline=is_new_pipeline)
         self._navigate(8)
+        # A16 (lot A-Atelier-main) : l'Atelier est hors des 8 indices connus de NavRail — sans ce
+        # forçage, _navigate(8) ci-dessus ne surligne aucun bouton (set_active_index(8) ne
+        # correspond à rien). Le bouton Pipelines (indice 1) reste visuellement actif.
+        self._nav_rail.set_active_index(1)
 
     def _navigate(self, index: int):
         self._stack.setCurrentIndex(index)

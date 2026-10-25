@@ -13,7 +13,7 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 |---|---|---|---|
 | Proposition | Brouillon et publication | Bouton Publier : séparer la version en cours d'édition de celle qui tourne | nouveau |
 | Proposition | Exécuter jusqu'ici | Lancer le pipeline jusqu'à l'étape sélectionnée | `core/pipeline.py::run_pipeline` |
-| Proposition | Paramètres en phrase | Déclenchement écrit « Lancer aussi après X si elle réussit » | `ui/step_editor/pipeline_settings_panel.py` |
+| Proposition | Paramètres en phrase | Déclenchement écrit « Lancer aussi après X si elle réussit » | fait (lot A-Atelier-main) |
 
 ## Aujourd'hui
 

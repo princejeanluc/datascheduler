@@ -33,6 +33,7 @@ from .minimap_widget import GraphMinimapWidget
 from .tool_rail import EditorToolRail
 from .zoom_widget import ZoomWidget
 from .help_popup import GraphHelpDialog
+from .node_search_overlay import NodeSearchOverlay
 from ui.help.content import get_topic
 
 _NODE_SPACING_X = 240
@@ -182,31 +183,33 @@ class PipelineGraphEditorWidget(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Barre de contexte (chantier chrome de l'éditeur) — ne garde que ce qui n'est pas de
-        # l'édition du graphe : les 6 actions du canevas (ajouter/supprimer/ranger/zones/
-        # mini-carte) vivent désormais dans le rail d'icônes flottant (tool_rail.py), pas ici.
-        toolbar = QHBoxLayout()
-        toolbar.setContentsMargins(16, 8, 16, 8)
-        toolbar.setSpacing(8)
-
-        hint = QLabel(
-            "Glisser depuis un point de sortie vers un point d'entrée pour connecter deux "
-            "étapes."
-        )
-        hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
-        toolbar.addWidget(hint)
-        toolbar.addStretch(1)
-
-        self.inp_search = _make_search_input("Rechercher un nœud…")
-        self.inp_search.setToolTip(
-            "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le résultat "
-            "suivant."
-        )
-        self.inp_search.textChanged.connect(self._on_search_changed)
-        self.inp_search.returnPressed.connect(self._on_search_jump)
-        toolbar.addWidget(self.inp_search)
-
+        # A10 (lot A-Atelier-main) : seul `PipelineGraphEditorDialog` (enveloppe de compatibilité
+        # sans panneau de paramètres intégré) garde encore une barre de contexte classique, pour
+        # son bouton "Paramètres du pipeline" — la vue Atelier réelle (show_settings_shortcut_
+        # button=False) n'en a plus besoin : recherche et aide de glisser-déposer deviennent des
+        # éléments flottants du canevas, voir plus bas.
         if self._show_settings_shortcut_button:
+            toolbar = QHBoxLayout()
+            toolbar.setContentsMargins(16, 8, 16, 8)
+            toolbar.setSpacing(8)
+
+            hint = QLabel(
+                "Glisser depuis un point de sortie vers un point d'entrée pour connecter deux "
+                "étapes."
+            )
+            hint.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic;")
+            toolbar.addWidget(hint)
+            toolbar.addStretch(1)
+
+            self.inp_search = _make_search_input("Rechercher un nœud…")
+            self.inp_search.setToolTip(
+                "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le résultat "
+                "suivant."
+            )
+            self.inp_search.textChanged.connect(self._on_search_changed)
+            self.inp_search.returnPressed.connect(self._on_search_jump)
+            toolbar.addWidget(self.inp_search)
+
             btn_settings = QPushButton("  Paramètres du pipeline")
             btn_settings.setObjectName("secondary")
             btn_settings.setFixedHeight(32)
@@ -219,7 +222,7 @@ class PipelineGraphEditorWidget(QWidget):
             btn_settings.clicked.connect(self._on_open_settings_dialog)
             toolbar.addWidget(btn_settings)
 
-        root.addLayout(toolbar)
+            root.addLayout(toolbar)
 
         self._scene = PipelineGraphScene()
         self._scene.node_double_clicked.connect(self._on_node_double_clicked)
@@ -258,6 +261,32 @@ class PipelineGraphEditorWidget(QWidget):
         self._zoom_widget = ZoomWidget(self._view, parent=self._view.viewport())
         self._view._zoom_widget = self._zoom_widget
         self._zoom_widget.reposition()
+
+        # A10 (lot A-Atelier-main) : recherche de nœud en surimpression, haut-droite du canevas —
+        # uniquement pour la vue Atelier réelle (le dialogue de compatibilité garde sa barre
+        # classique construite plus haut, avec son propre self.inp_search).
+        if not self._show_settings_shortcut_button:
+            self._drag_hint = QLabel(
+                "Tirer d'un port de sortie vers un port d'entrée pour relier deux nœuds",
+                self._view.viewport(),
+            )
+            self._drag_hint.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: 11px; font-style: italic; "
+                f"background: transparent;"
+            )
+            self._drag_hint.move(64, 12)
+            self._drag_hint.show()
+
+            self._search_overlay = NodeSearchOverlay(parent=self._view.viewport())
+            self.inp_search = self._search_overlay.inp_search
+            self.inp_search.setToolTip(
+                "Filtre les étapes par type ou libellé. Entrée pour centrer la vue sur le "
+                "résultat suivant."
+            )
+            self.inp_search.textChanged.connect(self._on_search_changed)
+            self.inp_search.returnPressed.connect(self._on_search_jump)
+            self._view._search_overlay = self._search_overlay
+            self._search_overlay.reposition()
 
     # ── Chargement ────────────────────────────
 
