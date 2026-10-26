@@ -118,12 +118,13 @@ def _atelier_grammaire():
     return view
 
 
-def _build_atelier_sample_pipeline():
+def _build_atelier_sample_pipeline(name="Reporting ventes J-1"):
     """Graphe représentatif (condition, jonction ET, port d'erreur) partagé par _atelier_main et
     _atelier_ajout — noms et chiffres sont des exemples, pas les valeurs réelles d'une fiche
-    (REGLES.md section 2)."""
+    (REGLES.md section 2). `name` paramétrable : capture_all() partage une seule base pour tout
+    le registre (pipelines.name est unique), les deux appelants ne peuvent pas réutiliser le même."""
     pipeline = db.create_pipeline(
-        name="Reporting ventes J-1",
+        name=name,
         description="Export quotidien des ventes vers le partenaire.",
         frequency="DAILY", scheduled_time="06:00",
     )
@@ -178,7 +179,7 @@ def _atelier_ajout():
     """Atelier-ajout (C7) : panneau "Ajouter" ouvert, un type sélectionné (aperçu à droite)."""
     from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
 
-    pipeline = _build_atelier_sample_pipeline()
+    pipeline = _build_atelier_sample_pipeline(name="Reporting ventes J-1 (ajout)")
     view = AtelierPipelinesView()
     view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
     view.show()
