@@ -228,3 +228,38 @@ def test_timeline_panel_excludes_routing_and_skipped_nodes(qapp, test_db):
 
     # Seule "Extraire" a une ligne (CONDITION exclu : routage ; "Copier" exclu : SKIPPED).
     assert widget.timeline_panel is not None   # construit sans lever
+
+
+def test_timeline_panel_survives_a_step_timestamp_far_outside_the_run_bounds(qapp, test_db):
+    """Régression : un run.started_at très éloigné des horodatages d'étape (horloges
+    désynchronisées entre l'application et le worker en arrière-plan, scénario réel sur cette
+    appli — voir core/execution_mode.py) produisait un int() Qt hors limites dans
+    _TimelineTrack.paintEvent() et faisait planter le process (confirmé par un vrai segfault en
+    capture, pas une hypothèse). Les deux niveaux de clamp [0, 1] doivent empêcher ça."""
+    from PySide6.QtGui import QPixmap
+
+    p = _pipeline_with_a_failed_ftp_upload()
+    run = db.create_run(p.id)
+    from database.models import PipelineRun
+    with db.get_session() as s:
+        s.get(PipelineRun, run.id).started_at = datetime(2026, 1, 1, 0, 0, 0)
+    # À des années de run.started_at ci-dessus — exactement le genre d'écart qui a fait déborder
+    # int(start_pct * largeur_widget) avant le clamp.
+    far_future = datetime(2030, 1, 1, 0, 0, 0)
+    db.record_run_step(
+        run.id, step_key="a", step_type="DB_EXTRACT", step_label=None, status="SUCCESS",
+        started_at=far_future, finished_at=far_future + timedelta(seconds=41),
+    )
+    db.record_run_step(run.id, step_key="b", step_type="FTP_UPLOAD", status="FAILED", step_label=None)
+    db.finish_run(run.id, status="FAILED", failed_step_key="b")
+    with db.get_session() as s:
+        s.get(PipelineRun, run.id).finished_at = datetime(2026, 1, 1, 0, 2, 0)
+
+    widget = _widget(p, run.id)
+    panel = widget.timeline_panel
+    panel.resize(900, panel.HEIGHT)
+
+    # Un vrai paint(), pas seulement la construction des données — le plantage d'origine se
+    # produisait dans paintEvent(), pas avant.
+    pixmap = QPixmap(900, panel.HEIGHT)
+    panel.render(pixmap)
