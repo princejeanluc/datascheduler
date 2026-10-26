@@ -263,6 +263,11 @@ class AtelierPipelinesView(QWidget):
             graph_btn_row.setContentsMargins(16, 8, 16, 10)
             graph_btn_row.addStretch()
             btn_save_graph = QPushButton("Enregistrer le graphe")
+            # Secondaire (bordé), pas le style plein orange par défaut — réservé à L'action
+            # principale d'un écran (ici "Exécuter", dans l'en-tête). Deux boutons "Enregistrer"
+            # sans objectName se disputaient visuellement ce rôle (constaté par l'utilisateur dès
+            # que le bug de cascade QSS corrigé les a enfin fait apparaître avec leur vrai fond).
+            btn_save_graph.setObjectName("secondary")
             btn_save_graph.setFixedHeight(34); btn_save_graph.setMinimumWidth(150)
             btn_save_graph.clicked.connect(self._canvas.save)
             graph_btn_row.addWidget(btn_save_graph)
@@ -301,6 +306,7 @@ class AtelierPipelinesView(QWidget):
         settings_btn_row.setContentsMargins(16, 10, 16, 14)
         settings_btn_row.addStretch()
         btn_save_settings = QPushButton("Enregistrer les paramètres")
+        btn_save_settings.setObjectName("secondary")   # voir le commentaire sur btn_save_graph
         btn_save_settings.setFixedHeight(34); btn_save_settings.setMinimumWidth(150)
         btn_save_settings.clicked.connect(self._settings_panel.save)
         settings_btn_row.addWidget(btn_save_settings)
@@ -341,6 +347,14 @@ class AtelierPipelinesView(QWidget):
             self._btn_reprendre.setVisible(False)
             self._btn_validate.setVisible(True)
             self._btn_run.setVisible(True)
+            # Raccourci (demande explicite de l'utilisateur) : même en édition normale, un badge
+            # cliquable signale un run en échec encore reprenable — sinon la seule façon d'en
+            # voir le détail est de ressortir vers l'Historique pour le retrouver. Réutilise le
+            # même badge que la vue d'un run (_make_status_badge), juste rendu cliquable ici.
+            from database import db_manager as db
+            last_resumable = db.get_last_resumable_run(self._pipeline_id)
+            if last_resumable is not None:
+                self._show_edit_mode_failure_badge(last_resumable)
             return
 
         from database import db_manager as db
@@ -367,6 +381,36 @@ class AtelierPipelinesView(QWidget):
                 text += f" · {step_label}"
             self._run_badge = _make_status_badge(text, "badge_failed" if is_failure else "badge_success")
             self._header_layout.insertWidget(3, self._run_badge)
+
+    def _show_edit_mode_failure_badge(self, run) -> None:
+        from ui.time_display import fmt_time
+
+        step_label = self._resolve_step_label_from_canvas(run.failed_step_key)
+        text = f"Échec à {fmt_time(run.finished_at or run.started_at, '%H:%M')}"
+        if step_label:
+            text += f" · {step_label}"
+        self._run_badge = _make_status_badge(text, "badge_failed")
+        self._run_badge.setCursor(Qt.PointingHandCursor)
+        self._run_badge.setToolTip("Voir le détail de l'échec")
+        self._run_badge.mouseReleaseEvent = (
+            lambda ev, run_id=run.id: self.open_pipeline(self._pipeline_id, run_id=run_id)
+        )
+        self._header_layout.insertWidget(3, self._run_badge)
+
+    def _resolve_step_label_from_canvas(self, step_key: str | None) -> str | None:
+        """Libellé d'une étape du graphe actuellement édité — jamais une requête DB séparée, le
+        canevas a déjà tout chargé (même esprit que StepNodeItem._resolve_step_label)."""
+        if not step_key or self._canvas is None:
+            return None
+        node = self._canvas._scene.nodes.get(step_key)
+        if node is None:
+            return None
+        from ui.step_editor import STEP_META
+        label = node.step.get("label") or ""
+        if label:
+            return label
+        meta = STEP_META.get(node.step.get("step_type", ""), {})
+        return meta.get("label")
 
     def _on_resume_pipeline(self):
         if self._pipeline_id is None or self._run_id is None:

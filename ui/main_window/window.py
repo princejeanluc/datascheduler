@@ -124,6 +124,7 @@ class MainWindow(QMainWindow):
         self._views[0].new_pipeline_requested.connect(self._views[1]._on_new_pipeline)
         # A9/A10 : "Ouvrir dans l'Atelier" depuis les panneaux latéraux d'Aujourd'hui.
         self._views[0].open_atelier_requested.connect(self.open_atelier)
+        self._views[0].open_atelier_run_requested.connect(self.open_atelier_run)
         # A12 : accueil "premier pipeline" — navigation directe (Connexions/Requêtes SQL/Aide)
         # ou appel du même point d'entrée privé que leurs boutons respectifs dans PipelinesView
         # (déjà le patron de new_pipeline_requested ci-dessus).
