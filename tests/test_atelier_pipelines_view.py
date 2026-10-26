@@ -238,6 +238,26 @@ def test_selecting_a_pipeline_in_the_sidebar_opens_it(qapp, test_db):
 #  Lot A-Atelier-main : en-tête (A6 fil d'Ariane, A7 Valider à blanc, A8 Exécuter)
 # ──────────────────────────────────────────────
 
+def test_header_stylesheet_is_qualified_not_a_bare_cascade_rule(qapp, test_db):
+    """Régression réelle (constatée en capture, le bouton "Exécuter" rendu sans fond) — même
+    piège déjà documenté et corrigé ailleurs (voir
+    tests/test_queries_view_workshop.py::test_containers_use_qualified_stylesheet_selectors) :
+    un style QSS brut sans sélecteur sur l'en-tête coupait la cascade de GLOBAL_STYLE pour tous
+    ses boutons descendants sans objectName (fond accent attendu, par défaut)."""
+    from PySide6.QtWidgets import QWidget
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    view = AtelierPipelinesView()
+    header = view.findChild(QWidget, "atelierHeader")
+
+    assert header is not None
+    assert header.styleSheet().strip(), "en-tête : aucun style — pourquoi en poser un ?"
+    assert "#atelierHeader" in header.styleSheet(), (
+        f"en-tête : style non qualifié ({header.styleSheet()!r}) — "
+        "couperait la cascade de GLOBAL_STYLE pour ses descendants."
+    )
+
+
 def test_breadcrumb_pipelines_click_triggers_the_same_back_behavior(qapp, test_db):
     """A6 : le fil d'Ariane "Pipelines" appelle _on_back_clicked, même comportement que l'ancien
     bouton "Retour aux pipelines" (suppression d'un pipeline neuf sans étape incluse)."""

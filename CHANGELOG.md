@@ -29,6 +29,17 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.57.1] - 2026-10-26
+
+### Corrigé
+- Deux boutons principaux (fond orange plein attendu par défaut) s'affichaient sans aucun fond
+  visible : « Exécuter »/« Reprendre depuis l'échec » dans l'Atelier, « + Nouveau pipeline » sur
+  Aujourd'hui. Cause : un style QSS posé sans sélecteur sur un conteneur ancêtre (l'en-tête de
+  l'Atelier, la zone de défilement d'Aujourd'hui) coupait la cascade du style global pour tout
+  bouton descendant sans `objectName` — même piège déjà rencontré et corrigé une fois sur l'écran
+  Requêtes SQL (REGLES.md section 3). Audit du reste de l'application : aucune autre occurrence
+  trouvée.
+
 ## [0.57.0] - 2026-10-26
 
 ### Ajouté

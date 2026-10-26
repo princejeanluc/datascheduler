@@ -62,6 +62,27 @@ def test_dashboard_refresh_updates_the_eyebrow_label(qapp, test_db):
     assert view._eyebrow_lbl.text() != "texte perime"
 
 
+def test_scroll_area_stylesheet_is_qualified_not_a_bare_cascade_rule(qapp, test_db):
+    """Régression réelle (constatée en capture, "+ Nouveau pipeline" rendu sans fond) — même
+    piège déjà documenté et corrigé ailleurs (voir
+    tests/test_queries_view_workshop.py::test_containers_use_qualified_stylesheet_selectors) :
+    un style QSS brut sans sélecteur sur un conteneur (`"background: transparent;"`) coupe la
+    cascade de GLOBAL_STYLE pour tous ses descendants, et le QPushButton par défaut
+    "+ Nouveau pipeline" (sans objectName, fond accent attendu) devenait invisible."""
+    from PySide6.QtWidgets import QScrollArea
+    from ui.main_window.dashboard_view import DashboardView
+
+    view = DashboardView()
+    scroll = view.findChild(QScrollArea)
+
+    assert scroll is not None
+    assert scroll.styleSheet().strip(), "QScrollArea : aucun style — pourquoi en poser un ?"
+    assert "QScrollArea" in scroll.styleSheet(), (
+        f"QScrollArea : style non qualifié ({scroll.styleSheet()!r}) — "
+        "couperait la cascade de GLOBAL_STYLE pour ses descendants."
+    )
+
+
 def test_new_pipeline_button_emits_new_pipeline_requested(qapp, test_db):
     from ui.main_window.dashboard_view import DashboardView
 
