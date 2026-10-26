@@ -106,6 +106,26 @@ def test_open_failure_panel_populates_and_opens_side_panel(qapp, test_db):
     assert not view._side_panel.isHidden()
 
 
+def test_failure_panel_atelier_link_emits_open_atelier_run_requested(qapp, test_db):
+    """C9 (Atelier-echec) : ce panneau n'existe que pour le détail d'un run en échec — son lien
+    "Ouvrir dans l'Atelier" doit ouvrir la même vue riche que "Voir dans le graphe" depuis
+    l'Historique pour ce même run (incohérence constatée : avant ce correctif, le même échec
+    ouvrait l'ancien surlignage à un seul nœud depuis ici, mais la vue riche depuis l'Historique)."""
+    from ui.main_window.dashboard_view import DashboardView
+
+    pipeline, run = _fail_pipeline()
+
+    view = DashboardView()
+    view._open_failure_panel(pipeline.id)
+    captured = []
+    view.open_atelier_run_requested.connect(lambda *args: captured.append(args))
+
+    btn = next(b for b in view._side_panel.findChildren(QPushButton) if b.text() == "Ouvrir dans l'Atelier")
+    btn.click()
+
+    assert captured == [(pipeline.id, run.id, "step-1")]
+
+
 def test_failure_panel_missing_pipeline_does_not_raise(qapp, test_db):
     from ui.main_window.dashboard_view import DashboardView
 

@@ -85,6 +85,10 @@ class DashboardView(QWidget):
     # signature que PipelinesView.open_atelier_requested, câblé dans window.py vers
     # MainWindow.open_atelier (point d'entrée unique déjà utilisé par Pipelines/Historique).
     open_atelier_requested = Signal(int, object, bool)
+    # C9 (Atelier-echec) : même signal que HistoryView.open_atelier_run_requested, additif —
+    # open_atelier_requested ci-dessus reste utilisé par les autres liens de cette vue (création,
+    # pipeline en cours), qui n'ont pas de run à transmettre.
+    open_atelier_run_requested = Signal(int, int, object)
     # A12 (Aujourdhui-premier) : les 3 cartes/2 liens de l'accueil "premier pipeline" ne
     # dupliquent aucune logique — ils naviguent vers une vue existante ou appellent une méthode
     # déjà publique-par-l'usage de PipelinesView (même patron que new_pipeline_requested
@@ -1089,9 +1093,14 @@ class DashboardView(QWidget):
                 "Reprendre depuis l'échec", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
             btn_resume.clicked.connect(lambda: self._on_resume_from_panel(pipeline.id))
             footer.addWidget(btn_resume)
+        # C9 (Atelier-echec) : ce panneau n'est construit que pour le détail d'un run en échec
+        # (_build_failure_panel_content, éperon "ÉCHEC" ci-dessus) — mêmes données que le lien
+        # "Voir dans le graphe" de l'Historique pour le même run, donc la même vue riche plutôt
+        # que l'ancien surlignage à un seul nœud (incohérence constatée : le même échec ouvrait
+        # une expérience différente selon qu'on vienne d'ici ou de l'Historique).
         btn_atelier = self._treat_action_button("Ouvrir dans l'Atelier")
         btn_atelier.clicked.connect(
-            lambda: self.open_atelier_requested.emit(pipeline.id, run.failed_step_key, False))
+            lambda: self.open_atelier_run_requested.emit(pipeline.id, run.id, run.failed_step_key))
         footer.addWidget(btn_atelier)
         btn_journal = self._treat_action_button("Journal")
         btn_journal.clicked.connect(lambda: self._on_open_run_log(run.id))

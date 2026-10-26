@@ -258,6 +258,60 @@ def test_header_stylesheet_is_qualified_not_a_bare_cascade_rule(qapp, test_db):
     )
 
 
+# ──────────────────────────────────────────────
+#  Raccourci demandé par l'utilisateur : badge d'échec cliquable en édition normale
+# ──────────────────────────────────────────────
+
+def test_edit_mode_shows_a_clickable_failure_badge_when_a_resumable_run_exists(qapp, test_db):
+    p = _pipeline_with_step("atelier-edit-badge")
+    db.save_pipeline_graph(p.id, steps=[
+        {"step_type": "FTP_UPLOAD", "label": "Déposer", "config": {"_step_key": "a"}},
+    ], edges=[])
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="FAILED", failed_step_key="a", resumable_state_json="{}")
+
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    assert view._run_badge is not None
+    assert "Échec" in view._run_badge.text()
+    assert "Déposer" in view._run_badge.text()
+    # Les boutons d'édition normale restent affichés — ce badge est un raccourci en plus,
+    # jamais un remplacement de l'en-tête habituel (contrairement à la vue d'un run).
+    assert not view._btn_validate.isHidden()
+    assert not view._btn_run.isHidden()
+
+
+def test_edit_mode_has_no_failure_badge_without_a_resumable_run(qapp, test_db):
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = _pipeline_with_step("atelier-edit-badge-none")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    assert view._run_badge is None
+
+
+def test_clicking_the_edit_mode_badge_opens_the_run_view(qapp, test_db):
+    p = _pipeline_with_step("atelier-edit-badge-click")
+    db.save_pipeline_graph(p.id, steps=[
+        {"step_type": "FTP_UPLOAD", "label": "Déposer", "config": {"_step_key": "a"}},
+    ], edges=[])
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="FAILED", failed_step_key="a", resumable_state_json="{}")
+
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    view._run_badge.mouseReleaseEvent(None)
+
+    assert view._run_id == run.id
+    assert view._settings_normal_container.isHidden()
+    assert not view._canvas.failure_panel.isHidden()
+
+
 def test_breadcrumb_pipelines_click_triggers_the_same_back_behavior(qapp, test_db):
     """A6 : le fil d'Ariane "Pipelines" appelle _on_back_clicked, même comportement que l'ancien
     bouton "Retour aux pipelines" (suppression d'un pipeline neuf sans étape incluse)."""
