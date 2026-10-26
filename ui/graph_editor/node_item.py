@@ -288,6 +288,11 @@ class StepNodeItem(QGraphicsObject):
             self._is_search_hit = hit
             self.update()
 
+    def set_movable(self, movable: bool) -> None:
+        """C9 (Atelier-echec) : un run passé ne se repositionne pas en le glissant — jamais
+        appelé en édition normale."""
+        self.setFlag(QGraphicsItem.ItemIsMovable, movable)
+
     def set_expanded(self, expanded: bool) -> None:
         """Déplie/replie le panneau de détail de ce nœud (chantier relooking des nœuds) — seul
         mutateur d'état de cette classe qui change la GÉOMÉTRIE (boundingRect() s'agrandit),

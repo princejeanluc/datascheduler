@@ -1290,6 +1290,20 @@ def record_run_step(run_id: int, *, step_key: str | None, step_type: str | None,
     return row
 
 
+def get_run_steps(run_id: int) -> list[PipelineRunStep]:
+    """Lecture (C9, Atelier-echec) — jusqu'ici aucune fonction ne lisait cette table, seul
+    record_run_step() l'écrivait (B1 ne construisait aucun écran). Ordre d'insertion (id
+    croissant) : reflète l'ordre réel d'écriture pendant le run, pas un ordre topologique du
+    graphe — à l'appelant de réindexer par step_key s'il a besoin d'un autre ordre."""
+    with get_session() as s:
+        return (
+            s.query(PipelineRunStep)
+            .filter(PipelineRunStep.run_id == run_id)
+            .order_by(PipelineRunStep.id)
+            .all()
+        )
+
+
 def update_run_progress(run_id: int, current_step_label: str, log_text: str,
                          current_step_key: str | None = None) -> None:
     """Écriture incrémentale pendant l'exécution (chantier N) — contrairement à finish_run(),

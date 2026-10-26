@@ -291,3 +291,43 @@ def test_deleting_a_pipeline_cascades_to_its_run_steps(test_db, monkeypatch, tmp
     with db.get_session() as s:
         remaining = s.query(PipelineRunStep).filter(PipelineRunStep.run_id == result.run_id).count()
     assert remaining == 0
+
+
+# ──────────────────────────────────────────────
+#  Lecture (C9, Atelier-echec) — jusqu'ici personne ne lisait cette table
+# ──────────────────────────────────────────────
+
+def test_get_run_steps_returns_every_row_for_that_run_in_insertion_order(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+    monkeypatch.setitem(steps_module._REGISTRY, "LOCAL_COPY", _FakeConsumerStep)
+
+    pipeline = db.create_pipeline(name="run-steps-read")
+    db.save_steps(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(tmp_path / "x.txt"), "content": "A", "_step_key": "a"}},
+        {"step_type": "LOCAL_COPY", "config": {"sink_path": str(tmp_path / "y.txt"), "_step_key": "b"}},
+    ])
+    result = run_pipeline(pipeline.id)
+    assert result.success, result.error
+
+    rows = db.get_run_steps(result.run_id)
+
+    assert [r.step_key for r in rows] == ["a", "b"]
+    assert all(r.status == "SUCCESS" for r in rows)
+
+
+def test_get_run_steps_is_scoped_to_a_single_run(test_db, monkeypatch, tmp_path):
+    monkeypatch.setitem(steps_module._REGISTRY, "DB_EXTRACT", _FakeProducerStep)
+
+    pipeline = db.create_pipeline(name="run-steps-scoped")
+    db.save_steps(pipeline.id, [
+        {"step_type": "DB_EXTRACT", "config": {"path": str(tmp_path / "x.txt"), "content": "A", "_step_key": "a"}},
+    ])
+    first = run_pipeline(pipeline.id)
+    second = run_pipeline(pipeline.id)
+
+    assert [r.run_id for r in db.get_run_steps(first.run_id)] == [first.run_id]
+    assert [r.run_id for r in db.get_run_steps(second.run_id)] == [second.run_id]
+
+
+def test_get_run_steps_empty_for_an_unknown_run(test_db):
+    assert db.get_run_steps(999999) == []
