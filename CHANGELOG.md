@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.57.2] - 2026-10-26
+
+### Corrigé
+- Le lien « Ouvrir dans l'Atelier » du panneau d'échec d'Aujourd'hui ouvrait l'ancien surlignage
+  à un seul nœud, alors que le même lien depuis l'Historique ouvre déjà la vue riche d'un run
+  (A9 + C9) : même échec, expérience différente selon l'écran de départ. Les deux ouvrent
+  maintenant la même vue.
+- En édition normale, un pipeline avec un run reprenable n'offrait aucun accès direct au détail
+  de son échec sans repasser par l'Historique. Un badge d'échec cliquable apparaît maintenant à
+  côté du titre et ouvre la vue du run concerné.
+- « Enregistrer le graphe » et « Enregistrer les paramètres » s'affichaient tous les deux en
+  plein orange (style du bouton principal) une fois le correctif de cascade QSS de la version
+  précédente appliqué, entrant en concurrence visuelle avec « Exécuter ». Passés en style
+  secondaire.
+
 ## [0.57.1] - 2026-10-26
 
 ### Corrigé
