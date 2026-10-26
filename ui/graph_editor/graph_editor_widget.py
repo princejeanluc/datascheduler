@@ -99,6 +99,12 @@ class PipelineGraphEditorWidget(QWidget):
         self._run_steps_by_key: dict[str, object] = {}
         self._failure_panel = None
         self._timeline_panel = None
+        # Lot atelier-suivi-execution : étapes de pipeline_run_steps sans nœud correspondant sur
+        # le canevas (voir _refresh_run_view) ; centrage de la vue effectué une seule fois, pas
+        # ré-exécuté à chaque tique du suivi en direct (_poll_run_view) pour ne pas faire sauter
+        # le cadrage choisi par l'utilisateur pendant qu'il regarde un run tourner.
+        self._orphan_run_steps: list = []
+        self._run_view_centered_once = False
         # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
         # éditeur, Lot 1) — aucun QUndoStack n'existe nulle part dans cette app, annulation à un
         # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
@@ -118,11 +124,27 @@ class PipelineGraphEditorWidget(QWidget):
         self._load_profiles()
 
         self._build_ui()
-        self._load_graph()
+
+        # Photo figée (lot atelier-suivi-execution) : si CE run a une graph_snapshot_json, le
+        # canevas est construit depuis elle plutôt que depuis le graphe vivant — la vue d'un run
+        # reste alors fidèle à ce qui a réellement tourné même si le pipeline a changé depuis (une
+        # étape renommée, reconfigurée ou supprimée). Sans photo (run antérieur à ce lot, ou
+        # ancien worker qui ne l'écrit pas) : repli sur le graphe vivant, comportement inchangé.
+        run_for_view = None
+        if run_id is not None:
+            from database import db_manager as db
+            run_for_view = db.get_run(run_id)
+        if run_for_view is not None and run_for_view.graph_snapshot_json:
+            import json
+            snapshot = json.loads(run_for_view.graph_snapshot_json)
+            self._load_graph(steps_override=snapshot.get("steps") or [],
+                              edges_override=snapshot.get("edges") or [])
+        else:
+            self._load_graph()
 
         applied_run_view = False
         if run_id is not None:
-            applied_run_view = self._apply_run_view(run_id)
+            applied_run_view = self._apply_run_view(run_id, run=run_for_view)
         if not applied_run_view and highlight_step_key:
             # Lien "Voir dans le graphe" depuis une ligne d'historique en échec (chantier UX
             # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture. Repli de _apply_run_view()
@@ -162,20 +184,40 @@ class PipelineGraphEditorWidget(QWidget):
                 e.set_failed(True)
         self._view.centerOn(node)
 
-    # ── C9 (Atelier-echec) : vue en lecture seule d'un run passé ──
+    # ── C9 (Atelier-echec), étendu (lot atelier-suivi-execution) : vue en lecture seule d'un run
+    # passé OU en cours, quel que soit son statut (pas seulement l'échec) ──
 
-    def _apply_run_view(self, run_id: int) -> bool:
+    def _apply_run_view(self, run_id: int, run=None) -> bool:
         """Retourne False (et ne touche à rien) si pipeline_run_steps est vide pour ce run —
-        l'appelant retombe alors sur l'ancien comportement highlight_step_key (voir __init__)."""
+        l'appelant retombe alors sur l'ancien comportement highlight_step_key (voir __init__).
+        `run` : déjà chargé par l'appelant (__init__, pour décider de la photo figée) — évite une
+        seconde requête ; None accepté pour tout appelant qui ne l'a pas sous la main."""
         from database import db_manager as db
-        from .run_status import (
-            node_status_text, node_card_state, edge_run_state, summarize_run_steps,
-            parse_attempts, what_happened_next,
-        )
 
         run_steps = db.get_run_steps(run_id)
         if not run_steps:
             return False
+
+        self._rail.setEnabled(False)
+        if run is None:
+            run = db.get_run(run_id)
+
+        self._refresh_run_view(run, run_steps)
+
+        # Suivi en direct (lot atelier-suivi-execution) : tant que le run n'est pas dans un état
+        # terminal, un timer relit pipeline_run_steps/pipeline_runs et ré-applique les mêmes
+        # annotations — réutilise start_polling()/stop_polling() (traçage lumineux) plutôt qu'un
+        # second mécanisme de sondage. _poll_executing_step() distingue les deux usages via
+        # self._run_id (non None seulement en vue d'un run).
+        if run is not None and run.status == "RUNNING":
+            self.start_polling()
+
+        return True
+
+    def _refresh_run_view(self, run, run_steps) -> None:
+        """Partie répétée à chaque sondage tant que le run est RUNNING (voir _poll_run_view) —
+        extrait de _apply_run_view pour ne pas dupliquer la boucle d'annotation nœud/liaison."""
+        from .run_status import node_status_text, node_card_state, edge_run_state
 
         self._run_steps_by_key = {r.step_key: r for r in run_steps if r.step_key}
         steps_by_key = self._run_steps_by_key
@@ -204,23 +246,47 @@ class PipelineGraphEditorWidget(QWidget):
             if to_row is not None and to_row.status == "FAILED":
                 edge.set_failed(True)
 
-        self._rail.setEnabled(False)
-
-        run = db.get_run(run_id)
         failed_step_key = (run.failed_step_key if run else None) or (
             failed_node.step_key if failed_node else None
         )
-        target_node = self._scene.nodes.get(failed_step_key) if failed_step_key else None
-        if target_node is None and self._scene.nodes:
-            target_node = next(iter(self._scene.nodes.values()))
-        if target_node is not None:
-            self._view.centerOn(target_node)
+
+        # Étape supprimée depuis cette exécution (lot atelier-suivi-execution) : une ligne de
+        # pipeline_run_steps sans nœud correspondant sur le canevas — ne peut arriver que sans
+        # photo figée (run antérieur à ce lot) puisqu'avec une photo le canevas EST construit
+        # depuis les mêmes clés. Rendue visible plutôt que silencieusement ignorée (voir note
+        # d'impact) : affichée dans le compartiment Journal/chronogramme, pas sur le canevas (pas
+        # de position connue pour un nœud qui n'existe plus).
+        self._orphan_run_steps = [
+            r for key, r in steps_by_key.items() if key not in self._scene.nodes
+        ]
+
+        if not getattr(self, "_run_view_centered_once", False):
+            target_node = self._scene.nodes.get(failed_step_key) if failed_step_key else None
+            if target_node is None and self._scene.nodes:
+                target_node = next(iter(self._scene.nodes.values()))
+            if target_node is not None:
+                self._view.centerOn(target_node)
+            self._run_view_centered_once = True
 
         self._build_run_view_label(run)
         if failed_step_key:
             self._build_failure_panel(run, failed_step_key, steps_by_key)
-        self._build_timeline_panel(run, run_steps)
-        return True
+        self._build_timeline_panel(run, run_steps, orphan_steps=self._orphan_run_steps)
+
+    def _poll_run_view(self) -> None:
+        """Tique de start_polling() en vue d'un run (self._run_id non None) — voir
+        _apply_run_view. S'arrête dès que le run quitte RUNNING : la vue se fige sur l'état
+        final, exactement comme si elle avait été ouverte après coup."""
+        from database import db_manager as db
+
+        run = db.get_run(self._run_id)
+        if run is None:
+            self.stop_polling()
+            return
+        run_steps = db.get_run_steps(self._run_id)
+        self._refresh_run_view(run, run_steps)
+        if run.status != "RUNNING":
+            self.stop_polling()
 
     def _build_run_view_label(self, run) -> None:
         """« Vue de l'exécution du … · revenir à l'édition » — même emplacement que l'aide de
@@ -315,13 +381,19 @@ class PipelineGraphEditorWidget(QWidget):
         produirait, vu en capture : un plantage dur, pas juste un pixel mal placé)."""
         return max(0.0, min(1.0, value))
 
-    def _build_timeline_panel(self, run, run_steps) -> None:
+    def _build_timeline_panel(self, run, run_steps, orphan_steps=None) -> None:
         from datetime import datetime
         from ui.step_editor import STEP_META
         from ui.time_display import fmt_datetime
         from .run_status import format_step_duration, parse_attempts
 
-        total_seconds = (run.duration_seconds if run else None) or 1.0
+        # Run encore RUNNING (suivi en direct, lot atelier-suivi-execution) : duration_seconds
+        # vaut None (pas de finished_at) — l'échelle du chronogramme suit alors le temps écoulé
+        # depuis le début plutôt qu'un repli figé à 1 seconde.
+        if run and run.status == "RUNNING" and run.started_at:
+            total_seconds = max(1.0, (datetime.utcnow() - run.started_at).total_seconds())
+        else:
+            total_seconds = (run.duration_seconds if run else None) or 1.0
         rows = []
         for step_row in run_steps:
             if step_row.status not in ("SUCCESS", "FAILED"):
@@ -370,21 +442,39 @@ class PipelineGraphEditorWidget(QWidget):
             })
 
         axis_labels = [format_step_duration(total_seconds * f) for f in (0, 0.25, 0.5, 0.75, 1.0)]
-        status_color = COLORS["danger"] if (run and run.status == "FAILED") else COLORS["success"]
-        status_word = "Échec" if (run and run.status == "FAILED") else "Réussie"
+        if run and run.status == "RUNNING":
+            status_color, status_word = COLORS["signal"], "En cours"
+        elif run and run.status == "FAILED":
+            status_color, status_word = COLORS["danger"], "Échec"
+        else:
+            status_color, status_word = COLORS["success"], "Réussie"
         status_text = f"{status_word} · {fmt_datetime(run.started_at)} · {format_step_duration(total_seconds)}" if run else ""
 
         has_retries = any(r["connectors"] for r in rows)
+        footnote_parts = []
+        if has_retries:
+            footnote_parts.append("Les traits fins entre les tentatives sont les délais d'attente avant chaque réessai.")
+        if orphan_steps:
+            # Étape supprimée depuis cette exécution (lot atelier-suivi-execution, voir
+            # _refresh_run_view) — ne peut survenir que sans photo figée (run antérieur à ce lot).
+            names = ", ".join(r.step_label or r.step_key for r in orphan_steps)
+            plural = "s" if len(orphan_steps) > 1 else ""
+            footnote_parts.append(f"Étape{plural} supprimée{plural} depuis cette exécution : {names}.")
         self.timeline_panel.set_data(
             status_color=status_color, status_text=status_text,
             time_axis_labels=axis_labels, rows=rows,
             journal_text=(run.log_text if run else "") or "",
-            footnote=("Les traits fins entre les tentatives sont les délais d'attente avant chaque réessai."
-                      if has_retries else None),
+            footnote=" ".join(footnote_parts) or None,
         )
 
 
     def _poll_executing_step(self):
+        # Vue d'un run (lot atelier-suivi-execution) : self._run_id n'est non None que dans ce
+        # mode, jamais en édition normale — ce tique relit pipeline_run_steps plutôt que de
+        # surligner la seule étape courante (voir _poll_run_view).
+        if self._run_id is not None:
+            self._poll_run_view()
+            return
         if not self._pipeline:
             return
         from database import db_manager as db
@@ -553,41 +643,71 @@ class PipelineGraphEditorWidget(QWidget):
 
     # ── Chargement ────────────────────────────
 
-    def _load_graph(self):
+    def _load_graph(self, steps_override: list[dict] | None = None,
+                     edges_override: list[dict] | None = None):
+        """steps_override/edges_override : photo figée d'un run (lot atelier-suivi-execution,
+        `PipelineRun.graph_snapshot_json` décodé) utilisée à la place d'une lecture de
+        db.get_steps()/get_edges() — voir __init__. None (par défaut, cas de très loin le plus
+        courant) : comportement inchangé, lit le graphe vivant du pipeline, zones comprises (une
+        photo figée n'en garde pas, purement cosmétique, voir note d'impact)."""
         if not self._pipeline:
             return
         from database import db_manager as db
         import json
 
-        steps = db.get_steps(self._pipeline.id)
-        edges = db.get_edges(self._pipeline.id)
+        if steps_override is not None:
+            steps_data = [
+                {
+                    "step_type":        s["step_type"],
+                    "label":            s.get("step_label") or "",
+                    "config":           s["config"],
+                    "retry_count":      s.get("retry_count") or 0,
+                    "retry_interval_s": s.get("retry_interval_s") or 5,
+                    "run_always":       bool(s.get("run_always")),
+                    "timeout_s":        s.get("timeout_s") or 0,
+                }
+                for s in steps_override
+            ]
+            # Aucune position capturée dans la photo figée (voir note d'impact) : toujours la
+            # disposition automatique en grille, jamais les coordonnées du graphe vivant.
+            positions = [None] * len(steps_data)
+            edges_data = [
+                (e["from_step_key"], e["from_port"], e["to_step_key"]) for e in (edges_override or [])
+            ]
+        else:
+            rows = db.get_steps(self._pipeline.id)
+            steps_data = [
+                {
+                    "step_type":   str(s.step_type).replace("StepType.", ""),
+                    "label":       s.label or "",
+                    "config":      json.loads(s.config_json or "{}"),
+                    "retry_count": s.retry_count or 0,
+                    "retry_interval_s": s.retry_interval_s or 5,
+                    "run_always":  bool(s.run_always),
+                    "timeout_s":   s.timeout_s or 0,
+                }
+                for s in rows
+            ]
+            all_at_origin = all(s.pos_x == 0 and s.pos_y == 0 for s in rows) if rows else True
+            positions = [None if all_at_origin else (s.pos_x, s.pos_y) for s in rows]
+            edges_data = [(e.from_step_key, e.from_port, e.to_step_key) for e in db.get_edges(self._pipeline.id)]
 
-        all_at_origin = all(s.pos_x == 0 and s.pos_y == 0 for s in steps) if steps else True
-
-        for i, s in enumerate(steps):
-            step = {
-                "step_type":   str(s.step_type).replace("StepType.", ""),
-                "label":       s.label or "",
-                "config":      json.loads(s.config_json or "{}"),
-                "retry_count": s.retry_count or 0,
-                "retry_interval_s": s.retry_interval_s or 5,
-                "run_always":  bool(s.run_always),
-                "timeout_s":   s.timeout_s or 0,
-            }
-            if all_at_origin:
+        for i, (step, pos_xy) in enumerate(zip(steps_data, positions)):
+            if pos_xy is None:
                 col, row = divmod(i, _ROWS_PER_COLUMN)
                 pos = QPointF(_START_X + col * _NODE_SPACING_X, _START_Y + row * _ROW_HEIGHT)
             else:
-                pos = QPointF(s.pos_x, s.pos_y)
+                pos = QPointF(*pos_xy)
             node = self._scene.add_node(step, pos)
             if node is not None:   # add_node() renvoie None si _step_key manque (jamais censé
                 node.set_profile_names(self._profile_names)   # arriver sur un pipeline sauvegardé)
 
-        for e in edges:
-            self._scene.add_edge(e.from_step_key, e.from_port, e.to_step_key)
+        for from_key, from_port, to_key in edges_data:
+            self._scene.add_edge(from_key, from_port, to_key)
 
-        for z in db.get_zones(self._pipeline.id):
-            self._scene.add_zone(z.name, QPointF(z.pos_x, z.pos_y), z.width, z.height)
+        if steps_override is None:
+            for z in db.get_zones(self._pipeline.id):
+                self._scene.add_zone(z.name, QPointF(z.pos_x, z.pos_y), z.width, z.height)
 
     # ── Ajout / édition / suppression ─────────
 
