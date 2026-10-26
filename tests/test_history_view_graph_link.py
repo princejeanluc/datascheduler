@@ -1,11 +1,12 @@
 """
 DataScheduler — tests/test_history_view_graph_link.py
-Chantier UX éditeur, Lot 1 (B1b) : bouton "Voir dans le graphe" sur une ligne d'historique en
-échec — émet open_atelier_requested (chantier Atelier Pipelines) pour que MainWindow ouvre
-l'Atelier avec le nœud fautif surligné. Visible seulement quand
-run.status == "FAILED" ET run.failed_step_key est renseigné (pas status seul — certains échecs
-n'ont jamais traversé la boucle d'étapes, voir core/pipeline.py, et n'ont donc jamais de
-failed_step_key, y compris toute ligne antérieure à la migration de cette colonne).
+Chantier UX éditeur, Lot 1 (B1b) : bouton "Voir dans le graphe" sur une ligne d'historique — émet
+open_atelier_run_requested pour que MainWindow ouvre l'Atelier sur la vue de ce run.
+
+Lot atelier-suivi-execution : visible pour TOUT run, quel que soit son statut — pas seulement
+FAILED+failed_step_key comme à l'origine (décision validée : suivre une exécution, succès compris,
+pas seulement diagnostiquer un échec). run.failed_step_key, souvent None hors échec, est transmis
+tel quel ; _apply_run_view() ne surligne alors simplement aucun nœud en particulier.
 """
 
 import os
@@ -42,7 +43,9 @@ def _row_of(view, run_id):
     return view._run_ids.index(run_id)
 
 
-def test_graph_link_hidden_for_a_successful_run(qapp, test_db):
+def test_graph_link_visible_for_a_successful_run(qapp, test_db):
+    """Lot atelier-suivi-execution : suivre une exécution ne se limite plus au diagnostic d'un
+    échec — un run réussi doit pouvoir s'ouvrir dans le graphe comme n'importe quel autre."""
     from ui.main_window.history_view import HistoryView
 
     pipeline = db.create_pipeline(name="hist-graph-link-success")
@@ -51,12 +54,13 @@ def test_graph_link_hidden_for_a_successful_run(qapp, test_db):
 
     view = HistoryView()
 
-    assert not _has_graph_link_button(view, _row_of(view, run.id))
+    assert _has_graph_link_button(view, _row_of(view, run.id))
 
 
-def test_graph_link_hidden_for_a_failed_run_without_step_key(qapp, test_db):
+def test_graph_link_visible_for_a_failed_run_without_step_key(qapp, test_db):
     """Échec survenu hors de la boucle d'étapes (pipeline introuvable, plafond de concurrence,
-    exception générique) — pas de nœud à montrer, le bouton ne doit pas apparaître."""
+    exception générique) — pas de nœud particulier à surligner, mais le bouton reste disponible
+    (le graphe annoté par les étapes réellement exécutées, s'il y en a, reste utile)."""
     from ui.main_window.history_view import HistoryView
 
     pipeline = db.create_pipeline(name="hist-graph-link-no-key")
@@ -65,7 +69,7 @@ def test_graph_link_hidden_for_a_failed_run_without_step_key(qapp, test_db):
 
     view = HistoryView()
 
-    assert not _has_graph_link_button(view, _row_of(view, run.id))
+    assert _has_graph_link_button(view, _row_of(view, run.id))
 
 
 def test_graph_link_visible_for_a_failed_run_with_step_key(qapp, test_db):
@@ -107,6 +111,24 @@ def test_open_graph_emits_open_atelier_run_requested_with_pipeline_run_and_highl
     view._open_graph(_row_of(view, run.id))
 
     assert captured == [(pipeline.id, run.id, "fails")]
+
+
+def test_open_graph_on_a_successful_run_emits_with_no_step_key(qapp, test_db):
+    """Lot atelier-suivi-execution : run.failed_step_key (None pour un succès) est transmis tel
+    quel — _apply_run_view() n'a simplement aucun nœud particulier à surligner dans ce cas."""
+    from ui.main_window.history_view import HistoryView
+
+    pipeline = db.create_pipeline(name="hist-graph-link-open-success")
+    run = db.create_run(pipeline.id)
+    db.finish_run(run.id, status="SUCCESS")
+
+    view = HistoryView()
+    captured = []
+    view.open_atelier_run_requested.connect(lambda *args: captured.append(args))
+
+    view._open_graph(_row_of(view, run.id))
+
+    assert captured == [(pipeline.id, run.id, None)]
 
 
 def test_open_graph_out_of_range_row_does_not_raise(qapp, test_db):

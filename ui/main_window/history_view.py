@@ -680,12 +680,13 @@ class HistoryView(QWidget):
                 "Reprendre depuis l'échec", outline=COLORS["accent"], text_color=COLORS["accent_pale"])
             btn_resume.clicked.connect(lambda: self._on_resume_from_panel(run.id))
             footer.addWidget(btn_resume)
-        if st == "FAILED" and run.failed_step_key:
-            btn_graph = self._panel_action_button("Voir dans le graphe")
-            btn_graph.clicked.connect(
-                lambda: self._on_open_graph_from_panel(pipeline.id, run.id, run.failed_step_key)
-            )
-            footer.addWidget(btn_graph)
+        # Lot atelier-suivi-execution : disponible pour tout run, pas seulement l'échec — voir le
+        # commentaire équivalent sur le bouton de ligne ci-dessous (_build_table, colonne 6).
+        btn_graph = self._panel_action_button("Voir dans le graphe")
+        btn_graph.clicked.connect(
+            lambda: self._on_open_graph_from_panel(pipeline.id, run.id, run.failed_step_key)
+        )
+        footer.addWidget(btn_graph)
         footer.addStretch()
         layout.addLayout(footer)
 
@@ -814,17 +815,17 @@ class HistoryView(QWidget):
                 btn_resume.clicked.connect(lambda _, i=r_idx: self._on_resume(i))
                 hl.addWidget(btn_resume)
 
-            # "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) — pas seulement st ==
-            # "FAILED" : certains échecs n'ont jamais traversé la boucle d'étapes (pipeline
-            # introuvable, plafond de concurrence, reprise invalide, exception générique) et
-            # n'ont donc jamais de failed_step_key, y compris toute ligne antérieure à cette
-            # colonne — le bouton ne doit apparaître que quand il y a réellement un nœud à
-            # montrer.
-            if st == "FAILED" and run.failed_step_key:
-                btn_graph = _action_btn("fa5s.project-diagram", object_name="secondary",
-                                        tooltip="Voir dans le graphe", size=(26, 26))
-                btn_graph.clicked.connect(lambda _, i=r_idx: self._open_graph(i))
-                hl.addWidget(btn_graph)
+            # "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1 ; lot atelier-suivi-execution :
+            # plus seulement pour un échec — la vue d'un run (graph_editor_widget.py::
+            # _apply_run_view) montre l'état réel de chaque étape quel que soit le statut du run,
+            # réussi compris). run.failed_step_key reste None pour un run réussi (ou un échec
+            # survenu hors de la boucle d'étapes — pipeline introuvable, plafond de concurrence,
+            # reprise invalide) : accepté par MainWindow.open_atelier_run, aucun nœud surligné
+            # dans ce cas, juste le graphe annoté.
+            btn_graph = _action_btn("fa5s.project-diagram", object_name="secondary",
+                                    tooltip="Voir dans le graphe", size=(26, 26))
+            btn_graph.clicked.connect(lambda _, i=r_idx: self._open_graph(i))
+            hl.addWidget(btn_graph)
 
             self.table.setCellWidget(r_idx, 6, w)
 
@@ -867,13 +868,17 @@ class HistoryView(QWidget):
         Chantier Atelier Pipelines : ouvre désormais l'Atelier plutôt qu'un dialogue modal —
         changement de comportement assumé, pas une régression cachée (voir CHANGELOG) : quitter
         l'Atelier ramène à l'écran "Pipelines" (gestion rapide), pas à l'Historique, puisque
-        l'Atelier n'a qu'une seule sortie (back_requested → MainWindow._navigate(1))."""
+        l'Atelier n'a qu'une seule sortie (back_requested → MainWindow._navigate(1)).
+
+        Lot atelier-suivi-execution : disponible pour tout run, pas seulement FAILED — voir le
+        commentaire au-dessus du bouton. run.failed_step_key (souvent None hors échec) est
+        transmis tel quel."""
         if row >= len(self._run_ids) or self._run_ids[row] is None:
             return
         from database import db_manager as db
 
         run = db.get_run(self._run_ids[row])
-        if not run or not run.failed_step_key:
+        if not run:
             return
         pipeline = db.get_pipeline(run.pipeline_id)
         if not pipeline:
