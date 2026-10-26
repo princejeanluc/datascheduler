@@ -11,7 +11,7 @@ l'ancien QDialog, ce widget peut rester en vie indéfiniment (vue résidente dan
 QStackedWidget), donc il n'y a plus de point de destruction Qt garanti pour arrêter le QTimer.
 """
 
-from PySide6.QtCore import QPointF, QSize, QTimer, Signal
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QInputDialog,
@@ -37,7 +37,20 @@ from .help_popup import GraphHelpDialog
 from .node_search_overlay import NodeSearchOverlay
 from .step_library_panel import StepLibraryPanel
 from .step_preview_panel import StepPreviewPanel
+from .run_failure_panel import RunFailurePanel
+from .run_timeline_panel import RunTimelinePanel
 from ui.help.content import get_topic
+
+# C9 (Atelier-echec) : type -> (clé config du profil, fonction db_manager pour le résoudre) —
+# seulement les types à un seul champ de profil simple (voir note d'impact, "PISTE" bornée).
+_PISTE_PROFILE_LOOKUP = {
+    "FTP_UPLOAD":    ("ftp_profile_id", "get_ftp_profile"),
+    "FTP_DOWNLOAD":  ("ftp_profile_id", "get_ftp_profile"),
+    "EMAIL_NOTIFY":  ("smtp_profile_id", "get_smtp_profile"),
+    "SPARK_SQL":     ("edge_profile_id", "get_ssh_profile"),
+    "SQOOP_EXPORT":  ("edge_profile_id", "get_ssh_profile"),
+    "SQOOP_IMPORT":  ("edge_profile_id", "get_ssh_profile"),
+}
 
 _NODE_SPACING_X = 240
 _ROW_HEIGHT = 120
@@ -67,14 +80,25 @@ class PipelineGraphEditorWidget(QWidget):
     # et self.preview_panel. Jamais émis en mode dialogue de compatibilité (le panneau n'existe
     # pas dans ce mode, voir _on_add_step).
     step_library_toggled = Signal(bool)
+    # C9 : « revenir à l'édition » cliqué dans la vue d'un run — l'hôte rouvre le même pipeline
+    # sans run_id (jamais géré ici, ce widget ne sait pas comment se reconstruire lui-même).
+    run_view_exit_requested = Signal()
 
     def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None,
-                 show_settings_shortcut_button: bool = True):
+                 show_settings_shortcut_button: bool = True, run_id: int | None = None):
         super().__init__(parent)
         self._pipeline = pipeline
         self._show_settings_shortcut_button = show_settings_shortcut_button
         self._library_panel: StepLibraryPanel | None = None
         self._preview_panel: StepPreviewPanel | None = None
+        # C9 (Atelier-echec) : vue en lecture seule d'un run passé. _run_steps reste {} tant que
+        # _apply_run_view() n'a rien trouvé (aucune ligne B1 — ancien worker, voir note d'impact)
+        # : le reste du code se comporte alors exactement comme avant ce lot (highlight_step_key
+        # seul, un unique nœud rouge).
+        self._run_id = run_id
+        self._run_steps_by_key: dict[str, object] = {}
+        self._failure_panel = None
+        self._timeline_panel = None
         # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
         # éditeur, Lot 1) — aucun QUndoStack n'existe nulle part dans cette app, annulation à un
         # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
@@ -96,9 +120,15 @@ class PipelineGraphEditorWidget(QWidget):
         self._build_ui()
         self._load_graph()
 
-        if highlight_step_key:
+        applied_run_view = False
+        if run_id is not None:
+            applied_run_view = self._apply_run_view(run_id)
+        if not applied_run_view and highlight_step_key:
             # Lien "Voir dans le graphe" depuis une ligne d'historique en échec (chantier UX
-            # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture.
+            # éditeur, Lot 1, B1) — surlignage ponctuel à l'ouverture. Repli de _apply_run_view()
+            # quand pipeline_run_steps est vide pour ce run (ancien worker qui n'écrit pas
+            # encore cette table — acceptance criterion B1 : Main et Atelier-echec s'affichent
+            # sans erreur ni place vide).
             self._highlight_failed_step(highlight_step_key)
 
     # ── Polling d'exécution (traçage lumineux) ─
@@ -131,6 +161,228 @@ class PipelineGraphEditorWidget(QWidget):
             if e.to_node is node:
                 e.set_failed(True)
         self._view.centerOn(node)
+
+    # ── C9 (Atelier-echec) : vue en lecture seule d'un run passé ──
+
+    def _apply_run_view(self, run_id: int) -> bool:
+        """Retourne False (et ne touche à rien) si pipeline_run_steps est vide pour ce run —
+        l'appelant retombe alors sur l'ancien comportement highlight_step_key (voir __init__)."""
+        from database import db_manager as db
+        from .run_status import (
+            node_status_text, node_card_state, edge_run_state, summarize_run_steps,
+            parse_attempts, what_happened_next,
+        )
+
+        run_steps = db.get_run_steps(run_id)
+        if not run_steps:
+            return False
+
+        self._run_steps_by_key = {r.step_key: r for r in run_steps if r.step_key}
+        steps_by_key = self._run_steps_by_key
+
+        error_incoming_keys = {
+            e.to_node.step_key for e in self._scene.edges if e.from_port == "error"
+        }
+
+        failed_node = None
+        for key, node in self._scene.nodes.items():
+            row = steps_by_key.get(key)
+            via_error = key in error_incoming_keys and row is not None and row.status == "SUCCESS"
+            result = node_status_text(row, via_error)
+            text, color_key = result if result else (None, None)
+            node.set_run_status(text, color_key, node_card_state(row, via_error))
+            node.set_movable(False)
+            if row is not None and row.status == "FAILED":
+                node.set_failed(True)
+                if failed_node is None:
+                    failed_node = node
+
+        for edge in self._scene.edges:
+            from_row = steps_by_key.get(edge.from_node.step_key)
+            to_row = steps_by_key.get(edge.to_node.step_key)
+            edge.set_run_state(edge_run_state(edge.from_port, from_row, to_row))
+            if to_row is not None and to_row.status == "FAILED":
+                edge.set_failed(True)
+
+        self._rail.setEnabled(False)
+
+        run = db.get_run(run_id)
+        failed_step_key = (run.failed_step_key if run else None) or (
+            failed_node.step_key if failed_node else None
+        )
+        target_node = self._scene.nodes.get(failed_step_key) if failed_step_key else None
+        if target_node is None and self._scene.nodes:
+            target_node = next(iter(self._scene.nodes.values()))
+        if target_node is not None:
+            self._view.centerOn(target_node)
+
+        self._build_run_view_label(run)
+        if failed_step_key:
+            self._build_failure_panel(run, failed_step_key, steps_by_key)
+        self._build_timeline_panel(run, run_steps)
+        return True
+
+    def _build_run_view_label(self, run) -> None:
+        """« Vue de l'exécution du … · revenir à l'édition » — même emplacement que l'aide de
+        glisser-déposer en mode édition (A10), jamais les deux en même temps (lecture seule)."""
+        from ui.time_display import fmt_datetime
+
+        drag_hint = getattr(self, "_drag_hint", None)
+        if drag_hint is not None:
+            drag_hint.hide()
+        search_overlay = getattr(self, "_search_overlay", None)
+        if search_overlay is not None:
+            search_overlay.hide()
+
+        when = f"du {fmt_datetime(run.started_at)} " if run else ""
+        text = (
+            f"Vue de l'exécution {when}· "
+            f"<a href='#' style='color:{COLORS['accent_pale']}; text-decoration:none;'>revenir à l'édition</a>"
+        )
+        self._run_view_label = QLabel(text, self._view.viewport())
+        self._run_view_label.setTextFormat(Qt.RichText)
+        self._run_view_label.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;"
+        )
+        self._run_view_label.linkActivated.connect(lambda _: self.run_view_exit_requested.emit())
+        self._run_view_label.move(64, 12)
+        self._run_view_label.show()
+
+    def _resolve_piste(self, step_type: str, config: dict) -> str | None:
+        from database import db_manager as db
+
+        lookup = _PISTE_PROFILE_LOOKUP.get(step_type)
+        if not lookup:
+            return None
+        config_key, getter_name = lookup
+        profile_id = (config or {}).get(config_key)
+        if not profile_id:
+            return None
+        profile = getattr(db, getter_name)(profile_id)
+        if profile is None or profile.last_tested_at is not None:
+            return None
+        return f"La connexion {profile.name} n'a jamais été testée."
+
+    def _build_failure_panel(self, run, failed_step_key: str, steps_by_key: dict) -> None:
+        from datetime import datetime
+        from ui.step_editor import STEP_META
+        from ui.time_display import fmt_time
+        from .run_status import parse_attempts, what_happened_next
+
+        node = self._scene.nodes.get(failed_step_key)
+        failed_row = steps_by_key.get(failed_step_key)
+        if node is None or failed_row is None:
+            return
+        meta = STEP_META.get(node.step.get("step_type", ""), {"label": "", "category": ""})
+        label = node.step.get("label") or meta.get("label", "")
+
+        attempts = [
+            (fmt_time(datetime.fromisoformat(a["started_at"])), "échouée")
+            for a in parse_attempts(failed_row) if a.get("started_at")
+        ]
+
+        successors = [
+            (e.to_node.step_key, e.from_port)
+            for e in self._scene.edges if e.from_node.step_key == failed_step_key
+        ]
+        what_happened = what_happened_next(failed_step_key, successors, steps_by_key)
+
+        piste = self._resolve_piste(node.step.get("step_type", ""), node.step.get("config") or {})
+
+        resume_hint = None
+        if run and run.resumable_state_json:
+            success_count = sum(1 for r in steps_by_key.values() if r.status == "SUCCESS")
+            resume_hint = (
+                f"Rejoue {label} puis la suite. Les {success_count} étapes réussies ne sont pas "
+                f"rejouées : leurs fichiers sont réutilisés."
+            )
+
+        self.failure_panel.set_data(
+            eyebrow=f"ÉCHEC · {meta.get('category', '').upper()}",
+            title=label,
+            error_text=(failed_row.error_message or run.error_message or "").strip() or "Erreur inconnue.",
+            attempts=attempts,
+            what_happened=what_happened,
+            piste=piste,
+            resume_hint=resume_hint,
+        )
+
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        """Les horodatages viennent de deux processus potentiellement différents (application/
+        worker en arrière-plan) — un écart d'horloge ne doit jamais produire une position hors
+        [0, 1] (un `int()` Qt déborde silencieusement bien au-delà de ce qu'un délai réel
+        produirait, vu en capture : un plantage dur, pas juste un pixel mal placé)."""
+        return max(0.0, min(1.0, value))
+
+    def _build_timeline_panel(self, run, run_steps) -> None:
+        from datetime import datetime
+        from ui.step_editor import STEP_META
+        from ui.time_display import fmt_datetime
+        from .run_status import format_step_duration, parse_attempts
+
+        total_seconds = (run.duration_seconds if run else None) or 1.0
+        rows = []
+        for step_row in run_steps:
+            if step_row.status not in ("SUCCESS", "FAILED"):
+                continue
+            node = self._scene.nodes.get(step_row.step_key)
+            if node is None or node.is_routing_node:
+                continue
+            meta = STEP_META.get(node.step.get("step_type", ""), {"color": COLORS["text_dim"]})
+            label = node.step.get("label") or meta.get("label", "")
+
+            attempts = parse_attempts(step_row)
+            bars = []
+            connectors = []
+            if attempts and step_row.status == "FAILED" and run and run.started_at:
+                starts = [datetime.fromisoformat(a["started_at"]) for a in attempts if a.get("started_at")]
+                ends = [datetime.fromisoformat(a["finished_at"]) for a in attempts if a.get("finished_at")]
+                for s, e in zip(starts, ends):
+                    start_pct = self._clamp01((s - run.started_at).total_seconds() / total_seconds)
+                    width_pct = max(0.004, self._clamp01((e - s).total_seconds() / total_seconds))
+                    bars.append((start_pct, width_pct, COLORS["danger"]))
+                for i in range(len(ends) - 1):
+                    gap_start = self._clamp01((ends[i] - run.started_at).total_seconds() / total_seconds)
+                    gap_end = self._clamp01((starts[i + 1] - run.started_at).total_seconds() / total_seconds)
+                    connectors.append((gap_start, max(0.0, gap_end - gap_start)))
+                duration_text = f"{len(attempts)} × refus"
+                duration_color = COLORS["danger"]
+                label_color = COLORS["danger"]
+            elif run and run.started_at and step_row.started_at and step_row.finished_at:
+                start_pct = self._clamp01((step_row.started_at - run.started_at).total_seconds() / total_seconds)
+                width_pct = max(0.004, self._clamp01(
+                    (step_row.finished_at - step_row.started_at).total_seconds() / total_seconds
+                ))
+                via_error = any(
+                    e.from_port == "error" and e.to_node is node for e in self._scene.edges
+                )
+                bars.append((start_pct, width_pct, COLORS["warning"] if via_error else meta["color"]))
+                duration_text = format_step_duration((step_row.finished_at - step_row.started_at).total_seconds())
+                duration_color = COLORS["text_dim"]
+                label_color = COLORS["warning"] if via_error else COLORS["text_main"]
+            else:
+                continue
+
+            rows.append({
+                "label": label, "label_color": label_color, "bars": bars, "connectors": connectors,
+                "duration_text": duration_text, "duration_color": duration_color,
+            })
+
+        axis_labels = [format_step_duration(total_seconds * f) for f in (0, 0.25, 0.5, 0.75, 1.0)]
+        status_color = COLORS["danger"] if (run and run.status == "FAILED") else COLORS["success"]
+        status_word = "Échec" if (run and run.status == "FAILED") else "Réussie"
+        status_text = f"{status_word} · {fmt_datetime(run.started_at)} · {format_step_duration(total_seconds)}" if run else ""
+
+        has_retries = any(r["connectors"] for r in rows)
+        self.timeline_panel.set_data(
+            status_color=status_color, status_text=status_text,
+            time_axis_labels=axis_labels, rows=rows,
+            journal_text=(run.log_text if run else "") or "",
+            footnote=("Les traits fins entre les tentatives sont les délais d'attente avant chaque réessai."
+                      if has_retries else None),
+        )
+
 
     def _poll_executing_step(self):
         if not self._pipeline:
@@ -549,6 +801,22 @@ class PipelineGraphEditorWidget(QWidget):
             self._preview_panel = StepPreviewPanel()
             self._preview_panel.insert_requested.connect(self._on_library_insert_requested)
         return self._preview_panel
+
+    @property
+    def failure_panel(self) -> RunFailurePanel:
+        """C9 : même principe que preview_panel — l'hôte le reparente dans son propre conteneur
+        de droite quand une vue d'exécution est ouverte."""
+        if self._failure_panel is None:
+            self._failure_panel = RunFailurePanel()
+        return self._failure_panel
+
+    @property
+    def timeline_panel(self) -> RunTimelinePanel:
+        """C9 : même principe — l'hôte le place sous le canevas (compartiment bas) quand une vue
+        d'exécution est ouverte."""
+        if self._timeline_panel is None:
+            self._timeline_panel = RunTimelinePanel()
+        return self._timeline_panel
 
     def open_step_library(self):
         if self._library_panel is None:

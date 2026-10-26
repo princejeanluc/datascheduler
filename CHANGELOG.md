@@ -29,6 +29,26 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.57.0] - 2026-10-26
+
+### Ajouté
+- **Refonte, A9 + C9 (Atelier-echec)** — vue en lecture seule d'un run passé dans l'Atelier,
+  atteinte depuis « Voir dans le graphe » (Historique) : canevas montrant l'état réel de chaque
+  nœud (réussi/échoué/non exécuté/atteint via le port d'erreur) et de chaque liaison (empruntée,
+  non empruntée, chemin d'erreur déclenché), bandeau résumé, en-tête basculé (badge + « Relancer
+  tout »/« Reprendre depuis l'échec » quand le run est reprenable, sinon les boutons habituels),
+  panneau de diagnostic (message d'erreur, tentatives horodatées, ce qui s'est passé ensuite,
+  piste de connexion jamais testée pour les types FTP/SMTP/SSH, carte de reprise) et compartiment
+  bas Chronogramme/Journal. Lecture seule de `pipeline_run_steps` (B1) — aucun changement de
+  schéma. Un run sans lignes d'étape (ancien worker) retombe sur l'ancien comportement à un seul
+  nœud surligné, sans erreur.
+
+### Corrigé
+- Un écart important entre l'horodatage d'une étape et le début d'un run (horloges
+  désynchronisées entre l'application et le worker en arrière-plan) pouvait faire planter
+  l'Atelier en vue d'un run (dépassement d'entier dans le rendu du chronogramme) — positions
+  désormais bornées à [0, 1].
+
 ## [0.56.0] - 2026-10-26
 
 ### Ajouté

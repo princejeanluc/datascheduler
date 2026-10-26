@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from ui.styles import COLORS
-from .widgets import _icon, HEADER_H, _status_str
+from .widgets import _icon, HEADER_H, _status_str, _make_status_badge
 from .atelier_sidebar import AtelierSidebar
 from .pipeline_actions import run_pipeline_now
 
@@ -50,6 +50,7 @@ class AtelierPipelinesView(QWidget):
         super().__init__()
         self._pipeline_id: int | None = None
         self._is_new_pipeline = False
+        self._run_id: int | None = None
         self._canvas = None
         self._settings_panel = None
         self._build_ui()
@@ -102,23 +103,49 @@ class AtelierPipelinesView(QWidget):
             f"background: transparent; border: none;"
         )
         hl.addWidget(self._title_lbl)
+
+        # C9 : badge « Échec à HH:MM · <étape> » — inséré/retiré par _apply_run_header(), à cet
+        # index fixe (juste après le titre) ; absent en édition normale. self._header_layout/
+        # self._run_badge gardés pour ça, _make_status_badge réutilise le style déjà existant de
+        # PipelinesView/Historique (#badge_failed) plutôt qu'en inventer un nouveau.
+        self._header_layout = hl
+        self._run_badge = None
         hl.addStretch()
 
         # A7 : réutilise PipelineDryRunDialog (modal), orphelin depuis que PipelinesView valide
         # dans un panneau latéral — la fiche Atelier demande explicitement ce dialogue ici.
-        btn_validate = QPushButton("Valider à blanc")
-        btn_validate.setObjectName("secondary")
-        btn_validate.setFixedHeight(32)
-        btn_validate.clicked.connect(self._on_validate_pipeline)
-        hl.addWidget(btn_validate)
+        self._btn_validate = QPushButton("Valider à blanc")
+        self._btn_validate.setObjectName("secondary")
+        self._btn_validate.setFixedHeight(32)
+        self._btn_validate.clicked.connect(self._on_validate_pipeline)
+        hl.addWidget(self._btn_validate)
 
         # A8 : même chemin que la liste (pipeline_actions.run_pipeline_now).
-        btn_run = QPushButton("  Exécuter")
-        btn_run.setFixedHeight(32)
-        btn_run.setIcon(_icon("fa5s.play", "#000000"))
-        btn_run.setIconSize(QSize(11, 11))
-        btn_run.clicked.connect(self._on_run_pipeline)
-        hl.addWidget(btn_run)
+        self._btn_run = QPushButton("  Exécuter")
+        self._btn_run.setFixedHeight(32)
+        self._btn_run.setIcon(_icon("fa5s.play", "#000000"))
+        self._btn_run.setIconSize(QSize(11, 11))
+        self._btn_run.clicked.connect(self._on_run_pipeline)
+        hl.addWidget(self._btn_run)
+
+        # A9 : « Relancer tout »/« Reprendre depuis l'échec » — seulement en vue d'un run
+        # reprenable (_apply_run_header() bascule la visibilité avec les deux boutons
+        # ci-dessus ; sans run reprenable, Valider à blanc/Exécuter restent affichés même en
+        # vue d'un run, le pipeline reste utilisable normalement).
+        self._btn_relancer_tout = QPushButton("Relancer tout")
+        self._btn_relancer_tout.setObjectName("secondary")
+        self._btn_relancer_tout.setFixedHeight(32)
+        self._btn_relancer_tout.setVisible(False)
+        self._btn_relancer_tout.clicked.connect(self._on_run_pipeline)
+        hl.addWidget(self._btn_relancer_tout)
+
+        self._btn_reprendre = QPushButton("  Reprendre depuis l'échec")
+        self._btn_reprendre.setFixedHeight(32)
+        self._btn_reprendre.setIcon(_icon("fa5s.redo", "#000000"))
+        self._btn_reprendre.setIconSize(QSize(11, 11))
+        self._btn_reprendre.setVisible(False)
+        self._btn_reprendre.clicked.connect(self._on_resume_pipeline)
+        hl.addWidget(self._btn_reprendre)
 
         root.addWidget(header)
 
@@ -170,7 +197,7 @@ class AtelierPipelinesView(QWidget):
     # ── Ouverture d'un pipeline ────────────────
 
     def open_pipeline(self, pipeline_id: int, highlight_step_key: str | None = None,
-                       is_new_pipeline: bool = False):
+                       is_new_pipeline: bool = False, run_id: int | None = None):
         """`is_new_pipeline` (chantier Atelier Pipelines) : True uniquement depuis le flux
         "+ Nouveau pipeline" de PipelinesView — reproduit à l'identique les deux comportements de
         l'ancien PipelineGraphEditorDialog().exec() de ce flux précis : (1) planifie
@@ -181,7 +208,8 @@ class AtelierPipelinesView(QWidget):
         _on_edit_pipeline_settings/HistoryView._open_graph) ni pour le flux "modèle de
         démarrage" (_on_start_from_template, qui planifie déjà de façon synchrone à la création,
         avant même d'ouvrir l'Atelier — le pipeline a déjà de vraies étapes, ce n'est jamais une
-        coquille à protéger)."""
+        coquille à protéger).
+        `run_id` (C9) : vue en lecture seule d'un run passé — voir MainWindow.open_atelier_run()."""
         from database import db_manager as db
         from ui.graph_editor import PipelineGraphEditorWidget
 
@@ -196,7 +224,9 @@ class AtelierPipelinesView(QWidget):
         if not pipeline:
             self._pipeline_id = None
             self._is_new_pipeline = False
+            self._run_id = None
             self._title_lbl.setText("")
+            self._apply_run_header(None)
             placeholder = QLabel("Pipeline introuvable — retournez à la liste.")
             placeholder.setAlignment(Qt.AlignCenter)
             placeholder.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 13px;")
@@ -205,35 +235,44 @@ class AtelierPipelinesView(QWidget):
 
         self._pipeline_id = pipeline_id
         self._is_new_pipeline = is_new_pipeline
+        self._run_id = run_id
         self._title_lbl.setText(pipeline.name)
 
         self._canvas = PipelineGraphEditorWidget(
             parent=self._canvas_container, pipeline=pipeline,
             highlight_step_key=highlight_step_key, show_settings_shortcut_button=False,
+            run_id=run_id,
         )
+        self._canvas.run_view_exit_requested.connect(lambda: self.open_pipeline(self._pipeline_id))
         self._canvas_container_layout.addWidget(self._canvas, stretch=1)
 
         if is_new_pipeline:
             self._canvas.saved.connect(self._on_new_pipeline_graph_first_saved)
 
-        graph_btn_row = QHBoxLayout()
-        graph_btn_row.setContentsMargins(16, 8, 16, 10)
-        graph_btn_row.addStretch()
-        btn_save_graph = QPushButton("Enregistrer le graphe")
-        btn_save_graph.setFixedHeight(34); btn_save_graph.setMinimumWidth(150)
-        btn_save_graph.clicked.connect(self._canvas.save)
-        graph_btn_row.addWidget(btn_save_graph)
-        self._canvas_container_layout.addLayout(graph_btn_row)
+        if run_id is None:
+            # C9 : un run passé ne se modifie pas — ni bouton Enregistrer, ni compartiment bas
+            # (celui-ci réapparaît, rempli par le run consulté, uniquement via run_id).
+            graph_btn_row = QHBoxLayout()
+            graph_btn_row.setContentsMargins(16, 8, 16, 10)
+            graph_btn_row.addStretch()
+            btn_save_graph = QPushButton("Enregistrer le graphe")
+            btn_save_graph.setFixedHeight(34); btn_save_graph.setMinimumWidth(150)
+            btn_save_graph.clicked.connect(self._canvas.save)
+            graph_btn_row.addWidget(btn_save_graph)
+            self._canvas_container_layout.addLayout(graph_btn_row)
+        else:
+            self._canvas_container_layout.addWidget(self._canvas.timeline_panel)
 
-        if not highlight_step_key:
+        if not highlight_step_key and run_id is None:
             self._canvas.start_polling()
 
         from ui.step_editor.pipeline_settings_panel import PipelineSettingsPanel
 
-        # C7 : tout le contenu "normal" (paramètres + bouton Enregistrer) vit dans un seul
-        # conteneur, pour pouvoir le masquer d'un coup pendant que le panneau "Ajouter" est
-        # ouvert (canvas.preview_panel prend sa place dans ce même _settings_container_layout) —
-        # jamais détruit entre les deux, juste masqué (aucune perte de saisie en cours).
+        # C7/C9 : tout le contenu "normal" (paramètres + bouton Enregistrer) vit dans un seul
+        # conteneur, pour pouvoir le masquer d'un coup pendant que le panneau "Ajouter" ou le
+        # diagnostic d'un run est affiché (canvas.preview_panel/canvas.failure_panel prennent sa
+        # place dans ce même _settings_container_layout) — jamais détruit entre les deux, juste
+        # masqué (aucune perte de saisie en cours).
         self._settings_normal_container = QWidget()
         normal_layout = QVBoxLayout(self._settings_normal_container)
         normal_layout.setContentsMargins(0, 0, 0, 0)
@@ -262,8 +301,15 @@ class AtelierPipelinesView(QWidget):
 
         self._settings_container_layout.addWidget(self._settings_normal_container, stretch=1)
         self._settings_container_layout.addWidget(self._canvas.preview_panel, stretch=1)
+        self._settings_container_layout.addWidget(self._canvas.failure_panel, stretch=1)
         self._canvas.preview_panel.setVisible(False)
+        self._canvas.failure_panel.setVisible(False)
         self._canvas.step_library_toggled.connect(self._on_step_library_toggled)
+
+        self._apply_run_header(run_id)
+        if run_id is not None:
+            self._settings_normal_container.setVisible(False)
+            self._canvas.failure_panel.setVisible(True)
 
         self._sidebar.select_pipeline(pipeline_id)
 
@@ -272,6 +318,56 @@ class AtelierPipelinesView(QWidget):
         appelé en mode dialogue de compatibilité (step_library_toggled n'y est jamais émis)."""
         self._settings_normal_container.setVisible(not open_)
         self._canvas.preview_panel.setVisible(open_)
+
+    def _apply_run_header(self, run_id: int | None):
+        """A9 : bascule l'en-tête entre édition normale (Valider à blanc/Exécuter) et vue d'un
+        run (badge + Relancer tout/Reprendre depuis l'échec — seulement si CE run précis est le
+        run reprenable du pipeline ; sinon l'en-tête retombe sur Valider à blanc/Exécuter même en
+        vue d'un run, le pipeline restant utilisable normalement — acceptance criterion A9)."""
+        if self._run_badge is not None:
+            self._header_layout.removeWidget(self._run_badge)
+            self._run_badge.deleteLater()
+            self._run_badge = None
+
+        if run_id is None:
+            self._btn_relancer_tout.setVisible(False)
+            self._btn_reprendre.setVisible(False)
+            self._btn_validate.setVisible(True)
+            self._btn_run.setVisible(True)
+            return
+
+        from database import db_manager as db
+        from ui.time_display import fmt_time
+
+        run = db.get_run(run_id)
+        last_resumable = db.get_last_resumable_run(self._pipeline_id)
+        resumable = last_resumable is not None and last_resumable.id == run_id
+
+        self._btn_relancer_tout.setVisible(resumable)
+        self._btn_reprendre.setVisible(resumable)
+        self._btn_validate.setVisible(not resumable)
+        self._btn_run.setVisible(not resumable)
+
+        if run is not None:
+            is_failure = run.status == "FAILED"
+            failed_row = (
+                self._canvas._run_steps_by_key.get(run.failed_step_key)
+                if run.failed_step_key else None
+            )
+            step_label = failed_row.step_label if failed_row else None
+            text = f"{'Échec' if is_failure else 'Terminé'} à {fmt_time(run.finished_at or run.started_at, '%H:%M')}"
+            if step_label:
+                text += f" · {step_label}"
+            self._run_badge = _make_status_badge(text, "badge_failed" if is_failure else "badge_success")
+            self._header_layout.insertWidget(3, self._run_badge)
+
+    def _on_resume_pipeline(self):
+        if self._pipeline_id is None or self._run_id is None:
+            return
+        from ui.dialogs import RunProgressDialog
+        RunProgressDialog(
+            self._pipeline_id, self._title_lbl.text(), self, resume_from_run_id=self._run_id,
+        ).exec()
 
     def _on_new_pipeline_graph_first_saved(self):
         """(Re)planifie une seule fois le premier enregistrement réussi d'un pipeline neuf —

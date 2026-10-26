@@ -188,6 +188,10 @@ class HistoryView(QWidget):
     # False (un lien "Voir dans le graphe" depuis l'historique n'édite jamais une création) et
     # highlight_step_key est toujours renseigné (voir _open_graph).
     open_atelier_requested = Signal(int, object, bool)
+    # C9 (Atelier-echec) : vue en lecture seule d'un run passé — additif, jamais une modification
+    # du signal ci-dessus (PipelinesView/Dashboard l'utilisent aussi, sans run à transmettre).
+    # (pipeline_id, run_id, failed_step_key).
+    open_atelier_run_requested = Signal(int, int, object)
 
     def __init__(self):
         super().__init__()
@@ -678,7 +682,9 @@ class HistoryView(QWidget):
             footer.addWidget(btn_resume)
         if st == "FAILED" and run.failed_step_key:
             btn_graph = self._panel_action_button("Voir dans le graphe")
-            btn_graph.clicked.connect(lambda: self._on_open_graph_from_panel(pipeline.id, run.failed_step_key))
+            btn_graph.clicked.connect(
+                lambda: self._on_open_graph_from_panel(pipeline.id, run.id, run.failed_step_key)
+            )
             footer.addWidget(btn_graph)
         footer.addStretch()
         layout.addLayout(footer)
@@ -718,9 +724,9 @@ class HistoryView(QWidget):
         RunProgressDialog(pipeline.id, pipeline.name, self, resume_from_run_id=run.id).exec()
         self.refresh()
 
-    def _on_open_graph_from_panel(self, pipeline_id: int, failed_step_key: str):
+    def _on_open_graph_from_panel(self, pipeline_id: int, run_id: int, failed_step_key: str):
         self._side_panel.close()
-        self.open_atelier_requested.emit(pipeline_id, failed_step_key, False)
+        self.open_atelier_run_requested.emit(pipeline_id, run_id, failed_step_key)
 
     def refresh(self):
         from datetime import datetime
@@ -872,7 +878,7 @@ class HistoryView(QWidget):
         pipeline = db.get_pipeline(run.pipeline_id)
         if not pipeline:
             return
-        self.open_atelier_requested.emit(pipeline.id, run.failed_step_key, False)
+        self.open_atelier_run_requested.emit(pipeline.id, run.id, run.failed_step_key)
 
     @staticmethod
     def _build_audit_table(events) -> QTableWidget:
