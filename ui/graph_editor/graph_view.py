@@ -9,6 +9,7 @@ from PySide6.QtGui import QPainter, QColor, QPen
 from PySide6.QtWidgets import QGraphicsView
 
 from ui.styles import COLORS
+from .step_library_panel import MIME_TYPE
 
 _GRID_SPACING = 24
 _GRID_DOT_WIDTH = 2.0
@@ -19,6 +20,15 @@ class PipelineGraphView(QGraphicsView):
         super().__init__(scene)
         self.setRenderHint(QPainter.Antialiasing)
         self.setDragMode(QGraphicsView.RubberBandDrag)
+        # C7 : glisser-déposer depuis le panneau "Ajouter" — jamais activé tant que ce panneau
+        # n'existe pas (self._library_panel reste None dans le dialogue de compatibilité, voir
+        # graph_editor_widget.py::_on_add_step), inoffensif à laisser déclaré ici dans tous les cas.
+        self.setAcceptDrops(True)
+        self._drag_hover_edge = None
+        # Référence arrière vers PipelineGraphEditorWidget (posée par lui juste après avoir créé
+        # cette vue) — seul endroit qui sait comment insérer une étape (voir dropEvent), cette vue
+        # ne connaît que la géométrie/le survol.
+        self._owner = None
         # Mini-carte (chantier UX éditeur, Lot 2, A3) et rail d'icônes (chantier chrome de
         # l'éditeur) — enregistrés par le dialogue après construction, jamais créés ici (la vue
         # ne les connaît pas, elle se contente de les notifier des évènements pertinents).
@@ -26,6 +36,7 @@ class PipelineGraphView(QGraphicsView):
         self._rail = None
         self._zoom_widget = None
         self._search_overlay = None
+        self._library_panel = None
         # Pan manuel (chantier identité visuelle) — bouton milieu réservé exclusivement au
         # panoramique, jamais transmis à PipelineGraphScene (qui ne filtre par bouton nulle
         # part) : interceptés ici, AVANT tout super()..., le clic gauche existant
@@ -111,3 +122,57 @@ class PipelineGraphView(QGraphicsView):
             self._zoom_widget.reposition()
         if self._search_overlay is not None:
             self._search_overlay.reposition()
+        if self._library_panel is not None:
+            self._library_panel.reposition()
+
+    # ── C7 : glisser-déposer depuis le panneau "Ajouter" ──
+
+    def _edge_under(self, pos):
+        from .edge_item import EdgeItem
+        item = self.itemAt(pos)
+        return item if isinstance(item, EdgeItem) else None
+
+    def dragEnterEvent(self, event):
+        if self._library_panel is not None and event.mimeData().hasFormat(MIME_TYPE):
+            event.acceptProposedAction()
+            return
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        if self._library_panel is None or not event.mimeData().hasFormat(MIME_TYPE):
+            event.ignore()
+            return
+        edge = self._edge_under(event.position().toPoint())
+        if edge is not self._drag_hover_edge:
+            # Réutilise le rendu de sélection déjà existant (accent) comme retour visuel de
+            # survol — pas de nouveau style à peindre, même principe que le "point marqué" d'un
+            # clic normal (une arête sélectionnée = le point de greffe, voir
+            # PipelineGraphEditorWidget._resolve_insertion_target).
+            if self._drag_hover_edge is not None:
+                self._drag_hover_edge.setSelected(False)
+            if edge is not None:
+                edge.setSelected(True)
+            self._drag_hover_edge = edge
+        event.acceptProposedAction()
+
+    def dragLeaveEvent(self, event):
+        if self._drag_hover_edge is not None:
+            self._drag_hover_edge.setSelected(False)
+            self._drag_hover_edge = None
+        super().dragLeaveEvent(event)
+
+    def dropEvent(self, event):
+        if self._library_panel is None or not event.mimeData().hasFormat(MIME_TYPE):
+            event.ignore()
+            return
+        payload = self._library_panel.consume_drag_payload()
+        edge = self._drag_hover_edge
+        self._drag_hover_edge = None
+        if payload is None:
+            event.ignore()
+            return
+        step_type, config = payload
+        scene_pos = self.mapToScene(event.position().toPoint())
+        if self._owner is not None:
+            self._owner.handle_library_drop(step_type, config, scene_pos, edge)
+        event.acceptProposedAction()

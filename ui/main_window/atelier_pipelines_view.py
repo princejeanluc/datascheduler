@@ -230,17 +230,26 @@ class AtelierPipelinesView(QWidget):
 
         from ui.step_editor.pipeline_settings_panel import PipelineSettingsPanel
 
+        # C7 : tout le contenu "normal" (paramètres + bouton Enregistrer) vit dans un seul
+        # conteneur, pour pouvoir le masquer d'un coup pendant que le panneau "Ajouter" est
+        # ouvert (canvas.preview_panel prend sa place dans ce même _settings_container_layout) —
+        # jamais détruit entre les deux, juste masqué (aucune perte de saisie en cours).
+        self._settings_normal_container = QWidget()
+        normal_layout = QVBoxLayout(self._settings_normal_container)
+        normal_layout.setContentsMargins(0, 0, 0, 0)
+        normal_layout.setSpacing(0)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
         self._settings_panel = PipelineSettingsPanel(parent=scroll, pipeline=pipeline)
         scroll.setWidget(self._settings_panel)
-        self._settings_container_layout.addWidget(scroll, stretch=1)
+        normal_layout.addWidget(scroll, stretch=1)
 
         settings_sep = QFrame(); settings_sep.setFrameShape(QFrame.HLine)
         settings_sep.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
-        self._settings_container_layout.addWidget(settings_sep)
+        normal_layout.addWidget(settings_sep)
 
         settings_btn_row = QHBoxLayout()
         settings_btn_row.setContentsMargins(16, 10, 16, 14)
@@ -249,9 +258,20 @@ class AtelierPipelinesView(QWidget):
         btn_save_settings.setFixedHeight(34); btn_save_settings.setMinimumWidth(150)
         btn_save_settings.clicked.connect(self._settings_panel.save)
         settings_btn_row.addWidget(btn_save_settings)
-        self._settings_container_layout.addLayout(settings_btn_row)
+        normal_layout.addLayout(settings_btn_row)
+
+        self._settings_container_layout.addWidget(self._settings_normal_container, stretch=1)
+        self._settings_container_layout.addWidget(self._canvas.preview_panel, stretch=1)
+        self._canvas.preview_panel.setVisible(False)
+        self._canvas.step_library_toggled.connect(self._on_step_library_toggled)
 
         self._sidebar.select_pipeline(pipeline_id)
+
+    def _on_step_library_toggled(self, open_: bool):
+        """C7 : bascule le panneau de droite entre paramètres et aperçu de type d'étape — jamais
+        appelé en mode dialogue de compatibilité (step_library_toggled n'y est jamais émis)."""
+        self._settings_normal_container.setVisible(not open_)
+        self._canvas.preview_panel.setVisible(open_)
 
     def _on_new_pipeline_graph_first_saved(self):
         """(Re)planifie une seule fois le premier enregistrement réussi d'un pipeline neuf —

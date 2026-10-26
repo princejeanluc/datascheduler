@@ -52,6 +52,12 @@ _DESCRIPTIONS = {
 }
 
 
+def step_type_description(step_type: str) -> str:
+    """Accès partagé à _DESCRIPTIONS (C7, StepLibraryPanel/StepPreviewPanel) — jamais une
+    duplication du dictionnaire dans un autre module."""
+    return _DESCRIPTIONS.get(step_type, "")
+
+
 class StepTypeChooserDialog(QDialog):
     """Dialogue de sélection du type d'étape à ajouter."""
 

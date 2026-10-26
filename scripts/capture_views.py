@@ -118,13 +118,10 @@ def _atelier_grammaire():
     return view
 
 
-def _atelier_main():
-    """Main (lot A-Atelier-main) : cadre principal de l'Atelier — en-tête (fil d'Ariane, Valider
-    à blanc, Exécuter), recherche de nœud en surimpression, panneau de paramètres complet (A6 à
-    A15). Graphe représentatif (condition, jonction ET, port d'erreur) — noms et chiffres sont
-    des exemples, pas les valeurs réelles d'une fiche (REGLES.md section 2)."""
-    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
-
+def _build_atelier_sample_pipeline():
+    """Graphe représentatif (condition, jonction ET, port d'erreur) partagé par _atelier_main et
+    _atelier_ajout — noms et chiffres sont des exemples, pas les valeurs réelles d'une fiche
+    (REGLES.md section 2)."""
     pipeline = db.create_pipeline(
         name="Reporting ventes J-1",
         description="Export quotidien des ventes vers le partenaire.",
@@ -158,12 +155,37 @@ def _atelier_main():
         {"from_step_key": "f4", "from_port": "error", "to_step_key": "f7", "to_port": "input"},
         {"from_step_key": "g2", "from_port": "output_file", "to_step_key": "f5", "to_port": "input"},
     ])
+    return pipeline
 
+
+def _atelier_main():
+    """Main (lot A-Atelier-main) : cadre principal de l'Atelier — en-tête (fil d'Ariane, Valider
+    à blanc, Exécuter), recherche de nœud en surimpression, panneau de paramètres complet (A6 à
+    A15)."""
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    pipeline = _build_atelier_sample_pipeline()
     view = AtelierPipelinesView()
     view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
     view.show()
     QApplication.instance().processEvents()
     view.open_pipeline(pipeline.id)
+    QApplication.instance().processEvents()
+    return view
+
+
+def _atelier_ajout():
+    """Atelier-ajout (C7) : panneau "Ajouter" ouvert, un type sélectionné (aperçu à droite)."""
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    pipeline = _build_atelier_sample_pipeline()
+    view = AtelierPipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.open_pipeline(pipeline.id)
+    view._canvas.open_step_library()
+    view._canvas._library_panel._select("LOCAL_COPY", {})
     QApplication.instance().processEvents()
     return view
 
@@ -781,6 +803,7 @@ def _history_view_modifications():
 REGISTRY = [
     ("grammaire", _atelier_grammaire),
     ("main", _atelier_main),
+    ("ajout", _atelier_ajout),
     ("parametres", _settings_view),
     ("parametres-recherche", _settings_view_recherche),
     ("parametres-arriere-plan", _settings_view_arriere_plan),
