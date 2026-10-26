@@ -134,6 +134,10 @@ class MainWindow(QMainWindow):
         self._views[0].open_help_requested.connect(lambda: self._navigate(7))
         self._views[1].open_atelier_requested.connect(self.open_atelier)
         self._views[4].open_atelier_requested.connect(self.open_atelier)
+        # C9 (Atelier-echec) : lien "Voir dans le graphe" depuis l'Historique — additif, jamais
+        # une modification du signal ci-dessus (PipelinesView/Dashboard n'ont pas de run à
+        # transmettre).
+        self._views[4].open_atelier_run_requested.connect(self.open_atelier_run)
         self._views[8].back_requested.connect(lambda: self._navigate(1))
 
         # Statut bar
@@ -186,6 +190,14 @@ class MainWindow(QMainWindow):
         # A16 (lot A-Atelier-main) : l'Atelier est hors des 8 indices connus de NavRail — sans ce
         # forçage, _navigate(8) ci-dessus ne surligne aucun bouton (set_active_index(8) ne
         # correspond à rien). Le bouton Pipelines (indice 1) reste visuellement actif.
+        self._nav_rail.set_active_index(1)
+
+    def open_atelier_run(self, pipeline_id: int, run_id: int, failed_step_key: str | None = None):
+        """C9 (Atelier-echec) : vue en lecture seule d'un run passé — point d'entrée séparé
+        d'open_atelier() plutôt qu'un paramètre ajouté au signal existant (voir note d'impact :
+        PipelinesView/Dashboard n'ont jamais de run à transmettre, seul HistoryView en a un)."""
+        self._views[8].open_pipeline(pipeline_id, highlight_step_key=failed_step_key, run_id=run_id)
+        self._navigate(8)
         self._nav_rail.set_active_index(1)
 
     def _navigate(self, index: int):

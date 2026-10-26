@@ -80,11 +80,14 @@ def test_graph_link_visible_for_a_failed_run_with_step_key(qapp, test_db):
     assert _has_graph_link_button(view, _row_of(view, run.id))
 
 
-def test_open_graph_emits_open_atelier_requested_with_pipeline_and_highlight(qapp, test_db):
+def test_open_graph_emits_open_atelier_run_requested_with_pipeline_run_and_highlight(qapp, test_db):
     """Chantier Atelier Pipelines : "Voir dans le graphe" ouvre désormais l'Atelier (vue
     non-modale intégrée à la fenêtre principale) plutôt qu'un PipelineGraphEditorDialog modal —
     HistoryView ne construit plus ce dialogue elle-même, elle émet un signal que MainWindow
-    écoute (voir ui/main_window/window.py::open_atelier)."""
+    écoute. C9 (Atelier-echec) : émet désormais open_atelier_run_requested (avec l'id du run, pas
+    seulement le step_key) pour que l'Atelier affiche la vue riche d'exécution — plus l'ancien
+    open_atelier_requested, dont la vue d'un seul nœud surligné n'est qu'un repli sans données B1
+    (voir ui/main_window/window.py::open_atelier_run)."""
     from ui.main_window.history_view import HistoryView
 
     pipeline = db.create_pipeline(name="hist-graph-link-open")
@@ -99,11 +102,11 @@ def test_open_graph_emits_open_atelier_requested_with_pipeline_and_highlight(qap
 
     view = HistoryView()
     captured = []
-    view.open_atelier_requested.connect(lambda *args: captured.append(args))
+    view.open_atelier_run_requested.connect(lambda *args: captured.append(args))
 
     view._open_graph(_row_of(view, run.id))
 
-    assert captured == [(pipeline.id, "fails", False)]
+    assert captured == [(pipeline.id, run.id, "fails")]
 
 
 def test_open_graph_out_of_range_row_does_not_raise(qapp, test_db):

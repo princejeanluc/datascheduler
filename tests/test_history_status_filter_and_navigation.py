@@ -282,6 +282,28 @@ def test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_f
     assert "Exporter le journal" not in texts
 
 
+def test_history_view_run_panel_graph_button_emits_open_atelier_run_requested(qapp, test_db):
+    """C9 (Atelier-echec) : le bouton "Voir dans le graphe" du panneau de run émet
+    open_atelier_run_requested(pipeline_id, run_id, failed_step_key) — avec l'id du run, pas
+    seulement highlight_step_key (voir test_history_view_graph_link.py pour le même changement
+    côté lien de la ligne principale)."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-panel-graph-signal")
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="FAILED", failed_step_key="step-1")
+
+    view = HistoryView()
+    captured = []
+    view.open_atelier_run_requested.connect(lambda *args: captured.append(args))
+    view._open_run_panel(run.id)
+
+    btn_graph = next(b for b in view._side_panel.findChildren(QPushButton) if b.text() == "Voir dans le graphe")
+    btn_graph.click()
+
+    assert captured == [(p.id, run.id, "step-1")]
+
+
 def test_history_view_run_panel_missing_run_does_not_raise(qapp, test_db):
     from ui.main_window.history_view import HistoryView
 
