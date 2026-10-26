@@ -18,7 +18,9 @@ from ui.styles import COLORS, FONT_MONO_STACK, FONT_MONO
 class _TimelineTrack(QWidget):
     """Piste d'une étape : fond arrondi + segments colorés (une étape normale n'en a qu'un, une
     étape en échec avec plusieurs tentatives en a plusieurs, reliés par de fins connecteurs — le
-    délai d'attente entre tentatives)."""
+    délai d'attente entre tentatives). Couleurs reçues en hex déjà résolu (pas une clé COLORS) :
+    l'appelant peut avoir besoin d'une couleur de famille (STEP_META, hors de COLORS), autant
+    accepter du hex partout plutôt que deux conventions différentes."""
 
     def __init__(self, bars: list[tuple[float, float, str]],
                  connectors: list[tuple[float, float]] | None = None, parent=None):
@@ -42,8 +44,8 @@ class _TimelineTrack(QWidget):
             painter.drawLine(int(start * w), int(y), int((start + width) * w), int(y))
 
         painter.setPen(Qt.NoPen)
-        for start, width, color_key in self._bars:
-            painter.setBrush(QColor(COLORS[color_key]))
+        for start, width, color_hex in self._bars:
+            painter.setBrush(QColor(color_hex))
             painter.drawRoundedRect(int(start * w), 0, max(2, int(width * w)), h, 3, 3)
         painter.end()
 
@@ -123,13 +125,13 @@ class RunTimelinePanel(QWidget):
                 f"font-size: 13px; font-weight: {600 if active else 500}; }}"
             )
 
-    def set_data(self, *, status_color_key: str, status_text: str,
+    def set_data(self, *, status_color: str, status_text: str,
                  time_axis_labels: list[str], rows: list[dict], journal_text: str,
                  footnote: str | None = None):
-        """`rows` : [{"label": str, "label_color_key": "text_main", "bars": [(start,width,
-        color_key)], "connectors": [(start,width)], "duration_text": str,
-        "duration_color_key": "text_dim"}]."""
-        self._status_dot.setStyleSheet(f"background: {COLORS[status_color_key]}; border-radius: 3px;")
+        """`rows` : [{"label": str, "label_color": hex, "bars": [(start,width,hex)],
+        "connectors": [(start,width)], "duration_text": str, "duration_color": hex}] — couleurs
+        en hex déjà résolu, voir docstring de _TimelineTrack."""
+        self._status_dot.setStyleSheet(f"background: {status_color}; border-radius: 3px;")
         self._status_text.setText(status_text)
 
         while self._chrono_layout.count():
@@ -155,14 +157,14 @@ class RunTimelinePanel(QWidget):
             r = QHBoxLayout(); r.setSpacing(12)
             lbl = QLabel(row["label"])
             lbl.setFixedWidth(170)
-            lbl.setStyleSheet(f"color: {COLORS[row.get('label_color_key', 'text_main')]}; background: transparent; border: none;")
+            lbl.setStyleSheet(f"color: {row.get('label_color', COLORS['text_main'])}; background: transparent; border: none;")
             r.addWidget(lbl)
             track = _TimelineTrack(row["bars"], row.get("connectors"))
             r.addWidget(track, stretch=1)
             dur = QLabel(row["duration_text"])
             dur.setFixedWidth(90)
             dur.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            dur.setStyleSheet(f"color: {COLORS[row.get('duration_color_key', 'text_dim')]}; font-family: {FONT_MONO_STACK}; font-size: 12px; background: transparent; border: none;")
+            dur.setStyleSheet(f"color: {row.get('duration_color', COLORS['text_dim'])}; font-family: {FONT_MONO_STACK}; font-size: 12px; background: transparent; border: none;")
             r.addWidget(dur)
             self._chrono_layout.addLayout(r)
 
