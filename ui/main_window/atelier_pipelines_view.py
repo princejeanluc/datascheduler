@@ -263,6 +263,11 @@ class AtelierPipelinesView(QWidget):
             graph_btn_row.setContentsMargins(16, 8, 16, 10)
             graph_btn_row.addStretch()
             btn_save_graph = QPushButton("Enregistrer le graphe")
+            # Secondaire (bordé), pas le style plein orange par défaut — réservé à L'action
+            # principale d'un écran (ici "Exécuter", dans l'en-tête). Deux boutons "Enregistrer"
+            # sans objectName se disputaient visuellement ce rôle (constaté par l'utilisateur dès
+            # que le bug de cascade QSS corrigé les a enfin fait apparaître avec leur vrai fond).
+            btn_save_graph.setObjectName("secondary")
             btn_save_graph.setFixedHeight(34); btn_save_graph.setMinimumWidth(150)
             btn_save_graph.clicked.connect(self._canvas.save)
             graph_btn_row.addWidget(btn_save_graph)
@@ -301,6 +306,7 @@ class AtelierPipelinesView(QWidget):
         settings_btn_row.setContentsMargins(16, 10, 16, 14)
         settings_btn_row.addStretch()
         btn_save_settings = QPushButton("Enregistrer les paramètres")
+        btn_save_settings.setObjectName("secondary")   # voir le commentaire sur btn_save_graph
         btn_save_settings.setFixedHeight(34); btn_save_settings.setMinimumWidth(150)
         btn_save_settings.clicked.connect(self._settings_panel.save)
         settings_btn_row.addWidget(btn_save_settings)
