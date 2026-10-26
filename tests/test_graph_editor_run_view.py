@@ -89,7 +89,7 @@ def test_apply_run_view_applies_success_and_failed_status_to_nodes(qapp, test_db
     assert node_a._run_status_color_key == "success"
     assert not node_a._is_failed
 
-    assert node_b._run_status_text == "✗ 2 tentatives refusées"
+    assert node_b._run_status_text == "✕ 2 tentatives refusées"
     assert node_b._is_failed
     # Lecture seule (C9) : un run passé ne se repositionne pas en le glissant.
     assert not (node_a.flags() & QGraphicsItem.ItemIsMovable)

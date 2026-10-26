@@ -227,6 +227,13 @@ class PipelineGraphEditorWidget(QWidget):
         glisser-déposer en mode édition (A10), jamais les deux en même temps (lecture seule)."""
         from ui.time_display import fmt_datetime
 
+        drag_hint = getattr(self, "_drag_hint", None)
+        if drag_hint is not None:
+            drag_hint.hide()
+        search_overlay = getattr(self, "_search_overlay", None)
+        if search_overlay is not None:
+            search_overlay.hide()
+
         when = f"du {fmt_datetime(run.started_at)} " if run else ""
         text = (
             f"Vue de l'exécution {when}· "
@@ -300,6 +307,14 @@ class PipelineGraphEditorWidget(QWidget):
             resume_hint=resume_hint,
         )
 
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        """Les horodatages viennent de deux processus potentiellement différents (application/
+        worker en arrière-plan) — un écart d'horloge ne doit jamais produire une position hors
+        [0, 1] (un `int()` Qt déborde silencieusement bien au-delà de ce qu'un délai réel
+        produirait, vu en capture : un plantage dur, pas juste un pixel mal placé)."""
+        return max(0.0, min(1.0, value))
+
     def _build_timeline_panel(self, run, run_steps) -> None:
         from datetime import datetime
         from ui.step_editor import STEP_META
@@ -324,19 +339,21 @@ class PipelineGraphEditorWidget(QWidget):
                 starts = [datetime.fromisoformat(a["started_at"]) for a in attempts if a.get("started_at")]
                 ends = [datetime.fromisoformat(a["finished_at"]) for a in attempts if a.get("finished_at")]
                 for s, e in zip(starts, ends):
-                    start_pct = max(0.0, (s - run.started_at).total_seconds() / total_seconds)
-                    width_pct = max(0.004, (e - s).total_seconds() / total_seconds)
+                    start_pct = self._clamp01((s - run.started_at).total_seconds() / total_seconds)
+                    width_pct = max(0.004, self._clamp01((e - s).total_seconds() / total_seconds))
                     bars.append((start_pct, width_pct, COLORS["danger"]))
                 for i in range(len(ends) - 1):
-                    gap_start = (ends[i] - run.started_at).total_seconds() / total_seconds
-                    gap_end = (starts[i + 1] - run.started_at).total_seconds() / total_seconds
+                    gap_start = self._clamp01((ends[i] - run.started_at).total_seconds() / total_seconds)
+                    gap_end = self._clamp01((starts[i + 1] - run.started_at).total_seconds() / total_seconds)
                     connectors.append((gap_start, max(0.0, gap_end - gap_start)))
                 duration_text = f"{len(attempts)} × refus"
                 duration_color = COLORS["danger"]
                 label_color = COLORS["danger"]
             elif run and run.started_at and step_row.started_at and step_row.finished_at:
-                start_pct = max(0.0, (step_row.started_at - run.started_at).total_seconds() / total_seconds)
-                width_pct = max(0.004, (step_row.finished_at - step_row.started_at).total_seconds() / total_seconds)
+                start_pct = self._clamp01((step_row.started_at - run.started_at).total_seconds() / total_seconds)
+                width_pct = max(0.004, self._clamp01(
+                    (step_row.finished_at - step_row.started_at).total_seconds() / total_seconds
+                ))
                 via_error = any(
                     e.from_port == "error" and e.to_node is node for e in self._scene.edges
                 )

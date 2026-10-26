@@ -191,6 +191,74 @@ def _atelier_ajout():
     return view
 
 
+def _atelier_echec():
+    """Atelier-echec (A9 + C9) : vue en lecture seule d'un run en échec — canevas avec l'état
+    réel de chaque nœud/arête, panneau de diagnostic, chronogramme avec les tentatives de
+    l'étape en échec. Mêmes step_key que _build_atelier_sample_pipeline (f1..f7, g1/g2)."""
+    from datetime import datetime, timedelta
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    from database.models import PipelineRun
+
+    pipeline = _build_atelier_sample_pipeline(name="Reporting ventes J-1 (échec)")
+    run = db.create_run(pipeline.id)
+    t0 = datetime(2026, 10, 18, 11, 28, 0)
+    # run.started_at par défaut = "maintenant" (horloge réelle au moment de la capture), à des
+    # jours de t0 ci-dessus — le chronogramme calcule des positions en % à partir de l'écart
+    # (étape.started_at - run.started_at) : sans ce recalage, l'écart déborde largement un int
+    # (découvert via un vrai plantage ici, pas en théorie).
+    with db.get_session() as s:
+        s.get(PipelineRun, run.id).started_at = t0
+
+    def _rec(key, step_type, label, status, start_s, duration_s, **extra):
+        db.record_run_step(
+            run.id, step_key=key, step_type=step_type, step_label=label, status=status,
+            started_at=t0 + timedelta(seconds=start_s),
+            finished_at=t0 + timedelta(seconds=start_s + duration_s),
+            **extra,
+        )
+
+    _rec("f1", "DB_EXTRACT", "Extraire ventes J-1", "SUCCESS", 0, 41, rows_count=83212)
+    _rec("g1", "CONDITION", "Volume > 0 ?", "SUCCESS", 41, 0)
+    _rec("f2", "DB_EXECUTE", "Charger l'entrepôt", "SUCCESS", 41, 62)
+    _rec("f3", "COMPRESS", "Compresser", "SUCCESS", 103, 6, output_size_bytes=4_300_000)
+    attempts_json = (
+        '[{"n": 1, "started_at": "2026-10-18T11:29:09", "finished_at": "2026-10-18T11:29:10", "error": "Connection refused"},'
+        ' {"n": 2, "started_at": "2026-10-18T11:29:44", "finished_at": "2026-10-18T11:29:45", "error": "Connection refused"},'
+        ' {"n": 3, "started_at": "2026-10-18T11:30:19", "finished_at": "2026-10-18T11:30:20", "error": "Connection refused"}]'
+    )
+    db.record_run_step(
+        run.id, step_key="f4", step_type="FTP_UPLOAD", step_label="Dépôt partenaire", status="FAILED",
+        attempts=3, attempts_json=attempts_json, error_message="Connection refused\nsftp.partner.fr:22",
+        started_at=t0 + timedelta(seconds=109), finished_at=t0 + timedelta(seconds=140),
+    )
+    db.record_run_step(
+        run.id, step_key="g2", step_type="GATEWAY_JOIN", step_label="Toutes", status="FAILED",
+        error_message="Passerelle de jonction (ET) : au moins une branche entrante n'a pas abouti.",
+        port_taken="error",
+    )
+    db.record_run_step(run.id, step_key="f5", step_type="EMAIL_NOTIFY", step_label="Prévenir l'équipe", status="SKIPPED")
+    db.record_run_step(run.id, step_key="f6", step_type="EMAIL_NOTIFY", step_label="Alerte volume nul", status="SKIPPED")
+    _rec("f7", "HTTP_REQUEST", "Signaler l'échec", "SUCCESS", 140, 1, port_taken="error")
+
+    db.finish_run(
+        run.id, status="FAILED", failed_step_key="f4",
+        error_message="Connection refused\nsftp.partner.fr:22", resumable_state_json="{}",
+    )
+    # db.finish_run() date toujours avec datetime.utcnow() (même piège déjà documenté sur
+    # _history_backdate_run) — replacé après coup pour rester cohérent avec t0/started_at.
+    with db.get_session() as s:
+        s.get(PipelineRun, run.id).finished_at = t0 + timedelta(seconds=141)
+
+    view = AtelierPipelinesView()
+    view.resize(CAPTURE_WIDTH, CAPTURE_HEIGHT)
+    view.show()
+    QApplication.instance().processEvents()
+    view.open_pipeline(pipeline.id, run_id=run.id)
+    QApplication.instance().processEvents()
+    return view
+
+
 def _settings_view():
     from ui.main_window.settings_view import SettingsView
     return SettingsView()
@@ -805,6 +873,7 @@ REGISTRY = [
     ("grammaire", _atelier_grammaire),
     ("main", _atelier_main),
     ("ajout", _atelier_ajout),
+    ("echec", _atelier_echec),
     ("parametres", _settings_view),
     ("parametres-recherche", _settings_view_recherche),
     ("parametres-arriere-plan", _settings_view_arriere_plan),

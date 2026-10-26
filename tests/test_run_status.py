@@ -70,14 +70,14 @@ def test_node_status_text_success_via_error_port_is_prefixed():
 def test_node_status_text_failed_with_one_attempt_is_singular():
     row = _step(status="FAILED", attempts=1)
     text, color = node_status_text(row)
-    assert text == "✗ échouée"
+    assert text == "✕ échouée"
     assert color == "danger"
 
 
 def test_node_status_text_failed_with_several_attempts_counts_them():
     row = _step(status="FAILED", attempts=3)
     text, color = node_status_text(row)
-    assert text == "✗ 3 tentatives refusées"
+    assert text == "✕ 3 tentatives refusées"
     assert color == "danger"
 
 

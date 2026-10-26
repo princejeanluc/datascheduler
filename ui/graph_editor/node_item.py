@@ -549,7 +549,7 @@ class StepNodeItem(QGraphicsObject):
             # deux en même temps, même hauteur de carte).
             if self._run_status_text:
                 painter.setPen(QColor(COLORS[self._run_status_color_key]))
-                font = QFont(); font.setBold(False); font.setPointSize(7)
+                font = QFont("JetBrains Mono"); font.setPointSize(7)
                 painter.setFont(font)
                 painter.drawText(QRectF(10, 34, self.WIDTH - 20, 14),
                                   Qt.AlignLeft | Qt.AlignVCenter, self._run_status_text)

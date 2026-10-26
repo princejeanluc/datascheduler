@@ -41,13 +41,23 @@ class _TimelineTrack(QWidget):
         painter.setPen(QColor(COLORS["border"]))
         for start, width, in self._connectors:
             y = h / 2
-            painter.drawLine(int(start * w), int(y), int((start + width) * w), int(y))
+            x1, x2 = self._clamp01(start) * w, self._clamp01(start + width) * w
+            painter.drawLine(int(x1), int(y), int(x2), int(y))
 
         painter.setPen(Qt.NoPen)
         for start, width, color_hex in self._bars:
             painter.setBrush(QColor(color_hex))
-            painter.drawRoundedRect(int(start * w), 0, max(2, int(width * w)), h, 3, 3)
+            x = self._clamp01(start) * w
+            bar_w = max(2.0, self._clamp01(width) * w)
+            painter.drawRoundedRect(int(x), 0, int(bar_w), h, 3, 3)
         painter.end()
+
+    @staticmethod
+    def _clamp01(value: float) -> float:
+        """Second filet de sécurité (l'appelant clampe déjà, voir PipelineGraphEditorWidget.
+        _clamp01) — un `int()` Qt déborde durement pour une position hors [0, 1], jamais juste un
+        pixel mal placé (vu en capture : un plantage, pas un défaut visuel)."""
+        return max(0.0, min(1.0, value))
 
 
 class RunTimelinePanel(QWidget):

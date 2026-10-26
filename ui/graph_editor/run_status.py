@@ -66,7 +66,7 @@ def node_status_text(step_row, via_error_port: bool = False) -> tuple[str, str] 
     if status == "FAILED":
         attempts = step_row.attempts or 1
         word = "échouée" if attempts <= 1 else f"{attempts} tentatives refusées"
-        return f"✗ {word}", "danger"
+        return f"✕ {word}", "danger"
 
     if status == "SKIPPED_RESUME":
         return "réutilisée (reprise)", "text_dim"

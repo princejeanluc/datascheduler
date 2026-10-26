@@ -69,7 +69,7 @@ def test_set_failed_still_wins_over_a_run_card_state(qapp):
     puisque node_status_text()/node_card_state() ne renvoient jamais "error_triggered"/
     "not_executed" pour une ligne FAILED."""
     node = StepNodeItem({"step_type": "LOCAL_COPY", "config": {"_step_key": "a"}})
-    node.set_run_status("✗ échouée", "danger", None)
+    node.set_run_status("✕ échouée", "danger", None)
     node.set_failed(True)
     _real_paint(node)   # ne doit jamais lever, même combinaison
 
