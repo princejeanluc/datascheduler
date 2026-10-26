@@ -72,8 +72,15 @@ class AtelierPipelinesView(QWidget):
 
         header = QWidget()
         header.setFixedHeight(HEADER_H)
+        # Sélecteur d'ID (objectName) + WA_StyledBackground, pas une règle nue — une règle nue se
+        # propage à tous les descendants et écrasait silencieusement le fond orange plein par
+        # défaut de tout QPushButton sans objectName à l'intérieur (ex. "Exécuter" — bug réel
+        # constaté en capture, même piège que side_panel.py, REGLES.md section 3).
+        header.setObjectName("atelierHeader")
+        header.setAttribute(Qt.WA_StyledBackground, True)
         header.setStyleSheet(
-            f"background: {COLORS['bg_panel']}; border-bottom: 1px solid {COLORS['border']};"
+            f"QWidget#atelierHeader {{ background: {COLORS['bg_panel']}; "
+            f"border-bottom: 1px solid {COLORS['border']}; }}"
         )
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 0, 16, 0)

@@ -116,7 +116,11 @@ class DashboardView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
+        # Scopé à QScrollArea (pas une règle nue) : une règle nue se propage à tous les
+        # descendants et écrasait silencieusement le fond orange plein par défaut de tout
+        # QPushButton sans objectName à l'intérieur (ex. "+ Nouveau pipeline" — bug réel
+        # constaté en capture, REGLES.md section 3).
+        scroll.setStyleSheet("QScrollArea { background: transparent; }")
         content = QWidget()
         scroll.setWidget(content)
         outer.addWidget(scroll)
