@@ -11,7 +11,7 @@ l'ancien QDialog, ce widget peut rester en vie indéfiniment (vue résidente dan
 QStackedWidget), donc il n'y a plus de point de destruction Qt garanti pour arrêter le QTimer.
 """
 
-from PySide6.QtCore import QPointF, QSize, QTimer, Signal
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMessageBox, QInputDialog,
@@ -80,6 +80,9 @@ class PipelineGraphEditorWidget(QWidget):
     # et self.preview_panel. Jamais émis en mode dialogue de compatibilité (le panneau n'existe
     # pas dans ce mode, voir _on_add_step).
     step_library_toggled = Signal(bool)
+    # C9 : « revenir à l'édition » cliqué dans la vue d'un run — l'hôte rouvre le même pipeline
+    # sans run_id (jamais géré ici, ce widget ne sait pas comment se reconstruire lui-même).
+    run_view_exit_requested = Signal()
 
     def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None,
                  show_settings_shortcut_button: bool = True, run_id: int | None = None):
@@ -224,11 +227,17 @@ class PipelineGraphEditorWidget(QWidget):
         glisser-déposer en mode édition (A10), jamais les deux en même temps (lecture seule)."""
         from ui.time_display import fmt_datetime
 
-        text = f"Vue de l'exécution du {fmt_datetime(run.started_at)}" if run else "Vue de l'exécution"
+        when = f"du {fmt_datetime(run.started_at)} " if run else ""
+        text = (
+            f"Vue de l'exécution {when}· "
+            f"<a href='#' style='color:{COLORS['accent_pale']}; text-decoration:none;'>revenir à l'édition</a>"
+        )
         self._run_view_label = QLabel(text, self._view.viewport())
+        self._run_view_label.setTextFormat(Qt.RichText)
         self._run_view_label.setStyleSheet(
             f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;"
         )
+        self._run_view_label.linkActivated.connect(lambda _: self.run_view_exit_requested.emit())
         self._run_view_label.move(64, 12)
         self._run_view_label.show()
 
