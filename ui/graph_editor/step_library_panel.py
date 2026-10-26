@@ -435,7 +435,11 @@ class StepLibraryPanel(QWidget):
 
     def _on_return_pressed(self):
         if self._selected_type is None:
-            visible = [c for c in self._cards if c.isVisible()]
+            # isHidden(), pas isVisible() : ce panneau n'est pas forcément déjà affiché dans une
+            # hiérarchie top-level montrée au moment de l'appel (vrai en test, et même brièvement
+            # en usage réel juste après sa construction) — isVisible() dépend de tous ses
+            # ancêtres, isHidden() reflète l'état explicitement fixé par _on_search_changed().
+            visible = [c for c in self._cards if not c.isHidden()]
             if not visible:
                 return
             self._select(visible[0]._step_type, visible[0]._config)
