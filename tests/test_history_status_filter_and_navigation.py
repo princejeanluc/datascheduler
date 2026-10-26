@@ -304,6 +304,22 @@ def test_history_view_run_panel_graph_button_emits_open_atelier_run_requested(qa
     assert captured == [(p.id, run.id, "step-1")]
 
 
+def test_history_view_run_panel_shows_graph_button_for_a_successful_run(qapp, test_db):
+    """Lot atelier-suivi-execution : "Voir dans le graphe" n'est plus réservé à l'échec — voir
+    test_history_view_graph_link.py pour le même changement côté ligne principale."""
+    from ui.main_window.history_view import HistoryView
+
+    p = db.create_pipeline(name="hist-panel-buttons-success")
+    run = db.create_run(p.id)
+    db.finish_run(run.id, status="SUCCESS")
+
+    view = HistoryView()
+    view._open_run_panel(run.id)
+
+    texts = {b.text() for b in view._side_panel.findChildren(QPushButton) if b.text()}
+    assert "Voir dans le graphe" in texts
+
+
 def test_history_view_run_panel_missing_run_does_not_raise(qapp, test_db):
     from ui.main_window.history_view import HistoryView
 

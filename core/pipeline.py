@@ -422,6 +422,40 @@ def _build_resumable_state_json(steps, edges, completed_step_keys: set[str],
     return json.dumps(state)
 
 
+def _build_graph_snapshot_json(steps, edges) -> str:
+    """Photo figée des étapes/liaisons au lancement de CE run (lot atelier-suivi-execution) —
+    contrairement à _build_resumable_state_json ci-dessus : contenu complet (pas une empreinte),
+    écrite pour TOUT run (pas seulement à l'échec), jamais purgée. Sert à la vue d'un run
+    (graph_editor_widget.py::_apply_run_view) pour rester fidèle à ce qui a réellement tourné,
+    même si le pipeline a été modifié — ou une étape supprimée — depuis."""
+    steps_snapshot = []
+    for s in steps:
+        cfg = json.loads(s.config_json or "{}")
+        step_key = cfg.get("_step_key")
+        if not step_key:
+            continue
+        steps_snapshot.append({
+            "step_key":         step_key,
+            "step_type":        str(s.step_type).replace("StepType.", ""),
+            "step_label":       s.label,
+            "config":           cfg,
+            "retry_count":      s.retry_count,
+            "retry_interval_s": s.retry_interval_s,
+            "timeout_s":        s.timeout_s,
+            "run_always":       s.run_always,
+        })
+    edges_snapshot = [
+        {
+            "from_step_key": e.from_step_key,
+            "from_port":     e.from_port,
+            "to_step_key":   e.to_step_key,
+            "to_port":       e.to_port,
+        }
+        for e in (edges or [])
+    ]
+    return json.dumps({"steps": steps_snapshot, "edges": edges_snapshot})
+
+
 # ──────────────────────────────────────────────
 #  EXÉCUTION LINÉAIRE (comportement historique, inchangé)
 # ──────────────────────────────────────────────
@@ -1628,6 +1662,11 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             result.fail("Ce pipeline ne contient aucune étape.")
             result.finish(); return result
 
+        # Chargée ici (avant create_run(), déplacée de son point d'usage plus bas pour
+        # l'exécution elle-même — chemin graphe/linéaire inchangé) pour pouvoir figer la photo du
+        # run (lot atelier-suivi-execution) dès sa création, avant qu'une seule étape ait tourné.
+        edges = db.get_edges(pipeline_id)
+
         result.log(f"Pipeline : {pipeline.name} ({len(steps)} étape(s))")
 
         # ── Reprise depuis l'échec (chantier J.2) ──
@@ -1742,7 +1781,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             )
 
         # ── Enregistrement du run ─────────────────
-        run    = db.create_run(pipeline_id)
+        run    = db.create_run(pipeline_id, graph_snapshot_json=_build_graph_snapshot_json(steps, edges))
         run_id = run.id
         result.run_id = run_id
         result.log(f"Run ID : {run_id}")
@@ -1761,7 +1800,6 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # n'est emprunté que si l'utilisateur l'a explicitement activé pour CE pipeline — défaut
         # False, donc _execute_graph (séquentiel, inchangé) reste le chemin de tout pipeline
         # existant tant qu'il n'a pas fait ce choix lui-même.
-        edges = db.get_edges(pipeline_id)
         if edges and pipeline.parallel_execution_enabled:
             pipeline_failed, pipeline_cancelled, completed_step_keys, active_ports = _execute_graph_parallel(
                 steps, edges, ctx, progress, result, cancel_event, pipeline, skip_step_keys, active_ports_seed

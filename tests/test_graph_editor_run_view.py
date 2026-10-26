@@ -263,3 +263,103 @@ def test_timeline_panel_survives_a_step_timestamp_far_outside_the_run_bounds(qap
     # produisait dans paintEvent(), pas avant.
     pixmap = QPixmap(900, panel.HEIGHT)
     panel.render(pixmap)
+
+
+# ── Lot atelier-suivi-execution : photo figée, étape supprimée, suivi en direct ──────────────
+
+def test_apply_run_view_opens_for_a_fully_successful_run(qapp, test_db):
+    """Pas seulement l'échec (C9 d'origine) : une exécution réussie doit pouvoir s'afficher,
+    canevas annoté et chronogramme compris, sans panneau d'échec."""
+    p = db.create_pipeline(name="run-view-success")
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "label": "Extraire",
+                           "config": {"_step_key": "a"}}])
+    run = db.create_run(p.id)
+    t0 = datetime(2026, 10, 18, 11, 0, 0)
+    db.record_run_step(run.id, step_key="a", step_type="DB_EXTRACT", step_label=None,
+                        status="SUCCESS", started_at=t0, finished_at=t0 + timedelta(seconds=5))
+    db.finish_run(run.id, status="SUCCESS")
+
+    widget = _widget(p, run.id)
+
+    node = widget._scene.nodes["a"]
+    assert "✓" in (node._run_status_text or "")
+    assert widget.timeline_panel is not None
+
+
+def test_apply_run_view_uses_the_frozen_snapshot_when_the_pipeline_changed_since(qapp, test_db):
+    """Le point central du lot : la vue d'un run reste fidèle à ce qui a tourné, pas à l'état
+    actuel du pipeline — voir core/pipeline.py::_build_graph_snapshot_json."""
+    import json
+
+    p = db.create_pipeline(name="run-view-frozen")
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "label": "Original",
+                           "config": {"_step_key": "a", "query": "SELECT 1"}}])
+
+    snapshot = json.dumps({
+        "steps": [{
+            "step_key": "a", "step_type": "DB_EXTRACT", "step_label": "Original",
+            "config": {"_step_key": "a", "query": "SELECT 1"},
+            "retry_count": 0, "retry_interval_s": 5, "run_always": False, "timeout_s": 0,
+        }],
+        "edges": [],
+    })
+    run = db.create_run(p.id, graph_snapshot_json=snapshot)
+    db.record_run_step(run.id, step_key="a", step_type="DB_EXTRACT", step_label="Original",
+                        status="SUCCESS")
+    db.finish_run(run.id, status="SUCCESS")
+
+    # Le pipeline est modifié APRÈS le run : renommé et reconfiguré.
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "label": "Modifié depuis",
+                           "config": {"_step_key": "a", "query": "SELECT 2"}}])
+
+    widget = _widget(p, run.id)
+
+    node = widget._scene.nodes["a"]
+    assert node.step["label"] == "Original"
+    assert node.step["config"]["query"] == "SELECT 1"
+
+
+def test_apply_run_view_notes_a_step_deleted_since_the_run_without_a_snapshot(qapp, test_db):
+    """Cas résiduel pour un run antérieur à ce lot (pas de photo figée) : une ligne de
+    pipeline_run_steps sans nœud correspondant n'est plus silencieusement ignorée."""
+    from PySide6.QtWidgets import QLabel
+
+    p = db.create_pipeline(name="run-view-orphan")
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "label": "Toujours là",
+                           "config": {"_step_key": "a"}}])
+    run = db.create_run(p.id)   # pas de graph_snapshot_json
+    db.record_run_step(run.id, step_key="a", step_type="DB_EXTRACT", step_label=None,
+                        status="SUCCESS")
+    db.record_run_step(run.id, step_key="gone", step_type="FTP_UPLOAD",
+                        step_label="Dépôt supprimé", status="SUCCESS")
+    db.finish_run(run.id, status="SUCCESS")
+
+    widget = _widget(p, run.id)
+
+    texts = " ".join(lbl.text() for lbl in widget.timeline_panel.findChildren(QLabel))
+    assert "Dépôt supprimé" in texts
+    assert "supprimée" in texts
+
+
+def test_apply_run_view_starts_polling_while_the_run_is_running_and_stops_at_a_terminal_status(qapp, test_db):
+    p = db.create_pipeline(name="run-view-live")
+    db.save_steps(p.id, [{"step_type": "DB_EXTRACT", "label": "Extraire",
+                           "config": {"_step_key": "a"}}])
+    run = db.create_run(p.id)
+    db.record_run_step(run.id, step_key="a", step_type="DB_EXTRACT", step_label=None,
+                        status="RUNNING")
+    # Jamais db.finish_run() ici : run.status reste RUNNING (défaut de PipelineRun), comme un
+    # vrai run en cours.
+
+    widget = _widget(p, run.id)
+    try:
+        assert widget._executing_timer is not None
+
+        node = widget._scene.nodes["a"]
+        assert "en cours" in (node._run_status_text or "")
+
+        db.finish_run(run.id, status="SUCCESS")
+        widget._poll_run_view()
+        assert widget._executing_timer is None
+    finally:
+        widget.stop_polling()

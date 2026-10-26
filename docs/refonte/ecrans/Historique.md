@@ -19,7 +19,7 @@ Ces fonctions existent et ne se voient pas toutes sur les maquettes. Un refactor
 
 1. Filtre de statut combiné avec la recherche libre : une ligne doit satisfaire les deux (`HistoryView._apply_filters`). Aujourd'hui le filtre compare `badge.text()` au code de statut (`SUCCESS`, `FAILED`…) : si la pastille affiche « Réussi », le code doit être porté par une donnée de la ligne, pas par le texte.
 2. `HistoryView.set_status_filter(status)` reste public : `window.py::_on_dashboard_navigate_to_history` l'appelle avec `SUCCESS` ou `FAILED` après un clic sur les cartes du Dashboard (`dashboard_view.py`, signal `navigate_to_history`).
-3. Signal `open_atelier_requested(int, object, bool)` et `_open_graph` : « Voir dans le graphe » n'apparaît que si le run est `FAILED` et a un `failed_step_key`, recharge le pipeline par `db.get_pipeline` (commentaire sur `DetachedInstanceError`), et ouvre l'Atelier sur l'étape fautive via `MainWindow.open_atelier`.
+3. Signal `open_atelier_run_requested(int, int, object)` et `_open_graph` : « Voir dans le graphe » apparaît pour tout run, quel que soit son statut (lot atelier-suivi-execution — plus seulement `FAILED` avec `failed_step_key`, décision validée : suivre une exécution ne se limite pas au diagnostic d'un échec), recharge le pipeline par `db.get_pipeline` (commentaire sur `DetachedInstanceError`), et ouvre l'Atelier sur la vue de ce run via `MainWindow.open_atelier_run` — `failed_step_key` (souvent `None` hors échec) n'y surligne alors simplement aucun nœud en particulier.
 4. Carte de fréquence : 90 jours (`_HEATMAP_DAYS`), pipelines actifs seulement, plafond de 10 lignes par `get_most_active_pipelines(limit=_MAX_FREQUENCY_ROWS)` en une requête, plafond levé et filtre par nom en SQL pendant une recherche (`_on_search_changed`, `_refresh_frequency`), message « Aucun pipeline actif pour l'instant. ».
 5. `RunFrequencyHeatmap` : infobulle propre à chaque case (`_heatmap_day_tooltip`), clic émis seulement si le jour a au moins une exécution, règle « le pire résultat du jour l'emporte » (`_heatmap_day_color_key`).
 6. Détail d'un jour : `db.get_runs_for_pipeline_on_day`, aucune ouverture si le jour est vide, ouverture du log d'un run depuis la liste. `HistoryView._build_day_runs_table` est testé.
@@ -103,7 +103,7 @@ Les messages du journal ne changent pas : la maquette écrit « Réessai 1/2 dan
 - [ ] Capture « Historique-run » sur un échec avec `resumable_state_json` et `failed_step_key` : les deux boutons sont présents ; sur un succès, aucun des deux.
 - [ ] Test : un run `RUNNING` ouvert dans le panneau se met à jour à l'intervalle `live_log_refresh_s` et cesse au statut terminal.
 - [ ] Test : « Reprendre depuis l'échec » ouvre `RunProgressDialog` avec `resume_from_run_id` égal à l'id du run.
-- [ ] Test : « Voir dans le graphe » émet `open_atelier_requested(pipeline_id, failed_step_key, False)`.
+- [ ] Test : « Voir dans le graphe » émet `open_atelier_run_requested(pipeline_id, run_id, failed_step_key)`, pour tout run (pas seulement `FAILED`).
 - [ ] Capture « Historique-modifications » : types en français et colorés, export et duplication visibles.
 - [ ] B1 : test qu'un run de 3 étapes écrit 3 lignes avec essais et durée ; test qu'un run sans lignes affiche le panneau sans section « Étapes » ni erreur.
 - [ ] B2 : test d'une valeur par origine (planifié, manuel, déclenché avec `triggered_by_run_id`, rattrapé, reprise) ; test qu'un run à `NULL` affiche « — ».

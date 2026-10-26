@@ -29,6 +29,21 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.58.0] - 2026-10-26
+
+### Ajouté
+- **Refonte, lot atelier-suivi-execution** — la vue d'un run dans l'Atelier (C9) n'est plus
+  réservée au diagnostic d'un échec : « Voir dans le graphe » (Historique, ligne ou panneau
+  latéral) ouvre désormais la même vue annotée pour un run réussi comme pour un échec. Un run
+  encore en cours s'y met à jour tout seul (statuts des nœuds, chronogramme) jusqu'à son
+  terminaison, en réutilisant le sondage déjà existant pour le traçage lumineux.
+- Chaque run garde désormais une photo figée de la structure du pipeline (étapes et liaisons)
+  telle qu'elle était à son lancement (`pipeline_runs.graph_snapshot_json`). La vue d'un run
+  reste ainsi fidèle à ce qui a réellement tourné même si le pipeline est modifié — ou une étape
+  supprimée — après coup ; une étape sans photo (runs antérieurs à cette version) qui n'existe
+  plus dans le pipeline actuel est désormais signalée explicitement plutôt que silencieusement
+  ignorée.
+
 ## [0.57.2] - 2026-10-26
 
 ### Corrigé
