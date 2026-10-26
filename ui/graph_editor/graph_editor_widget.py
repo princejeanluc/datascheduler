@@ -22,6 +22,7 @@ from ui.step_editor.step_type_chooser_dialog import StepTypeChooserDialog
 from ui.step_editor.common import _icon
 from ui.main_window.widgets import _make_search_input
 from core.pipeline import validate_pipeline_graph, topological_ranks
+from core.steps import get_step_output_ports
 
 from .graph_scene import PipelineGraphScene
 from .graph_view import PipelineGraphView
@@ -34,6 +35,8 @@ from .tool_rail import EditorToolRail
 from .zoom_widget import ZoomWidget
 from .help_popup import GraphHelpDialog
 from .node_search_overlay import NodeSearchOverlay
+from .step_library_panel import StepLibraryPanel
+from .step_preview_panel import StepPreviewPanel
 from ui.help.content import get_topic
 
 _NODE_SPACING_X = 240
@@ -59,12 +62,19 @@ class PipelineGraphEditorWidget(QWidget):
     # toolbar (_on_open_settings_dialog) — ce widget n'a pas de fenêtre à lui ; l'hôte (dialogue
     # de compatibilité, voir graph_editor_dialog.py) s'en sert pour rafraîchir SON titre.
     pipeline_renamed = Signal(str)
+    # C7 : True à l'ouverture du panneau "Ajouter", False à sa fermeture — l'hôte
+    # (AtelierPipelinesView) écoute pour basculer son panneau de droite entre PipelineSettingsPanel
+    # et self.preview_panel. Jamais émis en mode dialogue de compatibilité (le panneau n'existe
+    # pas dans ce mode, voir _on_add_step).
+    step_library_toggled = Signal(bool)
 
     def __init__(self, parent=None, pipeline=None, highlight_step_key: str | None = None,
                  show_settings_shortcut_button: bool = True):
         super().__init__(parent)
         self._pipeline = pipeline
         self._show_settings_shortcut_button = show_settings_shortcut_button
+        self._library_panel: StepLibraryPanel | None = None
+        self._preview_panel: StepPreviewPanel | None = None
         # Instantané des positions juste avant le dernier "Ranger automatiquement" (chantier UX
         # éditeur, Lot 1) — aucun QUndoStack n'existe nulle part dans cette app, annulation à un
         # seul niveau volontairement minimale plutôt qu'une abstraction prématurée. Écrase le
@@ -229,6 +239,7 @@ class PipelineGraphEditorWidget(QWidget):
         self._scene.zone_double_clicked.connect(self._on_zone_double_clicked)
         self._scene.node_context_menu_requested.connect(self._on_node_context_menu)
         self._view = PipelineGraphView(self._scene)
+        self._view._owner = self   # C7 : voir PipelineGraphView.dropEvent
         root.addWidget(self._view, stretch=1)
 
         # Raccourci clavier — même idiome que Ctrl+N (pipelines_view.py)/F5 (window.py). Même
@@ -496,30 +507,151 @@ class PipelineGraphEditorWidget(QWidget):
         return [e.from_node.step for e in self._scene.edges if e.to_node is node]
 
     def _on_add_step(self):
+        """Mode dialogue de compatibilité : flux modal inchangé (StepTypeChooserDialog puis
+        dialogue de config). Mode Atelier réel (C7) : ouvre le panneau "Ajouter" à la place —
+        même bascule déjà établie pour A10 (recherche de nœud)."""
+        if self._show_settings_shortcut_button:
+            from ui.step_editor import _open_config_dialog
+            from database import db_manager as db
+
+            dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
+            if not dlg.exec():
+                return
+            # dlg.chosen_config (chantier bibliothèque d'étapes réutilisables) : {} pour un choix
+            # de type normal, préremplie si le choix vient de "Mes modèles" — même chemin que
+            # _on_node_double_clicked() ci-dessous (config déjà non vide pour une étape
+            # existante), aucune modification des dialogues individuels n'est nécessaire.
+            config_dlg = _open_config_dialog(
+                dlg.chosen_type, dlg.chosen_config, self,
+                self._oracle_profiles, self._ftp_profiles, self._sql_queries,
+                self._smtp_profiles, self._db_profiles,
+                prior_steps=[n.step for n in self._scene.nodes.values()],
+                pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
+            )
+            if config_dlg and config_dlg.exec():
+                step = config_dlg.result_step()
+                node = self._scene.add_node(step, self._next_new_node_pos())
+                if node is not None:
+                    node.set_profile_names(self._profile_names)
+            return
+
+        self.open_step_library()
+
+    # ── C7 : panneau "Ajouter" (bibliothèque + aperçu) ────
+
+    @property
+    def preview_panel(self) -> StepPreviewPanel:
+        """Construit à la demande — l'hôte (AtelierPipelinesView) le réclame une seule fois pour
+        le reparenter dans son propre conteneur de droite (jamais placé dans le layout de ce
+        widget lui-même, voir docstring du module de PipelineSettingsPanel pour le même
+        principe)."""
+        if self._preview_panel is None:
+            self._preview_panel = StepPreviewPanel()
+            self._preview_panel.insert_requested.connect(self._on_library_insert_requested)
+        return self._preview_panel
+
+    def open_step_library(self):
+        if self._library_panel is None:
+            self._library_panel = StepLibraryPanel(parent=self._view.viewport())
+            self._library_panel.selection_changed.connect(self._on_library_selection_changed)
+            self._library_panel.close_requested.connect(self.close_step_library)
+            self._library_panel.insert_requested.connect(self._on_library_insert_requested)
+            self._view._library_panel = self._library_panel
+        _ = self.preview_panel   # construit si besoin, avant que l'hôte n'aille le chercher
+        self._library_panel.reposition()
+        self._library_panel.show()
+        self._library_panel.raise_()
+        self._library_panel.inp_search.setFocus()
+        self.step_library_toggled.emit(True)
+
+    def close_step_library(self):
+        if self._library_panel is not None:
+            self._library_panel.hide()
+        self.step_library_toggled.emit(False)
+
+    def _on_library_selection_changed(self, step_type: str, config: dict):
+        self.preview_panel.set_step(step_type, config)
+
+    def _on_library_insert_requested(self):
+        panel = self._library_panel
+        if panel is None or panel._selected_type is None:
+            return
+        self._perform_insertion(panel._selected_type, panel._selected_config)
+
+    def handle_library_drop(self, step_type: str, config: dict, scene_pos: QPointF, hovered_edge):
+        """Appelé par PipelineGraphView.dropEvent — un dépôt sur une arête greffe dedans (même
+        logique que le bouton/Entrée sur une arête sélectionnée), un dépôt sur du vide ajoute un
+        nœud flottant exactement à la position du dépôt (pas _next_new_node_pos, qui n'a de sens
+        que pour un ajout sans position explicite de l'utilisateur)."""
+        target = ("splice", hovered_edge) if hovered_edge is not None else ("floating_at", scene_pos)
+        self._perform_insertion(step_type, config, target_override=target)
+
+    def _resolve_insertion_target(self):
+        """Point de greffe (C7, voir note d'impact) : une arête sélectionnée seule prime, sinon
+        un nœud sélectionné seul, sinon flottant — jamais d'ambiguïté avec plusieurs éléments
+        sélectionnés à la fois (repli sur flottant, le plus sûr)."""
+        selected = self._scene.selectedItems()
+        edges = [i for i in selected if isinstance(i, EdgeItem)]
+        if len(edges) == 1:
+            return ("splice", edges[0])
+        nodes = [i for i in selected if isinstance(i, StepNodeItem)]
+        if len(nodes) == 1:
+            return ("after", nodes[0])
+        return ("floating", None)
+
+    @staticmethod
+    def _first_non_error_port(step_type: str) -> str:
+        ports = [p for p in get_step_output_ports(step_type) if p != "error"]
+        return ports[0] if ports else "output_file"
+
+    def _perform_insertion(self, step_type: str, config: dict, target_override=None):
         from ui.step_editor import _open_config_dialog
         from database import db_manager as db
 
-        dlg = StepTypeChooserDialog(self, include_routing_nodes=True)
-        if not dlg.exec():
-            return
-        # dlg.chosen_config (chantier bibliothèque d'étapes réutilisables) : {} pour un choix de
-        # type normal, préremplie si le choix vient de la section "Mes modèles" — même chemin
-        # que _on_node_double_clicked() ci-dessous (config déjà non vide pour une étape
-        # existante), aucune modification des dialogues individuels n'est nécessaire.
+        kind, ref = target_override if target_override is not None else self._resolve_insertion_target()
+
         config_dlg = _open_config_dialog(
-            dlg.chosen_type, dlg.chosen_config, self,
+            step_type, config, self,
             self._oracle_profiles, self._ftp_profiles, self._sql_queries,
             self._smtp_profiles, self._db_profiles,
             prior_steps=[n.step for n in self._scene.nodes.values()],
-            # Lecture fraîche à chaque ouverture (jamais mise en cache) — une variable ajoutée
-            # dans les Paramètres doit apparaître immédiatement dans "+ Variable".
             pipeline_variable_names=[v.name for v in db.get_pipeline_variables(self._pipeline.id)],
         )
-        if config_dlg and config_dlg.exec():
-            step = config_dlg.result_step()
+        if not (config_dlg and config_dlg.exec()):
+            return
+        step = config_dlg.result_step()
+
+        if kind == "splice":
+            edge = ref
+            p1, p2 = edge.from_node.pos(), edge.to_node.pos()
+            pos = QPointF((p1.x() + p2.x()) / 2, (p1.y() + p2.y()) / 2)
+            node = self._scene.add_node(step, pos)
+            if node is None:
+                return
+            node.set_profile_names(self._profile_names)
+            from_key, from_port, to_key = edge.from_node.step_key, edge.from_port, edge.to_node.step_key
+            self._scene.remove_edge(edge)
+            self._scene.add_edge(from_key, from_port, node.step_key)
+            self._scene.add_edge(node.step_key, self._first_non_error_port(step_type), to_key)
+        elif kind == "after":
+            prev = ref
+            pos = QPointF(prev.pos().x() + _NODE_SPACING_X, prev.pos().y())
+            node = self._scene.add_node(step, pos)
+            if node is None:
+                return
+            node.set_profile_names(self._profile_names)
+            prev_type = prev.step.get("step_type", "")
+            self._scene.add_edge(prev.step_key, self._first_non_error_port(prev_type), node.step_key)
+        elif kind == "floating_at":
+            node = self._scene.add_node(step, ref)   # ref = QPointF (position du dépôt)
+            if node is not None:
+                node.set_profile_names(self._profile_names)
+        else:
             node = self._scene.add_node(step, self._next_new_node_pos())
             if node is not None:
                 node.set_profile_names(self._profile_names)
+
+        self.close_step_library()
 
     def _on_node_double_clicked(self, node: StepNodeItem):
         from ui.step_editor import _open_config_dialog

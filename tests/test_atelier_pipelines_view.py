@@ -295,3 +295,62 @@ def test_run_button_delegates_to_the_factored_run_pipeline_now(qapp, test_db, mo
 class _DummyExec:
     def exec(self):
         return None
+
+
+# ──────────────────────────────────────────────
+#  C7 : bascule du panneau de droite (paramètres ↔ aperçu de type d'étape)
+# ──────────────────────────────────────────────
+
+def test_opening_a_pipeline_shows_settings_and_hides_the_preview_panel(qapp, test_db):
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = _pipeline_with_step("atelier-panel-swap-initial")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    assert not view._settings_normal_container.isHidden()
+    assert view._canvas.preview_panel.isHidden()
+
+
+def test_opening_the_step_library_swaps_to_the_preview_panel(qapp, test_db):
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = _pipeline_with_step("atelier-panel-swap-open")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+
+    view._canvas.open_step_library()
+
+    assert view._settings_normal_container.isHidden()
+    assert not view._canvas.preview_panel.isHidden()
+
+
+def test_closing_the_step_library_swaps_back_to_settings(qapp, test_db):
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p = _pipeline_with_step("atelier-panel-swap-close")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p.id)
+    view._canvas.open_step_library()
+
+    view._canvas.close_step_library()
+
+    assert not view._settings_normal_container.isHidden()
+    assert view._canvas.preview_panel.isHidden()
+
+
+def test_switching_pipeline_resets_to_the_settings_panel(qapp, test_db):
+    """Changer de pipeline reconstruit tout le canevas (_clear_container) — le panneau "Ajouter"
+    ne doit jamais rester ouvert sur le pipeline suivant."""
+    from ui.main_window.atelier_pipelines_view import AtelierPipelinesView
+
+    p1 = _pipeline_with_step("atelier-panel-swap-switch-1")
+    p2 = _pipeline_with_step("atelier-panel-swap-switch-2")
+    view = AtelierPipelinesView()
+    view.open_pipeline(p1.id)
+    view._canvas.open_step_library()
+
+    view.open_pipeline(p2.id)
+
+    assert not view._settings_normal_container.isHidden()
+    assert view._canvas.preview_panel.isHidden()

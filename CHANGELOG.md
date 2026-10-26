@@ -29,6 +29,19 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.56.0] - 2026-10-26
+
+### Ajouté
+- **Refonte, C7 (Atelier-ajout)** — panneau « Ajouter » flottant sur le canevas de l'Atelier,
+  remplaçant le dialogue modal pour l'ajout d'étape : recherche, Mes modèles (renommer/supprimer
+  repris), passerelles en losange, catégories — sélection au clic avec aperçu à droite (Reçoit/
+  Produit/Connexion/Port d'erreur, depuis `get_step_requirements`/`step_produces_output_file`/
+  `get_step_output_ports`), insertion par bouton, Entrée ou glisser-déposer. Une arête sélectionnée
+  (ou survolée pendant un glisser) devient le point de greffe — l'étape s'insère dedans, liaisons
+  refaites automatiquement ; sinon un nœud sélectionné devient le point « après » ; sinon
+  insertion flottante. Le dialogue de compatibilité (`PipelineGraphEditorDialog`) garde son flux
+  modal `StepTypeChooserDialog` inchangé.
+
 ## [0.55.0] - 2026-10-23
 
 ### Modifié
