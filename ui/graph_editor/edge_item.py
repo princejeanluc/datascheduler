@@ -52,6 +52,10 @@ class EdgeItem(QGraphicsPathItem):
         self.to_node   = to_node
         self._is_executing = False
         self._is_failed    = False
+        # C9 (Atelier-echec) : "taken"/"not_taken"/"error_waiting"/"error_triggered", posé par
+        # PipelineGraphEditorWidget depuis run_status.py::edge_run_state() — None = apparence
+        # d'édition normale (A5), inchangée.
+        self._run_state: str | None = None
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setZValue(0)
         self.update_path()
@@ -69,6 +73,11 @@ class EdgeItem(QGraphicsPathItem):
         "signal" (qui affirmerait à tort qu'une étape terminée est en train de tourner)."""
         if failed != self._is_failed:
             self._is_failed = failed
+            self.update()
+
+    def set_run_state(self, state: str | None) -> None:
+        if state != self._run_state:
+            self._run_state = state
             self.update()
 
     def update_path(self):
@@ -98,6 +107,21 @@ class EdgeItem(QGraphicsPathItem):
         node_selected = self.from_node.isSelected() or self.to_node.isSelected()
         selected = self.isSelected() or node_selected
 
+        # C9 (Atelier-echec) : état réel du dernier run consulté — jamais pour une liaison
+        # true/false (edge_run_state() renvoie toujours None pour ces deux ports, voir note
+        # d'impact), et toujours sous l'échec/l'exécution/la sélection en priorité, comme le
+        # reste de cette fonction.
+        run_dashed = base_dashed
+        run_width_override = None
+        if self._run_state == "taken":
+            run_color_key, run_dashed = "success", False
+        elif self._run_state == "not_taken":
+            run_color_key, run_dashed = "text_muted", True
+        elif self._run_state == "error_triggered":
+            run_color_key, run_dashed, run_width_override = "warning", False, 3.0
+        else:
+            run_color_key = base_color_key   # "error_waiting" ou None : apparence A5 inchangée
+
         if self._is_failed:
             color = QColor(COLORS["danger"])
         elif self._is_executing:
@@ -105,10 +129,10 @@ class EdgeItem(QGraphicsPathItem):
         elif selected:
             color = QColor(COLORS[edge_selection_color_key(self.from_port)])
         else:
-            color = QColor(COLORS[base_color_key])
+            color = QColor(COLORS[run_color_key])
         state_active = selected or self._is_executing or self._is_failed
-        pen = QPen(color, 2.5 if state_active else 1.8)
-        if base_dashed and not state_active:
+        pen = QPen(color, run_width_override or (2.5 if state_active else 1.8))
+        if run_dashed and not state_active:
             pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
         painter.drawPath(self.path())

@@ -235,6 +235,14 @@ class StepNodeItem(QGraphicsObject):
         # bas — résolution des noms de profil pour le contenu déplié, jamais de requête DB ici.
         self._expanded = False
         self._profile_names: dict = {}
+        # C9 (Atelier-echec) : ligne de statut du run affichée à la place de l'objet principal
+        # habituel (sous-titre, 3e ligne) — jamais en plus, voir set_run_status(). card_state :
+        # None (normal), "not_executed" (bordure pointillée, texte atténué), "error_triggered"
+        # (bordure/fond ambre) — FAILED reste exclusivement couvert par set_failed(), jamais
+        # dupliqué ici.
+        self._run_status_text: str | None = None
+        self._run_status_color_key: str | None = None
+        self._run_card_state: str | None = None
         self.setFlags(
             QGraphicsItem.ItemIsMovable
             | QGraphicsItem.ItemIsSelectable
@@ -257,6 +265,17 @@ class StepNodeItem(QGraphicsObject):
         nœud surligné ainsi est terminé/en échec, pas en train de tourner."""
         if failed != self._is_failed:
             self._is_failed = failed
+            self.update()
+
+    def set_run_status(self, text: str | None, color_key: str | None, card_state: str | None = None) -> None:
+        """C9 (Atelier-echec) : affiche le résultat réel d'un run passé sur ce nœud. `text`/
+        `color_key` remplacent la 3e ligne (objet principal) — jamais une ligne en plus, même
+        hauteur de carte qu'en édition. `card_state` : voir docstring de __init__. `None, None,
+        None` efface (retour à l'apparence d'édition normale, ex. en quittant la vue d'un run)."""
+        new = (text, color_key, card_state)
+        old = (self._run_status_text, self._run_status_color_key, self._run_card_state)
+        if new != old:
+            self._run_status_text, self._run_status_color_key, self._run_card_state = new
             self.update()
 
     def set_search_hit(self, hit: bool) -> None:
@@ -428,12 +447,29 @@ class StepNodeItem(QGraphicsObject):
         any_selected = bool(scene.selectedItems()) if scene else False
         painter.setOpacity(_node_opacity(self.isSelected(), any_selected))
 
+        # C9 (Atelier-echec) : deux états supplémentaires qui ne sont ni une sélection ni un échec
+        # (déjà couvert par set_failed(), inchangé). "not_executed" : carte jamais atteinte par ce
+        # run — fond transparent (pas de teinte, contrairement à une étape normale), bordure
+        # pointillée border_strong. "error_triggered" : étape atteinte PAR le port d'erreur et
+        # réussie — bordure/fond teintés warning au lieu de la couleur de famille habituelle.
+        not_executed = self._run_card_state == "not_executed"
+        error_triggered = self._run_card_state == "error_triggered"
+
         # Fond teinté par la couleur du type (chantier identité visuelle) — une couche de fond
         # discrète en plus, jamais un remplacement de la bordure épaisse colorée qui reste le
         # signal prioritaire pour _is_failed/_is_executing/_is_search_hit (inchangés ci-dessous).
-        painter.setBrush(QBrush(_tinted_bg(QColor(COLORS["bg_card"]), QColor(meta["color"]))))
+        if not_executed:
+            painter.setBrush(Qt.NoBrush)
+        elif error_triggered:
+            painter.setBrush(QBrush(_tinted_bg(QColor(COLORS["bg_card"]), QColor(COLORS["warning"]))))
+        else:
+            painter.setBrush(QBrush(_tinted_bg(QColor(COLORS["bg_card"]), QColor(meta["color"]))))
         if self._is_failed:
             border_color = QColor(COLORS["danger"])
+        elif error_triggered:
+            border_color = QColor(COLORS["warning"])
+        elif not_executed:
+            border_color = QColor(COLORS["border_strong"])
         elif self._is_executing:
             border_color = QColor(COLORS["signal"])
         elif self.isSelected():
@@ -443,7 +479,9 @@ class StepNodeItem(QGraphicsObject):
         else:
             border_color = QColor(meta["color"])
         pen = QPen(border_color, 3 if (self.isSelected() or self._is_executing or self._is_failed
-                                        or self._is_search_hit) else 1.5)
+                                        or self._is_search_hit or error_triggered) else 1.5)
+        if not_executed:
+            pen.setStyle(Qt.DashLine)
         painter.setPen(pen)
         painter.drawPath(path)
 
@@ -463,8 +501,10 @@ class StepNodeItem(QGraphicsObject):
             painter.drawText(QRectF(0, 0, self.WIDTH, self.HEIGHT), Qt.AlignCenter, symbol)
 
             # Nom AU-DESSUS du losange (A3 — il était en dessous avant ce chantier) : une seule
-            # ligne, le libellé utilisateur s'il existe sinon le libellé de type.
-            painter.setPen(QColor(COLORS["text_main"]))
+            # ligne, le libellé utilisateur s'il existe sinon le libellé de type. Atténué si
+            # jamais atteint par le run consulté (C9) — même traitement que le titre d'une carte
+            # normale ci-dessous.
+            painter.setPen(QColor(COLORS["border_strong"] if not_executed else COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
             painter.drawText(QRectF(-20, -_ROUTING_LABEL_ABOVE_H, self.WIDTH + 40, _ROUTING_LABEL_ABOVE_H),
@@ -472,37 +512,50 @@ class StepNodeItem(QGraphicsObject):
             self._paint_chevron(painter, routing)
         else:
             # Point de famille (refonte, lot A-Atelier-grammaire, A1) — remplace le badge
-            # d'icône : une pastille pleine suffit, la couleur dit déjà la famille.
-            dot_x, dot_y = 10, 11
-            painter.setBrush(QBrush(QColor(meta["color"])))
-            painter.setPen(Qt.NoPen)
-            painter.drawEllipse(QPointF(dot_x, dot_y), 4, 4)
+            # d'icône : une pastille pleine suffit, la couleur dit déjà la famille. Omis si
+            # jamais atteint par le run consulté (C9) — la maquette ne montre aucun point sur une
+            # carte "non exécutée", pas seulement une couleur atténuée.
+            if not not_executed:
+                dot_x, dot_y = 10, 11
+                painter.setBrush(QBrush(QColor(meta["color"])))
+                painter.setPen(Qt.NoPen)
+                painter.drawEllipse(QPointF(dot_x, dot_y), 4, 4)
 
-            # Surtitre Mono "FAMILLE · MOTEUR" (A1) — couleur de famille, comme le point.
+            # Surtitre Mono "FAMILLE · MOTEUR" (A1) — couleur de famille, comme le point ; gris
+            # atténué si jamais atteint par le run consulté (C9).
             engine = engine_label(step_type, self.step.get("config") or {}, self._profile_names)
             eyebrow = f"{meta.get('family', '').upper()} · {engine}" if engine else meta.get("family", "").upper()
-            painter.setPen(QColor(meta["color"]))
+            painter.setPen(QColor(COLORS["text_dim"] if not_executed else meta["color"]))
             font = QFont("JetBrains Mono"); font.setPointSize(6); font.setBold(True)
             painter.setFont(font)
             painter.drawText(QRectF(18, 3, self.WIDTH - 28, 11),
                               Qt.AlignLeft | Qt.AlignVCenter, eyebrow)
 
-            # Titre (A1) — libellé utilisateur, ou libellé de type à défaut.
-            painter.setPen(QColor(COLORS["text_main"]))
+            # Titre (A1) — libellé utilisateur, ou libellé de type à défaut ; atténué si jamais
+            # atteint par le run consulté (C9).
+            painter.setPen(QColor(COLORS["text_dim"] if not_executed else COLORS["text_main"]))
             font = QFont(); font.setBold(True); font.setPointSize(9)
             painter.setFont(font)
             painter.drawText(QRectF(10, 15, self.WIDTH - 20, 18),
                               Qt.AlignLeft | Qt.AlignVCenter, primary_text)
 
-            # Sous-titre Mono "objet principal" (A1) — premier fait de compute_node_facts (la
-            # requête, le fichier... selon le type), absent s'il n'y a aucun fait.
-            facts, _rv, _wv = self._facts_and_vars()
-            if facts:
-                painter.setPen(QColor(COLORS["text_dim"]))
-                font = QFont("JetBrains Mono"); font.setPointSize(7)
+            # Sous-titre (A1) : objet principal (premier fait) en édition normale — REMPLACÉ par
+            # le résultat du run consulté quand set_run_status() en a posé un (C9, jamais les
+            # deux en même temps, même hauteur de carte).
+            if self._run_status_text:
+                painter.setPen(QColor(COLORS[self._run_status_color_key]))
+                font = QFont(); font.setBold(False); font.setPointSize(7)
                 painter.setFont(font)
                 painter.drawText(QRectF(10, 34, self.WIDTH - 20, 14),
-                                  Qt.AlignLeft | Qt.AlignVCenter, facts[0]["value"])
+                                  Qt.AlignLeft | Qt.AlignVCenter, self._run_status_text)
+            else:
+                facts, _rv, _wv = self._facts_and_vars()
+                if facts:
+                    painter.setPen(QColor(COLORS["text_dim"]))
+                    font = QFont("JetBrains Mono"); font.setPointSize(7)
+                    painter.setFont(font)
+                    painter.drawText(QRectF(10, 34, self.WIDTH - 20, 14),
+                                      Qt.AlignLeft | Qt.AlignVCenter, facts[0]["value"])
 
             # Chevron ▾/▸ en haut-droite.
             self._paint_chevron(painter, routing)
