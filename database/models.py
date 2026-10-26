@@ -589,6 +589,16 @@ class PipelineRun(Base):
     # le reste du schéma SQLite de cette app.
     resumed_from_run_id  = Column(Integer, nullable=True)
 
+    # Photo figée des étapes/liaisons telles qu'elles existaient au lancement de CE run (lot
+    # atelier-suivi-execution) — JSON {"steps": [{step_key, step_type, step_label, config}],
+    # "edges": [{from_step_key, from_port, to_step_key, to_port}]}. Contrairement à
+    # resumable_state_json ci-dessus : contenu complet (pas une empreinte), écrit pour TOUT run
+    # (pas seulement à l'échec), jamais purgé. Sert à afficher la vue d'un run fidèlement même si
+    # le pipeline a été modifié (ou une étape supprimée) depuis — voir
+    # core/pipeline.py::_build_graph_snapshot_json. NULL pour un run d'avant ce lot, ou écrit par
+    # un ancien worker : la vue retombe alors sur le graphe vivant (même filet que B1/D1).
+    graph_snapshot_json = Column(Text, nullable=True)
+
     # Relations
     pipeline = relationship("Pipeline", back_populates="runs")
     # cascade="all, delete-orphan" (DONNEES.md::D1) : supprimer ce run — directement, ou via la

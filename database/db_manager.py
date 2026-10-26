@@ -397,6 +397,16 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Photo figée des étapes/liaisons au lancement du run (lot atelier-suivi-execution) —
+        # colonne ajoutée à pipeline_runs, table déjà existante pour toute base antérieure à ce
+        # lot. NULL pour un run ancien : la vue d'un run retombe alors sur le graphe vivant.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "graph_snapshot_json" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN graph_snapshot_json TEXT"
+            ))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -1234,9 +1244,9 @@ def delete_pipeline(pipeline_id: int) -> bool:
 #  HELPERS PIPELINE RUN (historique)
 # ──────────────────────────────────────────────
 
-def create_run(pipeline_id: int) -> PipelineRun:
+def create_run(pipeline_id: int, graph_snapshot_json: str | None = None) -> PipelineRun:
     with get_session() as s:
-        run = PipelineRun(pipeline_id=pipeline_id)
+        run = PipelineRun(pipeline_id=pipeline_id, graph_snapshot_json=graph_snapshot_json)
         s.add(run)
     return run
 
