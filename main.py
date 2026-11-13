@@ -112,14 +112,17 @@ def main():
     else:
         logger.info("Mode exécution en arrière-plan actif — aucun scheduler local démarré.")
 
-    # Lancement de l'interface
+    # Lancement de l'interface — run() se termine par sys.exit(app.exec()), qui lève
+    # SystemExit : sans finally, l'arrêt du scheduler ci-dessous n'était jamais atteint (bug
+    # découvert pendant la note d'impact du lot D2-D4, corrigé séparément ici).
     from ui.main_window import run
-    run()
-
-    # Arrêt propre du scheduler à la fermeture de l'UI
-    if scheduler:
-        scheduler.stop()
-        logger.info("Scheduler arrêté")
+    try:
+        run()
+    finally:
+        # Arrêt propre du scheduler à la fermeture de l'UI
+        if scheduler:
+            scheduler.stop()
+            logger.info("Scheduler arrêté")
 
 
 def worker_main():

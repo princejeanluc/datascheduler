@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.59.1] - 2026-11-13
+
+### Corrigé
+- L'arrêt du scheduler à la fermeture de l'application (mode « dans l'application ») n'était
+  jamais atteint — `run()` se termine par `sys.exit()`, qui sautait directement par-dessus ce
+  code. Sans conséquence visible en usage normal (le process se terminait quand même), mais le
+  scheduler ne recevait jamais l'occasion de s'arrêter proprement.
+
 ## [0.59.0] - 2026-11-13
 
 ### Ajouté
