@@ -279,15 +279,16 @@ def test_refresh_command_poller_registers_job(test_db):
 
 
 def test_poll_worker_commands_run_now_calls_trigger_now(test_db, monkeypatch):
+    """Lot D2-D4 : origin facultatif dans le payload, repli sur "MANUAL" absent."""
     db.enqueue_worker_command("RUN_NOW", {"pipeline_id": 7})
 
     sched = PipelineScheduler()
     calls = []
-    monkeypatch.setattr(sched, "trigger_now", lambda pid: calls.append(pid))
+    monkeypatch.setattr(sched, "trigger_now", lambda pid, origin=None: calls.append((pid, origin)))
 
     sched._poll_worker_commands()
 
-    assert calls == [7]
+    assert calls == [(7, "MANUAL")]
     assert db.get_pending_worker_commands() == []
 
 

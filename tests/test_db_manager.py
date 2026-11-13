@@ -469,6 +469,59 @@ def test_migrate_adds_current_step_label_to_a_pre_existing_pipeline_runs_table(t
     db._SessionFactory = None
 
 
+def test_migrate_adds_d2_d4_columns_to_pre_existing_tables(tmp_path):
+    """Lot D2-D4 (DONNEES.md::D2-D4) : trigger_origin/triggered_by_run_id/scheduled_for/log_json
+    sur pipeline_runs, last_closed_at sur app_settings — même patron que les migrations
+    précédentes, sur des tables "legacy" sans ces colonnes."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_d2_d4.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE pipeline_runs (id INTEGER PRIMARY KEY, pipeline_id INTEGER, "
+            "started_at DATETIME, finished_at DATETIME, status VARCHAR(20), "
+            "rows_exported INTEGER, remote_path VARCHAR(500), error_message TEXT, log_text TEXT)"
+        ))
+        conn.commit()
+    engine.dispose()
+    # app_settings n'est volontairement PAS pré-créée : Base.metadata.create_all() (appelé par
+    # init_db() avant _migrate()) la créera dans sa forme moderne complète — seule pipeline_runs
+    # doit être "legacy" ici pour exercer réellement le bloc ALTER TABLE de last_closed_at via le
+    # test suivant, qui lui pré-crée app_settings. Les deux colonnes sont donc testées par deux
+    # tests distincts plutôt qu'un seul trop chargé.
+
+    db.init_db(db_path)
+    run_cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+                .execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+    assert {"trigger_origin", "triggered_by_run_id", "scheduled_for", "log_json"} <= run_cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
+def test_migrate_adds_last_closed_at_to_a_pre_existing_app_settings_table(tmp_path):
+    """Lot D2-D4 (DONNEES.md::D4) — app_settings "legacy" sans last_closed_at."""
+    from sqlalchemy import create_engine, text
+
+    db_path = tmp_path / "legacy_app_settings.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    with engine.connect() as conn:
+        conn.execute(text(
+            "CREATE TABLE app_settings (id INTEGER PRIMARY KEY, timezone VARCHAR(64))"
+        ))
+        conn.commit()
+    engine.dispose()
+
+    db.init_db(db_path)
+    cols = {r[1] for r in create_engine(f"sqlite:///{db_path}").connect()
+            .execute(text("PRAGMA table_info(app_settings)")).fetchall()}
+    assert "last_closed_at" in cols
+
+    db._engine = None
+    db._SessionFactory = None
+
+
 def test_migrate_adds_active_steps_json_to_a_pre_existing_pipeline_runs_table(tmp_path):
     """Chantier parallélisme intra-pipeline — même patron que current_step_label/
     current_step_key ci-dessus, pour la colonne active_steps_json."""

@@ -985,10 +985,16 @@ class DashboardView(QWidget):
         self.refresh()
 
     def _on_missed_launch_one(self, pipeline_id: int):
-        from core.missed_runs import resolve
+        from core.missed_runs import resolve, get_pending
+        from ui.time_display import to_utc
         try:
             from core.scheduler import get_scheduler
-            get_scheduler().trigger_now(pipeline_id)
+            expected_at = next(
+                (m["expected_at"] for m in get_pending() if m["pipeline_id"] == pipeline_id), None)
+            get_scheduler().trigger_now(
+                pipeline_id, origin="CATCHUP",
+                scheduled_for=to_utc(expected_at) if expected_at else None,
+            )
         except RuntimeError:
             pass
         resolve(pipeline_id)
@@ -1001,6 +1007,7 @@ class DashboardView(QWidget):
 
     def _on_missed_launch_all(self):
         from core.missed_runs import get_pending, resolve
+        from ui.time_display import to_utc
         try:
             from core.scheduler import get_scheduler
             scheduler = get_scheduler()
@@ -1008,7 +1015,10 @@ class DashboardView(QWidget):
             scheduler = None
         for m in get_pending():
             if scheduler is not None:
-                scheduler.trigger_now(m["pipeline_id"])
+                scheduler.trigger_now(
+                    m["pipeline_id"], origin="CATCHUP",
+                    scheduled_for=to_utc(m["expected_at"]) if m["expected_at"] else None,
+                )
             resolve(m["pipeline_id"])
         self.refresh()
 

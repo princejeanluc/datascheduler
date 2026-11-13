@@ -65,11 +65,16 @@ def test_launch_button_disabled_when_nothing_checked(qapp):
 
 
 def test_launch_selected_triggers_only_checked_and_resolves_them(qapp, test_db, monkeypatch):
+    """Lot D2-D4 : origin="CATCHUP" et scheduled_for = expected_at converti en UTC (DONNEES.md::D2)."""
     import core.scheduler as scheduler_module
     from core import missed_runs
+    from ui.time_display import to_utc
 
-    triggered = []
-    fake_sched = type("Fake", (), {"trigger_now": lambda self, pid: triggered.append(pid)})()
+    calls = []
+    fake_sched = type("Fake", (), {
+        "trigger_now": lambda self, pid, origin=None, triggered_by_run_id=None, scheduled_for=None:
+            calls.append((pid, origin, scheduled_for)),
+    })()
     monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: fake_sched)
 
     missed_runs._pending.clear()
@@ -81,7 +86,7 @@ def test_launch_selected_triggers_only_checked_and_resolves_them(qapp, test_db, 
 
     dlg._on_launch_selected()
 
-    assert triggered == [1]
+    assert calls == [(1, "CATCHUP", to_utc(_missed(1, "A")["expected_at"]))]
     assert [m["pipeline_id"] for m in missed_runs.get_pending()] == [2]
 
 

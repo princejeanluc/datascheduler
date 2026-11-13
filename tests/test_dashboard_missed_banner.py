@@ -66,11 +66,16 @@ def test_banner_visible_with_one_chip_per_pending_pipeline(qapp, test_db):
 
 
 def test_individual_launch_triggers_resolves_and_hides_banner(qapp, test_db, monkeypatch):
+    """Lot D2-D4 : origin="CATCHUP" et scheduled_for = expected_at converti en UTC."""
     import core.scheduler as scheduler_module
     from ui.main_window.dashboard_view import DashboardView
+    from ui.time_display import to_utc
 
-    triggered = []
-    fake_sched = type("Fake", (), {"trigger_now": lambda self, pid: triggered.append(pid)})()
+    calls = []
+    fake_sched = type("Fake", (), {
+        "trigger_now": lambda self, pid, origin=None, triggered_by_run_id=None, scheduled_for=None:
+            calls.append((pid, origin, scheduled_for)),
+    })()
     monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: fake_sched)
 
     missed_runs._pending[1] = _missed(1, "A")
@@ -78,7 +83,7 @@ def test_individual_launch_triggers_resolves_and_hides_banner(qapp, test_db, mon
     view = DashboardView()
     view._on_missed_launch_one(1)
 
-    assert triggered == [1]
+    assert calls == [(1, "CATCHUP", to_utc(_missed(1, "A")["expected_at"]))]
     assert missed_runs.get_pending() == []
     assert view._treat_cards_layout.count() == 0
     assert not view._treat_empty.isHidden()
@@ -89,7 +94,10 @@ def test_launch_all_triggers_and_resolves_every_pending_pipeline(qapp, test_db, 
     from ui.main_window.dashboard_view import DashboardView
 
     triggered = []
-    fake_sched = type("Fake", (), {"trigger_now": lambda self, pid: triggered.append(pid)})()
+    fake_sched = type("Fake", (), {
+        "trigger_now": lambda self, pid, origin=None, triggered_by_run_id=None, scheduled_for=None:
+            triggered.append(pid),
+    })()
     monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: fake_sched)
 
     missed_runs._pending[1] = _missed(1, "A")
@@ -106,7 +114,9 @@ def test_ignore_all_resolves_without_triggering_anything(qapp, test_db, monkeypa
     import core.scheduler as scheduler_module
     from ui.main_window.dashboard_view import DashboardView
 
-    fake_sched = type("Fake", (), {"trigger_now": lambda self, pid: pytest.fail("ne doit pas être appelé")})()
+    fake_sched = type("Fake", (), {
+        "trigger_now": lambda self, pid, **kwargs: pytest.fail("ne doit pas être appelé"),
+    })()
     monkeypatch.setattr(scheduler_module, "get_scheduler", lambda: fake_sched)
 
     missed_runs._pending[1] = _missed(1, "A")

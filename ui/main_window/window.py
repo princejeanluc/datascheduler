@@ -231,6 +231,15 @@ class MainWindow(QMainWindow):
 #  ENTRY POINT
 # ──────────────────────────────────────────────
 
+def _write_last_closed_at() -> None:
+    """Dernière fermeture de Kulu (lot D2-D4, DONNEES.md::D4) — connecté à app.aboutToQuit dans
+    run() ci-dessous. Fonction à part (pas une closure inline) pour rester testable sans faire
+    tourner une vraie boucle d'événements Qt."""
+    from datetime import datetime
+    from database import db_manager as db
+    db.update_app_settings(last_closed_at=datetime.utcnow())
+
+
 def run():
     app = QApplication(sys.argv)
 
@@ -265,6 +274,12 @@ def run():
     palette.setColor(QPalette.ToolTipBase,     QColor(COLORS["bg_card"]))
     palette.setColor(QPalette.ToolTipText,     QColor(COLORS["text_main"]))
     app.setPalette(palette)
+
+    # Dernière fermeture de Kulu (lot D2-D4, DONNEES.md::D4) — aboutToQuit plutôt qu'un
+    # closeEvent sur MainWindow : couvre aussi une sortie qui ne passe pas par la fermeture de la
+    # fenêtre (Alt+F4 système, fermeture de session Windows). N'est jamais garanti sur un arrêt
+    # brutal (kill du process, crash) — accepté, voir note d'impact.
+    app.aboutToQuit.connect(_write_last_closed_at)
 
     window = MainWindow()
     window.show()

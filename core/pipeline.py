@@ -48,6 +48,11 @@ class PipelineResult:
         # n'a pas échoué, ou si l'échec est survenu hors de la boucle d'étapes.
         self.failed_step_key = None
         self.log_lines     = []
+        # Journal à niveaux (lot D2-D4, DONNEES.md::D3) — liste de dicts en parallèle de
+        # log_lines ci-dessus (jamais retiré : log_text reste la source pour un run d'avant ce
+        # lot). "WARN"/"OK" existent dans le schéma mais ne sont affectés nulle part encore —
+        # réservés aux futurs lots C qui consommeront ce journal.
+        self.log_entries: list[dict] = []
         self.started_at    = datetime.utcnow()
         self.finished_at   = None
         # ID du PipelineRun créé pour cette exécution — absent (None) si l'échec est survenu
@@ -55,14 +60,17 @@ class PipelineResult:
         # Permet à l'UI de proposer une reprise sans requête DB supplémentaire (chantier J.2).
         self.run_id: int | None = None
 
-    def log(self, msg: str):
-        ts = datetime.utcnow().strftime("%H:%M:%S")
-        self.log_lines.append(f"[{ts}] {msg}")
+    def log(self, msg: str, lvl: str = "INFO", step_key: str | None = None):
+        now = datetime.utcnow()
+        self.log_lines.append(f"[{now.strftime('%H:%M:%S')}] {msg}")
+        self.log_entries.append({
+            "t": now.isoformat(), "lvl": lvl, "step_key": step_key, "msg": msg,
+        })
         logger.info(msg)
 
     def fail(self, msg: str):
         self.error = msg
-        self.log(f"ERREUR : {msg}")
+        self.log(f"ERREUR : {msg}", lvl="ERROR")
 
     def finish(self):
         self.finished_at = datetime.utcnow()
@@ -76,6 +84,10 @@ class PipelineResult:
     @property
     def log_text(self) -> str:
         return "\n".join(self.log_lines)
+
+    @property
+    def log_json(self) -> str:
+        return json.dumps(self.log_entries)
 
 
 # ──────────────────────────────────────────────
@@ -1605,7 +1617,9 @@ def dry_run_pipeline(pipeline_id: int, test_connections: bool = True) -> DryRunR
 #  EXÉCUTEUR PRINCIPAL
 # ──────────────────────────────────────────────
 
-def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | None = None) -> PipelineResult:
+def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | None = None,
+                  origin: str | None = None, triggered_by_run_id: int | None = None,
+                  scheduled_for=None) -> PipelineResult:
     """
     Exécute un pipeline en enchaînant ses PipelineStep dans l'ordre.
     Le contexte (fichier, nombre de lignes, etc.) est transmis d'étape en étape.
@@ -1616,9 +1630,16 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         resume_from_run_id  : (chantier J.2) reprend depuis l'échec d'un run précédent — les
                                étapes déjà réussies ne sont pas ré-exécutées, leurs artefacts
                                sont réamorcés dans le contexte. Voir _build_resumable_state_json.
+        origin               : (lot D2-D4, DONNEES.md::D2) SCHEDULED/MANUAL/TRIGGERED/CATCHUP —
+                               écrasé par "RESUME" ci-dessous si resume_from_run_id est fourni,
+                               jamais une valeur que l'appelant choisit dans ce cas précis.
+        triggered_by_run_id  : run du pipeline parent, seulement pertinent avec origin="TRIGGERED".
+        scheduled_for        : heure prévue par la planification, seulement pertinent avec
+                               origin="SCHEDULED" ou "CATCHUP".
 
     Retourne un PipelineResult (ne lève jamais d'exception).
     """
+    trigger_origin = "RESUME" if resume_from_run_id is not None else origin
     result = PipelineResult()
     run_id = None
 
@@ -1638,7 +1659,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         # _execute_graph), pas les tickets "reprise"/"ignorée" où rien ne tourne réellement.
         if run_id is not None:
             try:
-                db.update_run_progress(run_id, msg, result.log_text, step_key)
+                db.update_run_progress(run_id, msg, result.log_text, step_key, result.log_json)
             except Exception:
                 logger.warning("Échec de la mise à jour de progression du run %s (ignoré).", run_id)
 
@@ -1781,7 +1802,11 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             )
 
         # ── Enregistrement du run ─────────────────
-        run    = db.create_run(pipeline_id, graph_snapshot_json=_build_graph_snapshot_json(steps, edges))
+        run    = db.create_run(
+            pipeline_id, graph_snapshot_json=_build_graph_snapshot_json(steps, edges),
+            trigger_origin=trigger_origin, triggered_by_run_id=triggered_by_run_id,
+            scheduled_for=scheduled_for,
+        )
         run_id = run.id
         result.run_id = run_id
         result.log(f"Run ID : {run_id}")
@@ -1861,7 +1886,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
             result.failed_step_key = ctx.extra.get("failed_step_key")
             _update_run(run_id, "FAILED", result, resumable_json, resume_from_run_id)
             _update_pipeline_status(pipeline_id, "FAILED")
-            _trigger_downstream_pipelines(pipeline_id, "FAILED")
+            _trigger_downstream_pipelines(pipeline_id, "FAILED", parent_run_id=run_id)
             with _active_runs_lock:
                 _active_runs.pop(pipeline_id, None)
             return result
@@ -1876,7 +1901,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         )
         _update_run(run_id, "SUCCESS", result, None, resume_from_run_id)
         _update_pipeline_status(pipeline_id, "SUCCESS")
-        _trigger_downstream_pipelines(pipeline_id, "SUCCESS")
+        _trigger_downstream_pipelines(pipeline_id, "SUCCESS", parent_run_id=run_id)
         with _active_runs_lock:
             _active_runs.pop(pipeline_id, None)
         return result
@@ -1889,7 +1914,7 @@ def run_pipeline(pipeline_id: int, on_progress=None, resume_from_run_id: int | N
         if run_id:
             _update_run(run_id, "FAILED", result)
         _update_pipeline_status(pipeline_id, "FAILED")
-        _trigger_downstream_pipelines(pipeline_id, "FAILED")
+        _trigger_downstream_pipelines(pipeline_id, "FAILED", parent_run_id=run_id)
         logger.exception("Erreur pipeline %s", pipeline_id)
         return result
 
@@ -1907,6 +1932,7 @@ def _update_run(run_id: int, status: str, result: PipelineResult,
         remote_path=result.remote_path,
         error_message=result.error,
         log_text=result.log_text,
+        log_json=result.log_json,
         resumable_state_json=resumable_state_json,
         resumed_from_run_id=resumed_from_run_id,
         failed_step_key=result.failed_step_key,
@@ -1922,7 +1948,8 @@ def _update_pipeline_status(pipeline_id: int, status: str):
             p.last_run_at = datetime.utcnow()
 
 
-def _trigger_downstream_pipelines(parent_pipeline_id: int, parent_status: str) -> None:
+def _trigger_downstream_pipelines(parent_pipeline_id: int, parent_status: str,
+                                   parent_run_id: int | None = None) -> None:
     """Déclenchement conditionnel entre pipelines (chantier P) — jamais appelée pour un run
     CANCELLED (voir les 3 points d'appel dans run_pipeline() : un arrêt demandé par l'utilisateur
     ne doit jamais déclencher de cascade automatique). Ne lève jamais : un incident ici ne doit
@@ -1930,7 +1957,12 @@ def _trigger_downstream_pipelines(parent_pipeline_id: int, parent_status: str) -
     PipelineScheduler.trigger_now() (core/scheduler.py — déjà thread + notifications câblées)
     plutôt que d'appeler run_pipeline() directement : évite l'imbrication d'appels sur une chaîne
     longue, déclenchement non bloquant. Le garde-fou prevent_overlap/is_pipeline_running() déjà
-    intégré à run_pipeline() s'applique automatiquement au run déclenché."""
+    intégré à run_pipeline() s'applique automatiquement au run déclenché.
+
+    parent_run_id (lot D2-D4, DONNEES.md::D2) : transmis comme triggered_by_run_id du run
+    déclenché — None quand l'appelant ne l'a pas (ex. échec survenu avant l'enregistrement du
+    run), auquel cas le run déclenché garde juste trigger_origin="TRIGGERED" sans origine
+    précise."""
     try:
         children = db.get_pipelines_triggered_by(parent_pipeline_id)
         for child in children:
@@ -1945,7 +1977,8 @@ def _trigger_downstream_pipelines(parent_pipeline_id: int, parent_status: str) -
             if fires:
                 from core.scheduler import get_scheduler
                 try:
-                    get_scheduler().trigger_now(child.id)
+                    get_scheduler().trigger_now(
+                        child.id, origin="TRIGGERED", triggered_by_run_id=parent_run_id)
                 except RuntimeError:
                     pass   # scheduler non initialisé (tests, contexte hors app) — jamais fatal,
                            # même patron que ui/main_window/pipelines_view.py::_on_toggle_pipeline()

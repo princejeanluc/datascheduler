@@ -599,6 +599,26 @@ class PipelineRun(Base):
     # un ancien worker : la vue retombe alors sur le graphe vivant (même filet que B1/D1).
     graph_snapshot_json = Column(Text, nullable=True)
 
+    # Origine du run (lot D2-D4, DONNEES.md::D2) — SCHEDULED, MANUAL, TRIGGERED, CATCHUP ou
+    # RESUME. NULL pour un run d'avant ce lot, ou déclenché par un émetteur (worker, script) qui
+    # ne la renseigne pas encore — affiché « — », jamais une erreur.
+    trigger_origin = Column(String(20), nullable=True)
+    # Run du pipeline PARENT qui a déclenché celui-ci, seulement quand trigger_origin ==
+    # "TRIGGERED" — informatif seulement (affichage "déclenché par le run #N"), pas de contrainte
+    # FK, même patron que resumed_from_run_id ci-dessus.
+    triggered_by_run_id = Column(Integer, nullable=True)
+    # Heure prévue par la planification, seulement quand trigger_origin == "SCHEDULED" ou
+    # "CATCHUP" — UTC naïf, comme started_at. Distinct de started_at : un rattrapage ou un run
+    # retardé par misfire_grace_time_min démarre après l'heure qui était réellement prévue.
+    scheduled_for = Column(DateTime, nullable=True)
+
+    # Journal à niveaux (lot D2-D4, DONNEES.md::D3) — JSON, liste de {"t": ISO UTC, "lvl":
+    # "INFO"|"WARN"|"ERROR"|"OK", "step_key", "msg"}. log_text ci-dessus continue d'être écrit à
+    # l'identique (jamais retiré) : un run d'avant ce lot, ou écrit par un ancien worker, n'a que
+    # log_text — les écrans qui consomment ce journal doivent le lire ligne à ligne comme
+    # aujourd'hui dans ce cas (voir DONNEES.md::D3 pour la règle de reconstruction du niveau).
+    log_json = Column(Text, nullable=True)
+
     # Relations
     pipeline = relationship("Pipeline", back_populates="runs")
     # cascade="all, delete-orphan" (DONNEES.md::D1) : supprimer ce run — directement, ou via la
@@ -777,6 +797,12 @@ class AppSettings(Base):
     # Défaut = False (déplié) : même raison que nav_collapsed, un nouveau réglage ne doit jamais
     # changer le comportement silencieusement pour qui n'a jamais touché à l'Atelier.
     atelier_sidebar_collapsed = Column(Boolean, default=False, nullable=False)
+
+    # Dernière fermeture de l'application (lot D2-D4, DONNEES.md::D4) — écrite une fois, à la
+    # sortie (ui/main_window/window.py::run(), app.aboutToQuit), UTC naïf comme le reste de la
+    # base. NULL tant que l'app n'a jamais été fermée proprement depuis l'installation de cette
+    # colonne, ou après un arrêt brutal (kill du process, crash) — accepté, voir note d'impact.
+    last_closed_at = Column(DateTime, nullable=True)
 
     def __repr__(self):
         return f"<AppSettings timezone={self.timezone} max_concurrent_runs={self.max_concurrent_runs}>"

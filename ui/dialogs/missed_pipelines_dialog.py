@@ -169,17 +169,24 @@ class MissedPipelinesDialog(QDialog):
 
     def _on_launch_selected(self):
         from core.missed_runs import resolve
+        from ui.time_display import to_utc
         try:
             from core.scheduler import get_scheduler
             scheduler = get_scheduler()
         except RuntimeError:
             scheduler = None
 
+        expected_at_by_id = {m["pipeline_id"]: m["expected_at"] for m in self._missed}
+
         for pipeline_id, cb in self._checkboxes.items():
             if not cb.isChecked():
                 continue   # laissé en attente — réapparaîtra dans le bandeau du Dashboard
             if scheduler is not None:
-                scheduler.trigger_now(pipeline_id)
+                expected_at = expected_at_by_id.get(pipeline_id)
+                scheduler.trigger_now(
+                    pipeline_id, origin="CATCHUP",
+                    scheduled_for=to_utc(expected_at) if expected_at else None,
+                )
             resolve(pipeline_id)
 
         self.accept()

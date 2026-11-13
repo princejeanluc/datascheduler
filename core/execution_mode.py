@@ -12,14 +12,18 @@ def is_background_mode_active() -> bool:
     return db.get_app_settings().execution_mode == "BACKGROUND"
 
 
-def request_run_now(pipeline_id: int) -> bool:
+def request_run_now(pipeline_id: int, origin: str | None = None) -> bool:
     """Délègue le lancement au worker si le mode arrière-plan est actif. Retourne True si
     délégué (l'appelant ne doit RIEN exécuter localement), False si le mode est IN_APP (l'appelant
-    garde son comportement local habituel)."""
+    garde son comportement local habituel).
+
+    origin (lot D2-D4, DONNEES.md::D2) facultatif — l'unique appelant actuel
+    (ui/main_window/pipeline_actions.py, bouton "Exécuter") l'omet : le worker retombe alors sur
+    "MANUAL" (core/scheduler.py::_poll_worker_commands), exactement le comportement voulu ici."""
     from database import db_manager as db
     if not is_background_mode_active():
         return False
-    db.enqueue_worker_command("RUN_NOW", {"pipeline_id": pipeline_id})
+    db.enqueue_worker_command("RUN_NOW", {"pipeline_id": pipeline_id, "origin": origin})
     return True
 
 

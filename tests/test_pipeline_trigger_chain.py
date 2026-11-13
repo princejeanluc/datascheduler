@@ -17,12 +17,17 @@ from database import db_manager as db
 class _FakeScheduler:
     def __init__(self, raise_runtime_error=False):
         self.triggered: list[int] = []
+        # Lot D2-D4 : capture (pipeline_id, origin, triggered_by_run_id) pour les tests qui
+        # vérifient la propagation de l'origine, en plus de self.triggered (compat des tests
+        # existants qui ne regardent que les ids déclenchés).
+        self.trigger_calls: list[tuple] = []
         self._raise_runtime_error = raise_runtime_error
 
-    def trigger_now(self, pipeline_id):
+    def trigger_now(self, pipeline_id, origin=None, triggered_by_run_id=None, scheduled_for=None):
         if self._raise_runtime_error:
             raise RuntimeError("Scheduler non initialisé.")
         self.triggered.append(pipeline_id)
+        self.trigger_calls.append((pipeline_id, origin, triggered_by_run_id))
         return True
 
 
@@ -144,6 +149,9 @@ def test_run_pipeline_triggers_downstream_pipeline_on_success(test_db, monkeypat
 
     assert result.success
     assert fake.triggered == [b.id]
+    # Lot D2-D4 : le run déclenché porte origin="TRIGGERED" et l'id du run PARENT (celui de A),
+    # pas un id quelconque.
+    assert fake.trigger_calls == [(b.id, "TRIGGERED", result.run_id)]
 
 
 def test_run_pipeline_triggers_downstream_pipeline_on_failure(test_db, monkeypatch):
@@ -160,6 +168,7 @@ def test_run_pipeline_triggers_downstream_pipeline_on_failure(test_db, monkeypat
 
     assert not result.success
     assert fake.triggered == [b.id]
+    assert fake.trigger_calls == [(b.id, "TRIGGERED", result.run_id)]
 
 
 def test_run_pipeline_does_not_trigger_success_child_on_failure(test_db, monkeypatch):
