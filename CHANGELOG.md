@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.59.0] - 2026-11-13
+
+### Ajouté
+- **Refonte, lot D2-D4 (données)** — préparation de données pour les prochains écrans, sans
+  changement visible pour l'instant : chaque run garde désormais son origine (planifié, manuel,
+  déclenché par un autre pipeline, rattrapé ou repris, avec le run parent pour un déclenchement
+  en chaîne), un journal à niveaux en plus du journal texte existant (inchangé), et la dernière
+  fermeture de l'application est désormais enregistrée.
+
 ## [0.58.0] - 2026-10-26
 
 ### Ajouté
