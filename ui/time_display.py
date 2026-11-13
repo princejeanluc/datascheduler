@@ -32,6 +32,15 @@ def to_display(dt_utc: datetime) -> datetime:
     return dt_utc.replace(tzinfo=_UTC).astimezone(_configured_zone()).replace(tzinfo=None)
 
 
+def to_utc(dt_local: datetime) -> datetime:
+    """Inverse de to_display() — naïf dans le fuseau réglé → UTC naïf. Lot D2-D4
+    (DONNEES.md::D2) : convertit `expected_at` (core/missed_runs.py, même convention que
+    Pipeline.next_run_at) avant de le stocker dans PipelineRun.scheduled_for, qui est UTC naïf
+    comme le reste de pipeline_runs — pas une conversion d'affichage, mais la même règle de
+    fuseau s'applique dans les deux sens."""
+    return dt_local.replace(tzinfo=_configured_zone()).astimezone(_UTC).replace(tzinfo=None)
+
+
 def fmt_time(dt_utc: datetime | None, fmt: str = "%H:%M:%S") -> str:
     return to_display(dt_utc).strftime(fmt) if dt_utc else "—"
 

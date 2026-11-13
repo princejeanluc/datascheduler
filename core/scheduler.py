@@ -388,7 +388,9 @@ class PipelineScheduler:
             try:
                 payload = json.loads(cmd.payload_json) if cmd.payload_json else {}
                 if cmd.command == "RUN_NOW":
-                    self.trigger_now(payload["pipeline_id"])
+                    # "origin" facultatif (lot D2-D4) — absent chez un ancien émetteur, repli
+                    # sur "MANUAL" (défaut de trigger_now()).
+                    self.trigger_now(payload["pipeline_id"], origin=payload.get("origin") or "MANUAL")
                 elif cmd.command == "RELOAD":
                     self.load_all_pipelines()
                 elif cmd.command == "CANCEL":
@@ -434,11 +436,16 @@ class PipelineScheduler:
             return True
         return False
 
-    def trigger_now(self, pipeline_id: int) -> bool:
+    def trigger_now(self, pipeline_id: int, origin: str = "MANUAL",
+                     triggered_by_run_id: int | None = None, scheduled_for=None) -> bool:
         """
         Exécute un pipeline immédiatement (hors planification).
         Lance dans un thread séparé pour ne pas bloquer l'UI.
         Retourne True si le lancement est parti.
+
+        origin/triggered_by_run_id/scheduled_for (lot D2-D4, DONNEES.md::D2) : "MANUAL" par
+        défaut, l'usage le plus courant de cette méthode (dialogues de lancement direct) ;
+        _trigger_downstream_pipelines passe "TRIGGERED", le rattrapage passe "CATCHUP".
         """
         pipeline = db.get_pipeline(pipeline_id)
         if not pipeline:
@@ -448,7 +455,9 @@ class PipelineScheduler:
             from core.pipeline import run_pipeline
             logger.info("Exécution manuelle du pipeline %d (%s)",
                         pipeline_id, pipeline.name)
-            result = run_pipeline(pipeline_id)
+            result = run_pipeline(pipeline_id, origin=origin,
+                                   triggered_by_run_id=triggered_by_run_id,
+                                   scheduled_for=scheduled_for)
             if result.success and self._on_job_success:
                 self._on_job_success(pipeline_id, result.remote_path)
             elif not result.success and self._on_job_error:
@@ -505,7 +514,14 @@ class PipelineScheduler:
         appliquée uniformément aux runs planifiés (pas seulement au lancement manuel).
         """
         from core.pipeline import run_pipeline
-        result = run_pipeline(pipeline_id)
+        # scheduled_for (lot D2-D4) : l'heure "prévue" exacte (Pipeline.next_run_at) n'est pas
+        # fiable ici — elle n'est resynchronisée que par _schedule_pipeline() (démarrage ou
+        # replanification), pas à chaque déclenchement réel d'un job récurrent, donc elle peut
+        # être périmée après plusieurs occurrences sans redémarrage. L'heure d'appel de ce
+        # wrapper (APScheduler déclenche au moment dû, hors cas de rattrapage traité à part via
+        # CATCHUP/core/missed_runs.py) est une approximation plus honnête qu'une valeur stockée
+        # potentiellement obsolète.
+        result = run_pipeline(pipeline_id, origin="SCHEDULED", scheduled_for=datetime.utcnow())
         if result.success and self._on_job_success:
             self._on_job_success(pipeline_id, result.remote_path)
         elif not result.success and self._on_job_error:

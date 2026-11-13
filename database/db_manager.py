@@ -407,6 +407,40 @@ def _migrate(engine) -> None:
             ))
             conn.commit()
 
+        # Origine du run + journal à niveaux (lot D2-D4) — colonnes ajoutées à pipeline_runs,
+        # table déjà existante pour toute base antérieure à ce lot. NULL pour un run ancien, ou
+        # déclenché par un émetteur qui ne les renseigne pas encore.
+        run_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(pipeline_runs)")).fetchall()}
+        if "trigger_origin" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN trigger_origin VARCHAR(20)"
+            ))
+            conn.commit()
+        if "triggered_by_run_id" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN triggered_by_run_id INTEGER"
+            ))
+            conn.commit()
+        if "scheduled_for" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN scheduled_for DATETIME"
+            ))
+            conn.commit()
+        if "log_json" not in run_cols:
+            conn.execute(text(
+                "ALTER TABLE pipeline_runs ADD COLUMN log_json TEXT"
+            ))
+            conn.commit()
+
+        # Dernière fermeture de l'application (lot D2-D4) — colonne ajoutée à app_settings, table
+        # déjà existante pour toute base antérieure à ce lot.
+        app_settings_cols = {r[1] for r in conn.execute(text("PRAGMA table_info(app_settings)")).fetchall()}
+        if "last_closed_at" not in app_settings_cols:
+            conn.execute(text(
+                "ALTER TABLE app_settings ADD COLUMN last_closed_at DATETIME"
+            ))
+            conn.commit()
+
 
 def init_db(db_path: Path = None) -> None:
     """Initialise le moteur et crée les tables si elles n'existent pas."""
@@ -1244,9 +1278,15 @@ def delete_pipeline(pipeline_id: int) -> bool:
 #  HELPERS PIPELINE RUN (historique)
 # ──────────────────────────────────────────────
 
-def create_run(pipeline_id: int, graph_snapshot_json: str | None = None) -> PipelineRun:
+def create_run(pipeline_id: int, graph_snapshot_json: str | None = None,
+               trigger_origin: str | None = None, triggered_by_run_id: int | None = None,
+               scheduled_for=None) -> PipelineRun:
     with get_session() as s:
-        run = PipelineRun(pipeline_id=pipeline_id, graph_snapshot_json=graph_snapshot_json)
+        run = PipelineRun(
+            pipeline_id=pipeline_id, graph_snapshot_json=graph_snapshot_json,
+            trigger_origin=trigger_origin, triggered_by_run_id=triggered_by_run_id,
+            scheduled_for=scheduled_for,
+        )
         s.add(run)
     return run
 
@@ -1254,7 +1294,7 @@ def create_run(pipeline_id: int, graph_snapshot_json: str | None = None) -> Pipe
 def finish_run(run_id: int, status: str, rows_exported=None,
                remote_path=None, error_message=None, log_text=None,
                resumable_state_json=None, resumed_from_run_id=None,
-               failed_step_key=None) -> bool:
+               failed_step_key=None, log_json=None) -> bool:
     from datetime import datetime
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
@@ -1266,6 +1306,7 @@ def finish_run(run_id: int, status: str, rows_exported=None,
         run.remote_path   = remote_path
         run.error_message = error_message
         run.log_text      = log_text
+        run.log_json      = log_json
         run.current_step_label   = None   # run terminé — plus d'étape "en cours" à afficher
         run.current_step_key     = None
         # failed_step_key (chantier UX éditeur, Lot 1, B1) — contrairement à current_step_key
@@ -1315,19 +1356,23 @@ def get_run_steps(run_id: int) -> list[PipelineRunStep]:
 
 
 def update_run_progress(run_id: int, current_step_label: str, log_text: str,
-                         current_step_key: str | None = None) -> None:
+                         current_step_key: str | None = None, log_json: str | None = None) -> None:
     """Écriture incrémentale pendant l'exécution (chantier N) — contrairement à finish_run(),
     ne touche ni status ni finished_at : appelée en continu à chaque changement d'étape, pas
     seulement une fois à la fin. Voir core/pipeline.py::run_pipeline()'s closure progress().
 
     `current_step_key` (chantier identité visuelle, traçage lumineux) optionnel : les tickets
     de progression fine intra-étape (step_progress()) le repassent tel quel pour qu'il reste
-    stable pendant toute la durée de l'étape plutôt que d'être effacé entre deux ticks."""
+    stable pendant toute la durée de l'étape plutôt que d'être effacé entre deux ticks.
+
+    `log_json` (lot D2-D4, DONNEES.md::D3) optionnel, même patron que log_text ci-dessus."""
     with get_session() as s:
         run = s.get(PipelineRun, run_id)
         if run:
             run.current_step_label = current_step_label
             run.log_text = log_text
+            if log_json is not None:
+                run.log_json = log_json
             if current_step_key is not None:
                 run.current_step_key = current_step_key
 

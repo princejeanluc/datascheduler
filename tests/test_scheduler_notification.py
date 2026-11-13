@@ -17,7 +17,7 @@ def test_scheduled_failure_triggers_on_job_error(monkeypatch):
     fake_result = PipelineResult()
     fake_result.success = False
     fake_result.error = "Connexion Oracle refusée"
-    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id: fake_result)
+    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id, **kwargs: fake_result)
 
     calls = {"success": [], "error": []}
     sched = PipelineScheduler(
@@ -35,7 +35,7 @@ def test_scheduled_success_triggers_on_job_success(monkeypatch):
     fake_result = PipelineResult()
     fake_result.success = True
     fake_result.remote_path = "/export/ventes.csv"
-    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id: fake_result)
+    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id, **kwargs: fake_result)
 
     calls = {"success": [], "error": []}
     sched = PipelineScheduler(
@@ -53,7 +53,7 @@ def test_no_callback_configured_does_not_raise(monkeypatch):
     fake_result = PipelineResult()
     fake_result.success = False
     fake_result.error = "peu importe"
-    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id: fake_result)
+    monkeypatch.setattr(pipeline_module, "run_pipeline", lambda pipeline_id, **kwargs: fake_result)
 
     sched = PipelineScheduler()   # ni on_job_success ni on_job_error
     sched._run_scheduled_pipeline(1)   # ne doit pas lever

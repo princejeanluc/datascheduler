@@ -39,7 +39,18 @@ def test_request_run_now_delegates_and_enqueues_in_background_mode(test_db):
     pending = db.get_pending_worker_commands()
     assert len(pending) == 1
     assert pending[0].command == "RUN_NOW"
-    assert pending[0].payload_json == '{"pipeline_id": 5}'
+    # Lot D2-D4 : "origin" désormais toujours dans le payload (null si omis par l'appelant) —
+    # core/scheduler.py::_poll_worker_commands retombe sur "MANUAL" dans ce cas.
+    assert pending[0].payload_json == '{"pipeline_id": 5, "origin": null}'
+
+
+def test_request_run_now_forwards_an_explicit_origin(test_db):
+    db.update_app_settings(execution_mode="BACKGROUND")
+
+    assert request_run_now(5, origin="CATCHUP") is True
+
+    pending = db.get_pending_worker_commands()
+    assert pending[0].payload_json == '{"pipeline_id": 5, "origin": "CATCHUP"}'
 
 
 def test_request_reload_returns_false_in_app_mode(test_db):

@@ -40,6 +40,9 @@ class RunProgressThread(QThread):
             self.pipeline_id,
             on_progress=lambda step, pct: self.progress_signal.emit(step, pct),
             resume_from_run_id=self.resume_from_run_id,
+            # Lancement direct depuis un dialogue (lot D2-D4) — "RESUME" est de toute façon
+            # dérivé automatiquement par run_pipeline() quand resume_from_run_id est fourni.
+            origin="MANUAL",
         )
         self.finished_signal.emit(result)
 
