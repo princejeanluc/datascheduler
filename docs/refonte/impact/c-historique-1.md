@@ -38,6 +38,33 @@ direct est porté dans le panneau — même patron que `dashboard_view.py` l.121
 `PipelineDetailDialog` (chemin séparé, remplacé seulement quand C9/le bandeau pipeline existera —
 fiche, question ouverte 3, hors périmètre ici).
 
+## Découverte notable n°2 : `log_json` incomplet depuis le lot D2-D4 (complément minimal)
+
+En construisant C5, constat que `core/pipeline.py::_run_step_with_policy` fusionne
+`ctx.log_lines` (les lignes narrées par l'étape elle-même via `StepContext.log()` — ex. l'hôte
+Sqoop contacté, la commande masquée, « OK — exécuté en Xs »…) directement dans
+`result.log_lines`, **sans** passer par `result.log()` (l.299-301 avant correctif) — ces lignes
+n'alimentaient donc jamais `log_entries`/`log_json`, seulement le texte brut. Pour l'essentiel
+des étapes (Sqoop, DB_EXTRACT, DB_EXECUTE, HTTP…), c'est pourtant le contenu le plus informatif
+du journal — sans ce correctif, le filtre C5 ne verrait quasiment que les lignes de cadrage
+(« --- Étape N : ... ---», « Tentative n/m », « ERREUR : ... »), pas ce qui s'est réellement
+passé dans l'étape.
+
+Correctif contenu dans ce lot (pas une nouvelle migration, pas de nouveau champ) :
+`PipelineResult` garde un état de reconstruction de date (`_log_date`/`_log_prev_time`, initialisé
+à `started_at.date()`) et une méthode `log_ctx_line(line, step_key)` qui reconstruit l'horodatage
+complet de chaque ligne `[HH:MM:SS]` déjà formatée par `StepContext.log()` — même algorithme que
+`history_view.py::_convert_log_text_times` (passage de minuit géré), mais au fil de l'exécution
+plutôt qu'à la lecture. `log_lines`/`log_text` ne changent pas d'un caractère — seul `log_entries`
+gagne ces lignes, en `INFO`. Profite de l'occasion pour corriger aussi la ligne « Tentative n/m »
+(l.307), documentée par la fiche B3 comme devant être en `WARN`, laissée en `INFO` par défaut
+dans le lot D2-D4.
+
+`StepContext`/`ctx.log_lines` (dataclass, `list[str]`) ne sont pas touchés — lus par de nombreux
+tests comme une simple liste de chaînes déjà formatées (`test_sqoop_export_step.py`,
+`test_python_script_error_message.py`, `test_step_context_fork.py`…) ; changer leur structure
+sortirait largement du périmètre de ce lot.
+
 ## Ce que le lot change
 
 - **C3 — Origine.** Colonne « Déclenchement » dans le tableau (8ᵉ colonne), mot d'origine dans le
