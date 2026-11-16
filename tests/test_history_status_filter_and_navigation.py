@@ -167,7 +167,8 @@ def test_history_view_table_groups_todays_runs_under_a_day_header(qapp, test_db)
     assert view._run_ids[0] is None
     assert view.table.item(0, 0).text() == "AUJOURD'HUI"
     assert not (view.table.item(0, 0).flags() & Qt.ItemIsSelectable)
-    assert view.table.columnSpan(0, 0) == 7
+    # 8 colonnes depuis le lot C-Historique-1 (C3 : colonne "Déclenchement" ajoutée).
+    assert view.table.columnSpan(0, 0) == 8
     assert view._run_ids[1] == run.id
 
 
@@ -221,12 +222,13 @@ def test_history_view_row_actions_drop_magnifier_and_add_resume(qapp, test_db):
     view = HistoryView()
     row = view._run_ids.index(run.id)
     row_other = view._run_ids.index(other.id)
-    buttons = view.table.cellWidget(row, 6).findChildren(QPushButton)
+    # Colonne 7 depuis le lot C-Historique-1 (C3 : colonne "Déclenchement" ajoutée en 5).
+    buttons = view.table.cellWidget(row, 7).findChildren(QPushButton)
     tooltips = {b.toolTip() for b in buttons}
     assert "Voir le log complet" not in tooltips
     assert "Reprendre depuis l'échec" in tooltips
 
-    buttons_other = view.table.cellWidget(row_other, 6).findChildren(QPushButton)
+    buttons_other = view.table.cellWidget(row_other, 7).findChildren(QPushButton)
     assert "Reprendre depuis l'échec" not in {b.toolTip() for b in buttons_other}
 
 

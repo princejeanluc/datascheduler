@@ -8,13 +8,14 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedLayout,
-    QPlainTextEdit,
+    QTextEdit,
 )
-from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
 from ui.styles import COLORS
 from ui.time_display import fmt_time, fmt_datetime, fmt_relative, to_display
 from ui.components import make_page_header, Bubble, SidePanel
+from ui.graph_editor.run_status import node_status_text, format_step_duration
 from .widgets import (
     _icon, _action_btn, _configure_columns, _make_search_input, _make_empty_label,
     _make_subtitle, _STATUS_BADGE, _status_str, FONT_MONO, _make_status_badge,
@@ -58,6 +59,22 @@ def _status_label_fr(status_code: str) -> str:
     return _STATUS_LABEL_FR.get(status_code, status_code)
 
 
+# C3 (refonte, lot C-Historique-1, DONNEES.md::D2) : traduction de PipelineRun.trigger_origin —
+# None couvre un run d'avant ce lot, ou écrit par un ancien worker (DONNEES.md).
+def _origin_label(trigger_origin: str | None, triggered_by_run_id: int | None) -> str:
+    if trigger_origin == "SCHEDULED":
+        return "Planifié"
+    if trigger_origin == "MANUAL":
+        return "Manuel"
+    if trigger_origin == "TRIGGERED":
+        return f"Déclenché ↳ #{triggered_by_run_id}" if triggered_by_run_id else "Déclenché"
+    if trigger_origin == "CATCHUP":
+        return "Rattrapé"
+    if trigger_origin == "RESUME":
+        return "Reprise"
+    return "—"
+
+
 def _format_duration_short(seconds) -> str:
     """« 2 min 04 » / « 38 s » (A6) — même format que Pipelines/Aujourd'hui/Dashboard, dupliqué
     ici (convention déjà suivie par dashboard_view.py plutôt qu'un import inter-vues)."""
@@ -77,6 +94,58 @@ def _day_group_label(day, today) -> str:
     if day == today - timedelta(days=1):
         return "HIER"
     return f"{_DAYS_FR[day.weekday()].upper()} {day.day} {_MONTHS_FR[day.month - 1].upper()}"
+
+
+def _build_steps_section(step_rows) -> QWidget | None:
+    """Section « ÉTAPES » du panneau (C4, lot C-Historique-1) — None si `step_rows` est vide (run
+    d'avant B1/D1, ou écrit par un ancien worker : la section reste absente, pas d'erreur, comme
+    avant ce lot). Traductions statut/durée reprises telles quelles de `run_status.py` (déjà
+    écrites pour l'Atelier, C9/atelier-suivi-execution) — aucune nouvelle logique de statut.
+    Ordre : celui de `get_run_steps` (ordre d'insertion), pas recalculé ici."""
+    if not step_rows:
+        return None
+
+    box = QWidget()
+    box.setStyleSheet("background: transparent;")
+    v = QVBoxLayout(box)
+    v.setContentsMargins(0, 0, 0, 0)
+    v.setSpacing(8)
+
+    lbl = QLabel("ÉTAPES")
+    lbl.setStyleSheet(
+        f"color: {COLORS['text_muted']}; font-size: 10px; font-weight: 700; "
+        f"letter-spacing: 0.06em; background: transparent; border: none;"
+    )
+    v.addWidget(lbl)
+
+    # Somme des durées réellement écoulées (SUCCESS/FAILED) — une étape SKIPPED/SKIPPED_RESUME/
+    # CANCELLED n'a pas tourné, donc rien à additionner pour elle (started_at/finished_at restent
+    # souvent None sur ces lignes).
+    total_s = sum(
+        (r.finished_at - r.started_at).total_seconds()
+        for r in step_rows if r.started_at and r.finished_at
+    )
+    summary = QLabel(f"{format_step_duration(total_s)} de travail")
+    summary.setStyleSheet(
+        f"color: {COLORS['text_dim']}; font-size: 11px; background: transparent; border: none;")
+    v.addWidget(summary)
+
+    for r in step_rows:
+        row = QHBoxLayout(); row.setSpacing(8)
+        name = QLabel(r.step_label or r.step_type)
+        name.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12px; background: transparent; border: none;")
+        row.addWidget(name, stretch=1)
+        status_text, color_key = node_status_text(r)
+        status_lbl = QLabel(status_text)
+        status_lbl.setStyleSheet(
+            f"color: {COLORS[color_key]}; font-size: 11px; font-family: {FONT_MONO}; "
+            f"background: transparent; border: none;"
+        )
+        row.addWidget(status_lbl)
+        v.addLayout(row)
+
+    return box
 
 
 # A10 : eyebrow du panneau latéral de run, couleur selon le statut.
@@ -110,25 +179,25 @@ def _resolve_step_label(pipeline, step_key: str | None) -> str | None:
 _LOG_LINE_RE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\] (.*)$")
 
 
-def _convert_log_text_times(log_text: str, started_at) -> str:
-    """Reconstruit l'horodatage complet de chaque ligne de log (A10/T3, DECISIONS.md) —
-    PipelineResult.log() (core/pipeline.py) écrit chaque ligne en UTC avec seulement l'heure
-    (`[HH:MM:SS]`, pas la date). Algorithme décrit par la fiche elle-même (section B3) comme
-    repli tant que B3 (journal à niveaux avec date complète stockée) n'existe pas — c'est donc le
-    seul disponible pour ce lot : reconstruit la date complète à partir de `started_at.date()`, en
-    la faisant avancer d'un jour à chaque fois que l'heure analysée est plus tôt que celle de la
-    ligne précédente (passage de minuit)."""
+def _parse_log_text_entries(log_text: str, started_at) -> list[dict]:
+    """Analyse ligne à ligne de `log_text` — reconstruit l'heure locale complète (passage de
+    minuit géré) et déduit un niveau (« ERROR » si la ligne contient « ERREUR : », sinon
+    « INFO ») — repli du journal filtrable (C5, lot C-Historique-1, fiche section B3) pour un run
+    d'avant D3 ou écrit par un ancien worker (`log_json` absent). Factorisé hors de
+    `_convert_log_text_times` (A10/T3, inchangée en comportement) pour que les deux partagent le
+    même algorithme de reconstruction de date. Chaque entrée : `{"time_s": "HH:MM:SS" local, ou
+    "" si la ligne ne correspond pas au motif, "lvl": str, "msg": str (sans l'horodatage)}`."""
     if not log_text or not started_at:
-        return log_text or ""
+        return []
     from datetime import datetime, timedelta
 
     current_date = started_at.date()
     prev_time = None
-    out_lines = []
+    out = []
     for line in log_text.splitlines():
         m = _LOG_LINE_RE.match(line)
         if not m:
-            out_lines.append(line)
+            out.append({"time_s": "", "lvl": "INFO", "msg": line})
             continue
         h, mi, s, rest = m.groups()
         t = (int(h), int(mi), int(s))
@@ -137,8 +206,75 @@ def _convert_log_text_times(log_text: str, started_at) -> str:
         prev_time = t
         utc_dt = datetime(current_date.year, current_date.month, current_date.day, *t)
         local_dt = to_display(utc_dt)
-        out_lines.append(f"[{local_dt.strftime('%H:%M:%S')}] {rest}")
+        lvl = "ERROR" if "ERREUR : " in rest else "INFO"
+        out.append({"time_s": local_dt.strftime("%H:%M:%S"), "lvl": lvl, "msg": rest})
+    return out
+
+
+def _convert_log_text_times(log_text: str, started_at) -> str:
+    """Reconstruit l'horodatage complet de chaque ligne de log (A10/T3, DECISIONS.md) —
+    PipelineResult.log() (core/pipeline.py) écrit chaque ligne en UTC avec seulement l'heure
+    (`[HH:MM:SS]`, pas la date). Comportement inchangé par le lot C-Historique-1 ; ne fait plus
+    que mettre en texte le résultat de `_parse_log_text_entries` (même algorithme, partagé avec
+    le repli du journal filtrable, C5)."""
+    if not log_text or not started_at:
+        return log_text or ""
+    out_lines = []
+    for e in _parse_log_text_entries(log_text, started_at):
+        out_lines.append(f"[{e['time_s']}] {e['msg']}" if e["time_s"] else e["msg"])
     return "\n".join(out_lines)
+
+
+def _log_entries_for_render(run) -> list[dict]:
+    """Entrées affichables du journal du panneau (C5) — depuis `log_json` (D3) si renseigné et
+    valide, sinon repli sur `log_text` via `_parse_log_text_entries` (fiche, section B3). Chaque
+    entrée : `{"time_s", "lvl", "msg"}`, `time_s` déjà en heure locale (`to_display`)."""
+    if run.log_json:
+        import json
+        try:
+            raw = json.loads(run.log_json)
+        except (TypeError, ValueError):
+            raw = None
+        if raw:
+            from datetime import datetime
+            out = []
+            for e in raw:
+                try:
+                    local_dt = to_display(datetime.fromisoformat(e["t"]))
+                except (KeyError, ValueError, TypeError):
+                    continue
+                out.append({
+                    "time_s": local_dt.strftime("%H:%M:%S"),
+                    "lvl": e.get("lvl") or "INFO",
+                    "msg": e.get("msg", ""),
+                })
+            return out
+    return _parse_log_text_entries(run.log_text, run.started_at)
+
+
+# C5 (lot C-Historique-1) : couleur par niveau — mêmes clés que les badges de statut existants,
+# aucune nouvelle clé COLORS. INFO garde la couleur par défaut du journal (text_main).
+_LOG_LEVEL_COLOR = {"ERROR": "danger", "WARN": "warning", "OK": "success", "INFO": "text_main"}
+
+
+def _render_log_entries(log_box: QTextEdit, entries: list[dict], errors_only: bool) -> None:
+    """Rendu HTML du journal, une ligne colorée par entrée (C5) — `QTextEdit` plutôt que
+    `QPlainTextEdit` (A10, avant ce lot) : seul moyen Qt simple de colorer certaines lignes sans
+    widget personnalisé."""
+    import html as _html
+    if not entries:
+        log_box.setHtml(f'<div style="color:{COLORS["text_dim"]};">(aucun log enregistré)</div>')
+        return
+    shown = [e for e in entries if not errors_only or e["lvl"] == "ERROR"]
+    if not shown:
+        log_box.setHtml(f'<div style="color:{COLORS["text_dim"]};">Aucune erreur dans ce journal.</div>')
+        return
+    lines = []
+    for e in shown:
+        color = COLORS[_LOG_LEVEL_COLOR.get(e["lvl"], "text_main")]
+        prefix = f"[{e['time_s']}] " if e["time_s"] else ""
+        lines.append(f'<div style="color:{color};">{_html.escape(prefix + e["msg"])}</div>')
+    log_box.setHtml("".join(lines))
 
 
 # A11 (refonte, lot A-Historique) : traduction/couleur du journal des modifications, locale à cet
@@ -294,23 +430,26 @@ class HistoryView(QWidget):
         # une fenêtre top-level, donc parent.rect() reflète la bonne zone à couvrir.
         self._side_panel = SidePanel(self)
 
-        self.table = QTableWidget(0, 7)
+        self.table = QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(
-            ["Heure", "Pipeline", "Durée", "Lignes", "Statut", "Fichier déposé", ""])
+            ["Heure", "Pipeline", "Durée", "Lignes", "Statut", "Déclenchement", "Fichier déposé", ""])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setShowGrid(False)
-        _configure_columns(self.table, stretch_cols={1, 5})
+        _configure_columns(self.table, stretch_cols={1, 6})
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 76)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Fixed)
         self.table.setColumnWidth(4, 130)
-        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Fixed)
+        # C3 (lot C-Historique-1) : colonne Déclenchement, entre Statut et Fichier déposé.
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.Fixed)
+        self.table.setColumnWidth(5, 130)
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)
         # 60px suffisait pour le seul bouton "Voir le log complet" — élargi pour accueillir le
         # second bouton "Voir dans le graphe" (chantier UX éditeur, Lot 1, B1) sans chevauchement
         # ni débordement hors du tableau (2×26px + espacement + marges).
-        self.table.setColumnWidth(6, 96)
+        self.table.setColumnWidth(7, 96)
         self.table.doubleClicked.connect(self._on_row_dbl_click)
         exec_layout.addWidget(self.table)
 
@@ -400,7 +539,9 @@ class HistoryView(QWidget):
         introduit (calculé après coup ci-dessous, une ligne d'en-tête ne connaît pas son groupe)."""
         status = self._status_filter
         needle = self.inp_search.text().strip().lower()
-        search_cols = [0, 1, 2, 3, 4, 5]
+        # Déclenchement (colonne 5, C3) volontairement absent : A2 ne liste que Heure/Pipeline/
+        # Durée/Lignes/Statut/Fichier déposé + erreur comme cherchés par la recherche libre.
+        search_cols = [0, 1, 2, 3, 4, 6]
         group_header_rows = []
         for row in range(self.table.rowCount()):
             if row >= len(self._run_ids) or self._run_ids[row] is None:
@@ -582,8 +723,10 @@ class HistoryView(QWidget):
 
     def _on_bubble_run_clicked(self, run_id: int):
         """Ligne de la bulle du jour cliquée (A9) — ferme la bulle, ouvre le panneau latéral du
-        run (A10) ; jamais run_log_dialog.py directement depuis cet écran (lui-même inchangé,
-        toujours utilisé par PipelineDetailDialog — un chemin séparé, pas remplacé ici)."""
+        run (A10), même panneau que le double-clic sur le tableau principal (_open_log, lot
+        C-Historique-1). run_log_dialog.py reste utilisé ailleurs par PipelineDetailDialog — un
+        chemin séparé, pas remplacé ici (fiche, question ouverte 3 : hors périmètre tant que le
+        bandeau pipeline de C9 n'existe pas)."""
         if self._bubble is not None:
             self._bubble.hide()
         self._open_run_panel(run_id)
@@ -604,13 +747,17 @@ class HistoryView(QWidget):
         self._side_panel.open()
 
     def _build_run_panel_content(self, pipeline, run) -> QWidget:
-        """Panneau latéral d'un run (A10) — même patron que le panneau d'échec de Dashboard
-        (surtitre/titre/ligne d'info/encadré d'erreur/journal/pied d'actions), sans les
-        précisions gated (C3 : mot "planifiée" ; C4 : "de travail, le reste en attente de
-        réessai" ; C5/C6 : recherche/filtre/couleurs par ligne dans le journal ; C7 : exporter)."""
+        """Panneau latéral d'un run (A10, étendu lot C-Historique-1) — même patron que le
+        panneau d'échec de Dashboard (surtitre/titre/ligne d'info/encadré d'erreur/journal/pied
+        d'actions). C3 : mot d'origine dans le surtitre. C4 : section ÉTAPES (statique à
+        l'ouverture — pas réévaluée par le rafraîchissement en direct ci-dessous, la fiche ne
+        l'exige pas). C5 : filtre Tout/Erreurs + couleurs par niveau dans le journal. Pied
+        d'actions, "Étape en cours" et rafraîchissement en direct d'un run RUNNING inchangés en
+        comportement par rapport à l'ancien run_log_dialog.py (point 7 de "À garder tel quel"),
+        désormais portés ici car ce panneau est le seul chemin vers "Historique-run" (_open_log,
+        _on_bubble_run_clicked)."""
         from datetime import datetime
-
-        st = _status_str(run.status)
+        from database import db_manager as db
 
         content = QWidget()
         content.setStyleSheet("background: transparent;")
@@ -618,13 +765,21 @@ class HistoryView(QWidget):
         layout.setContentsMargins(24, 4, 24, 20)
         layout.setSpacing(12)
 
-        eyebrow_color = _PANEL_EYEBROW_COLOR.get(st, "text_dim")
-        eyebrow = QLabel(f"EXÉCUTION #{run.id} · {_status_label_fr(st).upper()}")
+        eyebrow = QLabel()
         eyebrow.setStyleSheet(
-            f"color: {COLORS[eyebrow_color]}; font-family: {FONT_MONO}; font-size: 11px; "
-            f"font-weight: 700; letter-spacing: 0.06em; background: transparent; border: none;"
+            f"font-family: {FONT_MONO}; font-size: 11px; font-weight: 700; "
+            f"letter-spacing: 0.06em; background: transparent; border: none;"
         )
         layout.addWidget(eyebrow)
+
+        def _update_eyebrow(status_code: str, trigger_origin, triggered_by_run_id):
+            color = COLORS[_PANEL_EYEBROW_COLOR.get(status_code, "text_dim")]
+            origin_s = _origin_label(trigger_origin, triggered_by_run_id)
+            eyebrow.setText(f"EXÉCUTION #{run.id} · {_status_label_fr(status_code).upper()} · {origin_s.upper()}")
+            eyebrow.setStyleSheet(
+                f"color: {color}; font-family: {FONT_MONO}; font-size: 11px; font-weight: 700; "
+                f"letter-spacing: 0.06em; background: transparent; border: none;"
+            )
 
         title = QLabel(pipeline.name)
         title.setWordWrap(True)
@@ -636,26 +791,57 @@ class HistoryView(QWidget):
 
         today = to_display(datetime.utcnow()).date()
         day = to_display(run.started_at).date() if run.started_at else today
-        end_s = fmt_time(run.finished_at) if run.finished_at else "en cours"
-        info = QLabel(
-            f"{_day_group_label(day, today).lower()} {fmt_time(run.started_at)} → {end_s} · "
-            f"{_format_duration_short(run.duration_seconds)}"
-        )
+        info = QLabel()
         info.setStyleSheet(
             f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;")
         layout.addWidget(info)
 
-        if run.error_message:
-            step_label = _resolve_step_label(pipeline, run.failed_step_key)
-            err_text = f"{step_label} — {run.error_message}" if step_label else run.error_message
-            err = QLabel(err_text)
-            err.setWordWrap(True)
-            err.setStyleSheet(
-                f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 11.5px; "
-                f"background: {COLORS['bg_main']}; border: 1px solid {COLORS['bg_hover']}; "
-                f"border-radius: 6px; padding: 10px;"
+        def _update_info(finished_at, duration_seconds):
+            end_s = fmt_time(finished_at) if finished_at else "en cours"
+            info.setText(
+                f"{_day_group_label(day, today).lower()} {fmt_time(run.started_at)} → {end_s} · "
+                f"{_format_duration_short(duration_seconds)}"
             )
-            layout.addWidget(err)
+
+        # "Étape en cours" (point 7 de "À garder tel quel", porté de run_log_dialog.py) —
+        # toujours créé, visible seulement tant que le run est RUNNING.
+        step_lbl = QLabel()
+        step_lbl.setStyleSheet(
+            f"color: {COLORS['text_dim']}; font-size: 12px; background: transparent; border: none;")
+        step_lbl.setVisible(False)
+        layout.addWidget(step_lbl)
+
+        def _update_step_label(current_step_label):
+            if current_step_label:
+                step_lbl.setText(f"Étape en cours : {current_step_label}")
+                step_lbl.setVisible(True)
+            else:
+                step_lbl.setVisible(False)
+
+        # Encadré d'erreur — toujours créé (comme step_lbl) pour pouvoir apparaître si le run
+        # passe de RUNNING à FAILED pendant que le panneau est ouvert.
+        err = QLabel()
+        err.setWordWrap(True)
+        err.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-family: {FONT_MONO}; font-size: 11.5px; "
+            f"background: {COLORS['bg_main']}; border: 1px solid {COLORS['bg_hover']}; "
+            f"border-radius: 6px; padding: 10px;"
+        )
+        err.setVisible(False)
+        layout.addWidget(err)
+
+        def _update_error(error_message, failed_step_key):
+            if error_message:
+                step_label = _resolve_step_label(pipeline, failed_step_key)
+                err.setText(f"{step_label} — {error_message}" if step_label else error_message)
+                err.setVisible(True)
+            else:
+                err.setVisible(False)
+
+        # C4 : section ÉTAPES, statique à l'ouverture (voir docstring).
+        steps_section = _build_steps_section(db.get_run_steps(run.id))
+        if steps_section is not None:
+            layout.addWidget(steps_section)
 
         log_lbl = QLabel("JOURNAL")
         log_lbl.setStyleSheet(
@@ -664,15 +850,51 @@ class HistoryView(QWidget):
         )
         layout.addWidget(log_lbl)
 
-        log_box = QPlainTextEdit()
+        # C5 : filtre Tout/Erreurs — mêmes couleurs de bascule que les segments de statut
+        # (_set_active_status), état purement local à ce panneau (log_filter_state).
+        log_filter_row = QHBoxLayout(); log_filter_row.setSpacing(6)
+        log_filter_state = {"errors_only": False}
+        btn_log_all = QPushButton("Tout")
+        btn_log_errors = QPushButton("Erreurs")
+
+        def _style_log_filter_btn(btn, active):
+            btn.setStyleSheet(
+                f"QPushButton {{ padding: 2px 10px; border-radius: 5px; font-size: 11px; "
+                f"background: {COLORS['bg_active'] if active else 'transparent'}; "
+                f"color: {COLORS['text_main'] if active else COLORS['text_dim']}; "
+                f"border: 1px solid {COLORS['accent'] if active else COLORS['border']}; }}"
+            )
+
+        def _apply_log_filter():
+            _style_log_filter_btn(btn_log_all, not log_filter_state["errors_only"])
+            _style_log_filter_btn(btn_log_errors, log_filter_state["errors_only"])
+            _render_log_entries(log_box, log_entries_box["entries"], log_filter_state["errors_only"])
+
+        def _set_log_filter(errors_only):
+            log_filter_state["errors_only"] = errors_only
+            _apply_log_filter()
+
+        for btn, errors_only in ((btn_log_all, False), (btn_log_errors, True)):
+            btn.setFixedHeight(24)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda _, v=errors_only: _set_log_filter(v))
+            log_filter_row.addWidget(btn)
+        log_filter_row.addStretch()
+        layout.addLayout(log_filter_row)
+
+        log_box = QTextEdit()
         log_box.setReadOnly(True)
         log_box.setFont(QFont(FONT_MONO, 10))
         log_box.setStyleSheet(
             f"background: {COLORS['bg_main']}; color: {COLORS['text_main']}; "
             f"border: 1px solid {COLORS['border']}; border-radius: 6px;"
         )
-        log_box.setPlainText(_convert_log_text_times(run.log_text, run.started_at))
         layout.addWidget(log_box, stretch=1)
+
+        # Boîte mutable (pas une variable locale simple) pour que _apply_log_filter() voie les
+        # entrées rafraîchies par le polling ci-dessous sans dépendre de l'ordre de définition.
+        log_entries_box = {"entries": _log_entries_for_render(run)}
+        _apply_log_filter()
 
         footer = QHBoxLayout(); footer.setSpacing(8)
         if run.resumable_state_json:
@@ -689,6 +911,42 @@ class HistoryView(QWidget):
         footer.addWidget(btn_graph)
         footer.addStretch()
         layout.addLayout(footer)
+
+        _update_eyebrow(_status_str(run.status), run.trigger_origin, run.triggered_by_run_id)
+        _update_info(run.finished_at, run.duration_seconds)
+        _update_step_label(run.current_step_label)
+        _update_error(run.error_message, run.failed_step_key)
+
+        # Rafraîchissement en direct (point 7 de "À garder tel quel", porté de
+        # run_log_dialog.py::_refresh_live — même patron que dashboard_view.py l.1213-1236) :
+        # s'arrête de lui-même dès que le run quitte RUNNING, ou si le panneau se ferme.
+        if _status_str(run.status) == "RUNNING":
+            run_id = run.id
+            timer = QTimer(content)
+
+            def _poll():
+                from database.models import PipelineRun
+                with db.get_session() as s:
+                    fresh = s.get(PipelineRun, run_id)
+                    if not fresh:
+                        timer.stop()
+                        return
+                    new_status = _status_str(fresh.status)
+                    _update_eyebrow(new_status, fresh.trigger_origin, fresh.triggered_by_run_id)
+                    _update_info(fresh.finished_at, fresh.duration_seconds)
+                    _update_step_label(fresh.current_step_label)
+                    _update_error(fresh.error_message, fresh.failed_step_key)
+                    new_entries = _log_entries_for_render(fresh)
+                    if new_entries != log_entries_box["entries"]:
+                        log_entries_box["entries"] = new_entries
+                        _apply_log_filter()
+                    if new_status != "RUNNING":
+                        timer.stop()
+
+            timer.setInterval(db.get_app_settings().live_log_refresh_s * 1000)
+            timer.timeout.connect(_poll)
+            timer.start()
+            self._side_panel.closed.connect(timer.stop)
 
         return content
 
@@ -770,7 +1028,7 @@ class HistoryView(QWidget):
         for r_idx, (run, header_label) in enumerate(display_rows):
             if run is None:
                 self._run_ids.append(None)
-                self.table.setSpan(r_idx, 0, 1, 7)
+                self.table.setSpan(r_idx, 0, 1, 8)
                 header_item = QTableWidgetItem(header_label)
                 header_item.setFlags(Qt.ItemIsEnabled)
                 header_item.setForeground(QColor(COLORS["text_dim"]))
@@ -789,7 +1047,8 @@ class HistoryView(QWidget):
                 f"{run.rows_exported:,}".replace(",", " ")
                 if run.rows_exported is not None else "—"
             )
-            cells  = [time_s, pname, dur, rows_s, st, run.remote_path or "—"]
+            origin_s = _origin_label(run.trigger_origin, run.triggered_by_run_id)
+            cells  = [time_s, pname, dur, rows_s, st, origin_s, run.remote_path or "—"]
             for c_idx, cell in enumerate(cells):
                 if c_idx == 4:
                     badge = _make_status_badge(_status_label_fr(st), _STATUS_BADGE.get(st, "badge_idle"))
@@ -797,8 +1056,8 @@ class HistoryView(QWidget):
                     self.table.setCellWidget(r_idx, c_idx, badge)
                 else:
                     item = QTableWidgetItem(cell)
-                    item.setForeground(QColor(COLORS["text_dim"] if c_idx == 5 else COLORS["text_main"]))
-                    if c_idx == 5:
+                    item.setForeground(QColor(COLORS["text_dim"] if c_idx in (5, 6) else COLORS["text_main"]))
+                    if c_idx == 6:
                         item.setFont(QFont(FONT_MONO, 11))
                     self.table.setItem(r_idx, c_idx, item)
 
@@ -827,7 +1086,7 @@ class HistoryView(QWidget):
             btn_graph.clicked.connect(lambda _, i=r_idx: self._open_graph(i))
             hl.addWidget(btn_graph)
 
-            self.table.setCellWidget(r_idx, 6, w)
+            self.table.setCellWidget(r_idx, 7, w)
 
             self.table.setRowHeight(r_idx, 44)
 
@@ -837,10 +1096,13 @@ class HistoryView(QWidget):
         self._open_log(index.row())
 
     def _open_log(self, row: int):
+        """Double-clic sur une ligne du tableau (T6) — ouvre le panneau latéral A10
+        (_open_run_panel), comme la bulle du jour (lot C-Historique-1 : avant ce lot, seule la
+        bulle y menait, le tableau ouvrait encore l'ancien run_log_dialog.py — écart avec la
+        fiche, qui décrit un seul frame "Historique-run" peu importe le point d'entrée)."""
         if row >= len(self._run_ids) or self._run_ids[row] is None:
             return
-        from .run_log_dialog import open_run_log_dialog
-        open_run_log_dialog(self, self._run_ids[row])
+        self._open_run_panel(self._run_ids[row])
 
     def _on_resume(self, row: int):
         """"Reprendre depuis l'échec" (A8) — même dialogue que Pipelines (ui/dialogs,

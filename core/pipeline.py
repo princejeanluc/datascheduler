@@ -10,7 +10,7 @@ import queue
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from database import db_manager as db
@@ -33,6 +33,10 @@ RETRY_DELAY_S_DEFAULT = 5   # repli si step.retry_interval_s est absent/à 0 (fa
 # que de dormir dans le thread, un mécanisme bien plus lourd, hors scope ici).
 _CANCEL_POLL_INTERVAL_S = 1
 
+# Lignes déjà formatées par StepContext.log() (lot C-Historique-1) — « [HH:MM:SS] msg », jamais
+# la date (voir PipelineResult.log_ctx_line).
+_CTX_LOG_LINE_RE = re.compile(r"^\[(\d{2}):(\d{2}):(\d{2})\] (.*)$")
+
 
 # ──────────────────────────────────────────────
 #  RÉSULTAT D'EXÉCUTION
@@ -54,6 +58,11 @@ class PipelineResult:
         # réservés aux futurs lots C qui consommeront ce journal.
         self.log_entries: list[dict] = []
         self.started_at    = datetime.utcnow()
+        # Reconstruction de date pour log_ctx_line() ci-dessous — ctx.log_lines n'a que
+        # HH:MM:SS (StepContext.log()), jamais la date ; état tenu sur tout le run (pas remis à
+        # zéro par étape : une étape assez longue peut dépasser minuit UTC).
+        self._log_date      = self.started_at.date()
+        self._log_prev_time = None
         self.finished_at   = None
         # ID du PipelineRun créé pour cette exécution — absent (None) si l'échec est survenu
         # avant l'enregistrement du run (pipeline introuvable, aucune étape, reprise invalide...).
@@ -67,6 +76,28 @@ class PipelineResult:
             "t": now.isoformat(), "lvl": lvl, "step_key": step_key, "msg": msg,
         })
         logger.info(msg)
+
+    def log_ctx_line(self, line: str, step_key: str | None = None) -> None:
+        """Fusionne une ligne déjà formatée de StepContext.log_lines (« [HH:MM:SS] msg » — ce
+        qu'une étape raconte elle-même, ex. l'hôte Sqoop contacté) dans log_entries — jusqu'au
+        lot C-Historique-1, ces lignes n'alimentaient que log_lines/log_text (jamais log_entries,
+        voir _run_step_with_policy), laissant le filtre par niveau sans l'essentiel du contenu
+        pour la plupart des types d'étape. Reconstruction de la date : même algorithme que
+        history_view.py::_convert_log_text_times (passage de minuit géré), au fil de l'exécution
+        plutôt qu'à la lecture. log_lines/log_text ne changent pas d'un caractère."""
+        m = _CTX_LOG_LINE_RE.match(line)
+        if not m:
+            self.log_entries.append({
+                "t": datetime.utcnow().isoformat(), "lvl": "INFO", "step_key": step_key, "msg": line,
+            })
+            return
+        h, mi, s, msg = m.groups()
+        t = (int(h), int(mi), int(s))
+        if self._log_prev_time is not None and t < self._log_prev_time:
+            self._log_date += timedelta(days=1)
+        self._log_prev_time = t
+        ts = datetime(self._log_date.year, self._log_date.month, self._log_date.day, *t)
+        self.log_entries.append({"t": ts.isoformat(), "lvl": "INFO", "step_key": step_key, "msg": msg})
 
     def fail(self, msg: str):
         self.error = msg
@@ -296,15 +327,20 @@ def _run_step_with_policy(executor, ctx, step, step_progress, result, cancel_eve
             "error": None if step_result.success else step_result.error,
         })
 
+        # getattr (pas step.config_json direct) : plusieurs tests appellent cette fonction avec
+        # un faux step minimal (ex. SimpleNamespace) sans cet attribut — même précaution que
+        # retry_interval_s ci-dessus.
+        step_key = json.loads(getattr(step, "config_json", None) or "{}").get("_step_key")
         for line in ctx.log_lines:
             result.log_lines.append(line)
+            result.log_ctx_line(line, step_key)
         ctx.log_lines.clear()
 
         cancelled = cancel_event is not None and cancel_event.is_set()
         if step_result.success or cancelled or attempt >= retry_count:
             return step_result, attempts_log
         attempt += 1
-        result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}")
+        result.log(f"Tentative {attempt}/{retry_count} après échec : {step_result.error}", lvl="WARN")
         _interruptible_sleep(retry_interval_s, cancel_event)
 
 

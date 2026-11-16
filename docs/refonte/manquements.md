@@ -68,9 +68,9 @@ Chaque ligne indique où regarder dans le code. Version lue : 0.45.0.
 | Type | Sujet | Détail | Où |
 |---|---|---|---|
 | Manquement | 100 runs maximum | La liste ne charge que les 100 dernières exécutions, sans période ni pagination | `db_manager.py::get_recent_runs`, `history_view.py::refresh` |
-| Manquement | Résultat par étape absent | Un run ne garde que son journal texte : ni durée ni lignes par étape, donc pas de chronogramme d'un run passé | `database/models.py::PipelineRun` |
-| Manquement | Origine du run absente | Rien ne dit si un run est planifié, manuel, déclenché par un autre pipeline ou rattrapé (seule la reprise est notée) | `PipelineRun.resumed_from_run_id` |
-| Manquement | Journal brut | Le journal d'un run est un texte sans niveaux : pas de filtre « erreurs » ni de recherche | `ui/main_window/run_log_dialog.py` |
+| Manquement | Résultat par étape absent | Un run ne garde que son journal texte : ni durée ni lignes par étape, donc pas de chronogramme d'un run passé | `database/models.py::PipelineRun` — fait (lot C-Historique-1) |
+| Manquement | Origine du run absente | Rien ne dit si un run est planifié, manuel, déclenché par un autre pipeline ou rattrapé (seule la reprise est notée) | `PipelineRun.resumed_from_run_id` — fait (lot C-Historique-1) |
+| Manquement | Journal brut | Le journal d'un run est un texte sans niveaux : pas de filtre « erreurs » ni de recherche | `ui/main_window/run_log_dialog.py` — filtre « erreurs » fait (lot C-Historique-1, C5) ; recherche toujours à faire (C6) |
 | Manquement | Journal des modifications partiel | Ne suit que les pipelines (création, modification, suppression, import) ; une modification de réglage n'est décrite que par « Nom/description/planification » | `db_manager.py::log_audit_event`, `_diff_pipeline_graph` |
 | Manquement | Carte de fréquence plafonnée | 10 pipelines au plus, sauf pendant une recherche | `history_view.py::_MAX_FREQUENCY_ROWS` |
 | Proposition | Durée comparée à l'habitude | Barre de durée avec la médiane du pipeline, ambre au-delà de 1,5 fois | nouveau |

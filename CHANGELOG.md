@@ -29,7 +29,7 @@ bas pour son introduction).
 
 ## [Non publié]
 
-## [0.60.0] - 2026-11-13
+## [0.61.0] - 2026-11-16
 
 ### Modifié
 - **Refonte, Lot A-Requetes-SQL** — l'atelier Requêtes SQL (`ui/main_window/queries_view.py`,
@@ -45,6 +45,30 @@ bas pour son introduction).
   restylée, modale de création rapide enrichie d'un surtitre contextuel optionnel (« NOUVELLE
   REQUÊTE · POUR L'ÉTAPE « X » DE Y ») câblé depuis les 3 dialogues d'étape concernés (DB_EXTRACT,
   DB_EXECUTE, SPARK_SQL).
+
+## [0.60.0] - 2026-11-15
+
+### Ajouté
+- **Refonte, lot C-Historique-1** — le panneau latéral d'une exécution (déjà atteignable depuis
+  la bulle du jour) s'ouvre désormais aussi depuis un double-clic sur le tableau principal, et
+  montre en plus : son origine (planifiée, manuelle, déclenchée par un autre pipeline — avec le
+  numéro du run parent, rattrapée ou reprise), une section « Étapes » (durée, tentatives, lignes
+  de chaque étape du run), et un filtre Tout/Erreurs avec une couleur par niveau dans le journal.
+  Une nouvelle colonne « Déclenchement » apparaît aussi dans le tableau. Un run resté en cours
+  pendant que le panneau est ouvert se met à jour tout seul, comme l'ancien dialogue qu'il
+  remplace sur ce point d'entrée.
+- Le journal à niveaux (lot D2-D4) ne gardait jusqu'ici que les lignes de cadrage d'une étape
+  (démarrage, échec, tentative) : ce qu'une étape raconte elle-même pendant son exécution (hôte
+  contacté, commande lancée, résultat...) n'y apparaissait pas, seulement dans le journal texte.
+  C'est corrigé — invisible tant qu'aucun écran ne filtrait par niveau, visible dès ce lot.
+
+## [0.59.1] - 2026-11-13
+
+### Corrigé
+- L'arrêt du scheduler à la fermeture de l'application (mode « dans l'application ») n'était
+  jamais atteint — `run()` se termine par `sys.exit()`, qui sautait directement par-dessus ce
+  code. Sans conséquence visible en usage normal (le process se terminait quand même), mais le
+  scheduler ne recevait jamais l'occasion de s'arrêter proprement.
 
 ## [0.59.0] - 2026-11-13
 
