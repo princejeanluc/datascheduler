@@ -29,6 +29,22 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.60.0] - 2026-11-15
+
+### Ajouté
+- **Refonte, lot C-Historique-1** — le panneau latéral d'une exécution (déjà atteignable depuis
+  la bulle du jour) s'ouvre désormais aussi depuis un double-clic sur le tableau principal, et
+  montre en plus : son origine (planifiée, manuelle, déclenchée par un autre pipeline — avec le
+  numéro du run parent, rattrapée ou reprise), une section « Étapes » (durée, tentatives, lignes
+  de chaque étape du run), et un filtre Tout/Erreurs avec une couleur par niveau dans le journal.
+  Une nouvelle colonne « Déclenchement » apparaît aussi dans le tableau. Un run resté en cours
+  pendant que le panneau est ouvert se met à jour tout seul, comme l'ancien dialogue qu'il
+  remplace sur ce point d'entrée.
+- Le journal à niveaux (lot D2-D4) ne gardait jusqu'ici que les lignes de cadrage d'une étape
+  (démarrage, échec, tentative) : ce qu'une étape raconte elle-même pendant son exécution (hôte
+  contacté, commande lancée, résultat...) n'y apparaissait pas, seulement dans le journal texte.
+  C'est corrigé — invisible tant qu'aucun écran ne filtrait par niveau, visible dès ce lot.
+
 ## [0.59.1] - 2026-11-13
 
 ### Corrigé

@@ -26,7 +26,9 @@ def qapp():
 
 
 def _buttons_in_row(view, row):
-    widget = view.table.cellWidget(row, 6)
+    # Colonne 7 (lot C-Historique-1, C3 : colonne "Déclenchement" ajoutée en 5, les colonnes
+    # suivantes décalées d'un rang) — l'action de ligne était en colonne 6 avant ce lot.
+    widget = view.table.cellWidget(row, 7)
     return widget.findChildren(QPushButton)
 
 
