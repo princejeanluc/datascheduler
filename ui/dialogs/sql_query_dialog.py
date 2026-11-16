@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton, QFrame,
 )
 from PySide6.QtCore import Qt
-from ui.styles import COLORS, DIALOG_STYLE
+from ui.styles import COLORS, DIALOG_STYLE, FONT_MONO
 from ui.sql_editor import SqlEditorWidget
 
 
@@ -24,9 +24,12 @@ from ui.sql_editor import SqlEditorWidget
 class SqlQueryDialog(QDialog):
     """Création / édition d'une requête SQL réutilisable."""
 
-    def __init__(self, parent=None, query=None):
+    def __init__(self, parent=None, query=None, step_label: str | None = None,
+                 pipeline_name: str | None = None):
         super().__init__(parent)
         self._query = query
+        self._step_label = step_label
+        self._pipeline_name = pipeline_name
         # Renseigné par _on_save() — permet à l'appelant de savoir précisément QUELLE requête
         # vient d'être créée/modifiée, plutôt que de deviner via le dernier élément d'une liste
         # triée par nom (correctif K2, docs/refonte/LOTS.md).
@@ -44,6 +47,17 @@ class SqlQueryDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(28, 24, 28, 24)
         root.setSpacing(16)
+
+        if self._step_label and self._pipeline_name:
+            eyebrow = QLabel(
+                f"NOUVELLE REQUÊTE · POUR L'ÉTAPE « {self._step_label.upper()} » "
+                f"DE {self._pipeline_name}"
+            )
+            eyebrow.setStyleSheet(
+                f"background: transparent; font-family: {FONT_MONO}; "
+                f"font-size: 10px; letter-spacing: .06em; color: {COLORS['text_dim']};"
+            )
+            root.addWidget(eyebrow)
 
         title = QLabel("Requête SQL")
         title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_main']};")

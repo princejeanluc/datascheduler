@@ -52,7 +52,7 @@ class _QueryCard(QFrame):
         # le fond réel de la carte (transparent ou bg_active selon la sélection) — bug réel constaté
         # à l'usage, même correctif que partout ailleurs dans l'appli (voir les autres vues).
         name.setStyleSheet(
-            f"background: transparent; font-size: 12.5px; font-weight: 600; color: {COLORS['text_main']};"
+            f"background: transparent; font-size: 13px; font-weight: 600; color: {COLORS['text_main']};"
         )
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         top.addWidget(name, stretch=1)
@@ -73,7 +73,7 @@ class _QueryCard(QFrame):
         root.addLayout(top)
 
         desc = QLabel(query.description or "—")
-        desc.setStyleSheet(f"background: transparent; font-size: 10.5px; color: {COLORS['text_dim']};")
+        desc.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_dim']};")
         desc.setWordWrap(False)
         root.addWidget(desc)
 
@@ -96,10 +96,11 @@ class _QueryCard(QFrame):
 
     def set_active(self, active: bool):
         self._active = active
-        border = f"2px solid {COLORS['accent']}" if active else "1px solid transparent"
+        border_left = f"3px solid {COLORS['accent']}" if active else "3px solid transparent"
         bg = COLORS["bg_active"] if active else "transparent"
         self.setStyleSheet(
-            f"QFrame#queryCard {{ background: {bg}; border-left: {border}; border-radius: 4px; }}"
+            f"QFrame#queryCard {{ background: {bg}; border: none; "
+            f"border-left: {border_left}; border-radius: 4px; }}"
         )
 
     def mouseReleaseEvent(self, event):
@@ -145,34 +146,43 @@ class QueriesView(QWidget):
         layout.setContentsMargins(16, 18, 16, 12)
         layout.setSpacing(8)
 
+        title_row = QHBoxLayout(); title_row.setSpacing(6)
         title = QLabel("Requêtes SQL")
         title.setStyleSheet(f"background: transparent; font-size: 15px; font-weight: 700; color: {COLORS['text_main']};")
-        subtitle = QLabel("Bibliothèque de requêtes réutilisables")
-        subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
-        layout.addWidget(title); layout.addWidget(subtitle)
+        self._subtitle = QLabel("")
+        self._subtitle.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
+        title_row.addWidget(title)
+        title_row.addStretch()
+        title_row.addWidget(self._subtitle)
+        layout.addLayout(title_row)
 
-        self.inp_search = _make_search_input("Rechercher (nom, description, SQL…)")
+        self.inp_search = _make_search_input("Nom, description ou SQL…")
         self.inp_search.setMinimumWidth(0)
         self.inp_search.setMaximumWidth(16_777_215)   # occupe la largeur du panneau, pas 240px fixe
         self.inp_search.textChanged.connect(self._on_search_changed)
         layout.addWidget(self.inp_search)
 
-        hint = QLabel("cherche aussi dans le corps SQL, pas seulement le nom")
-        hint.setWordWrap(True)
-        hint.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']}; "
-            f"font-style: italic;"
-        )
-        layout.addWidget(hint)
-
         btn_new = QPushButton("+ Nouvelle requête")
         btn_new.setFixedHeight(32)
+        btn_new.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {COLORS['accent_pale']}; "
+            f"border: 1px solid {COLORS['border_active']}; border-radius: 6px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_active']}; border-color: {COLORS['accent']}; "
+            f"color: {COLORS['accent']}; }}"
+        )
         btn_new.clicked.connect(self._on_new_query)
         layout.addWidget(btn_new)
 
         self.list_widget = QListWidget()
         self.list_widget.setSelectionMode(QAbstractItemView.NoSelection)
         self.list_widget.setFocusPolicy(Qt.NoFocus)
+        # L'aperçu SQL d'une carte (Mono, jusqu'à 80 caractères, non tronqué par un retour à la
+        # ligne — _QueryCard) peut dépasser la largeur du panneau : sans ceci, Qt affiche une
+        # barre de défilement horizontale native (non stylée par GLOBAL_STYLE, qui ne couvre que
+        # QScrollBar:vertical) — bug constaté en capturant. Un simple rognage silencieux à droite
+        # est préférable à cette barre, l'aperçu n'ayant de toute façon jamais vocation à montrer
+        # la requête en entier.
+        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.list_widget.setStyleSheet(
             "QListWidget { background: transparent; border: none; }"
             "QListWidget::item { border: none; padding: 0px; margin: 1px 0; }"
@@ -255,13 +265,17 @@ class QueriesView(QWidget):
         row2.addWidget(lbl_profile); row2.addWidget(self.cb_oracle)
         row2.addStretch()
 
-        self.btn_dup    = QPushButton("⧉ Dupliquer");     self.btn_dup.setObjectName("secondary")
-        self.btn_import = QPushButton("⇪ Importer .sql"); self.btn_import.setObjectName("secondary")
-        self.btn_export = QPushButton("⇩ Exporter .sql"); self.btn_export.setObjectName("secondary")
-        self.btn_format = QPushButton("✦ Formater");      self.btn_format.setObjectName("secondary")
+        self.btn_format = _action_btn("fa5s.magic", object_name="secondary",
+                                       tooltip="Formater", size=(30, 30))
+        self.btn_dup    = _action_btn("fa5s.clone", object_name="secondary",
+                                       tooltip="Dupliquer", size=(30, 30))
+        self.btn_import = _action_btn("fa5s.file-import", object_name="secondary",
+                                       tooltip="Importer un .sql", size=(30, 30))
+        self.btn_export = _action_btn("fa5s.file-export", object_name="secondary",
+                                       tooltip="Exporter en .sql", size=(30, 30))
         self.btn_save   = QPushButton("Enregistrer")
-        for b in (self.btn_dup, self.btn_import, self.btn_export, self.btn_format, self.btn_save):
-            b.setFixedHeight(30)
+        self.btn_save.setFixedHeight(30)
+        for b in (self.btn_format, self.btn_dup, self.btn_import, self.btn_export, self.btn_save):
             row2.addWidget(b)
         h_layout.addLayout(row2)
 
@@ -289,14 +303,15 @@ class QueriesView(QWidget):
         )
         s_layout.addWidget(self.lbl_usage)
         s_layout.addStretch()
-        tokens = QLabel(
-            "Jetons : {yyyy} {MM} {dd} {HH} {mm} {ss} {yyyyMMdd} {yyyyMMddHHmm}"
+        self.lbl_tokens = QLabel(
+            "Jetons : {yyyy} {yy} {MM} {dd} {HH} {mm} {ss} {yyyyMMdd} {yyyyMMddHHmm} "
+            "{rows_count} {error} {failed_step} {output_file} {artifact:…} {var:…} {expr:…}"
         )
-        tokens.setStyleSheet(
+        self.lbl_tokens.setStyleSheet(
             f"background: transparent; font-family: {FONT_MONO}; font-size: 10px; "
             f"color: {COLORS['accent_pale']};"
         )
-        s_layout.addWidget(tokens)
+        s_layout.addWidget(self.lbl_tokens)
         layout.addWidget(status)
 
         self._workshop = panel
@@ -320,6 +335,9 @@ class QueriesView(QWidget):
 
         queries = db.get_sql_queries()
         self._load_oracle_profiles()
+
+        n = len(queries)
+        self._subtitle.setText(f"{n} dans la bibliothèque")
 
         self.list_widget.clear()
         self.list_widget.setVisible(bool(queries))
@@ -367,6 +385,7 @@ class QueriesView(QWidget):
             self._set_workshop_enabled(False)
             return
         self.inp_name.setText(q.name)
+        self.inp_name.setCursorPosition(0)   # sinon un nom long affiche sa fin, pas son début
         self.inp_desc.setText(q.description or "")
         self.editor.set_text(q.sql_text or "")
         if q.oracle_profile_id:
