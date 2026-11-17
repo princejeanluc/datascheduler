@@ -3,6 +3,7 @@ DataScheduler — tests/test_history_run_panel.py
 Lot C-Historique-1 : panneau latéral d'un run atteint depuis le tableau principal (A10 complété),
 colonne/mot d'origine (C3), section Étapes (C4), filtre Tout/Erreurs du journal (C5), et
 rafraîchissement en direct porté dans le panneau (point 7 de "À garder tel quel").
+Lot C-Historique-2 : recherche dans le journal (C6), Copier (C6) et Exporter le journal (C7).
 """
 
 import os
@@ -13,7 +14,7 @@ import json
 
 import pytest
 from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QTextEdit
+from PySide6.QtWidgets import QApplication, QFileDialog, QLabel, QLineEdit, QPushButton, QTextEdit
 
 from database import db_manager as db
 
@@ -144,6 +145,119 @@ def test_log_filter_errors_only_works_on_legacy_log_text_without_log_json(qapp, 
     btn_errors.click()
     assert "ERREUR" in log_box.toPlainText()
     assert "Chargement" not in log_box.toPlainText()
+
+
+def test_log_search_filters_journal_by_substring(qapp, test_db):
+    """C6 (lot C-Historique-2) : recherche par sous-chaîne, insensible à la casse."""
+    from ui.main_window.history_view import HistoryView
+
+    log_entries = [
+        {"t": "2026-01-01T10:00:00", "lvl": "INFO", "step_key": None, "msg": "Connexion ORACLE"},
+        {"t": "2026-01-01T10:00:01", "lvl": "INFO", "step_key": None, "msg": "Chargement du fichier"},
+    ]
+    pipeline, run = _make_run("hist-panel-log-search", "SUCCESS", log_json=json.dumps(log_entries))
+
+    view = HistoryView()
+    content = view._build_run_panel_content(pipeline, db.get_run(run.id))
+    log_box = content.findChild(QTextEdit)
+    search = content.findChild(QLineEdit)
+
+    search.setText("oracle")
+    assert "Connexion ORACLE" in log_box.toPlainText()
+    assert "Chargement" not in log_box.toPlainText()
+
+
+def test_log_search_combines_with_errors_filter(qapp, test_db):
+    """La recherche et le filtre Tout/Erreurs s'appliquent ensemble : une ligne doit passer les
+    deux pour rester affichée."""
+    from ui.main_window.history_view import HistoryView
+
+    log_entries = [
+        {"t": "2026-01-01T10:00:00", "lvl": "INFO", "step_key": None, "msg": "Connexion ORACLE"},
+        {"t": "2026-01-01T10:00:01", "lvl": "ERROR", "step_key": None, "msg": "ERREUR : ORACLE down"},
+    ]
+    pipeline, run = _make_run("hist-panel-log-search-errors", "FAILED", error_message="échec",
+                              log_json=json.dumps(log_entries))
+
+    view = HistoryView()
+    content = view._build_run_panel_content(pipeline, db.get_run(run.id))
+    log_box = content.findChild(QTextEdit)
+    search = content.findChild(QLineEdit)
+
+    btn_errors = next(b for b in content.findChildren(QPushButton) if b.text() == "Erreurs")
+    btn_errors.click()
+    search.setText("oracle")
+    assert "ERREUR" in log_box.toPlainText()
+    assert "Connexion" not in log_box.toPlainText()
+
+
+def test_log_search_without_match_shows_a_dedicated_message(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    pipeline, run = _make_run("hist-panel-log-search-empty", "SUCCESS", log_text="[10:00:00] Chargement")
+
+    view = HistoryView()
+    content = view._build_run_panel_content(pipeline, db.get_run(run.id))
+    log_box = content.findChild(QTextEdit)
+    search = content.findChild(QLineEdit)
+
+    search.setText("introuvable")
+    assert "Chargement" not in log_box.toPlainText()
+    assert log_box.toPlainText().strip() != ""
+
+
+def test_copy_log_button_copies_filtered_text_to_clipboard(qapp, test_db):
+    """C6 : Copier agit sur le texte actuellement affiché (déjà filtré), pas sur le journal
+    complet."""
+    from ui.main_window.history_view import HistoryView
+
+    log_entries = [
+        {"t": "2026-01-01T10:00:00", "lvl": "INFO", "step_key": None, "msg": "Connexion ORACLE"},
+        {"t": "2026-01-01T10:00:01", "lvl": "ERROR", "step_key": None, "msg": "ERREUR : échec"},
+    ]
+    pipeline, run = _make_run("hist-panel-log-copy", "FAILED", error_message="échec",
+                              log_json=json.dumps(log_entries))
+
+    view = HistoryView()
+    content = view._build_run_panel_content(pipeline, db.get_run(run.id))
+
+    btn_errors = next(b for b in content.findChildren(QPushButton) if b.text() == "Erreurs")
+    btn_errors.click()
+    btn_copy = next(b for b in content.findChildren(QPushButton) if b.text() == "Copier")
+    btn_copy.click()
+
+    clipboard_text = qapp.clipboard().text()
+    assert "ERREUR" in clipboard_text
+    assert "Connexion" not in clipboard_text
+
+
+def test_export_log_button_writes_the_filtered_text_to_the_chosen_file(qapp, test_db, monkeypatch, tmp_path):
+    """C7 : Exporter le journal écrit le texte actuellement affiché, même patron que
+    queries_view.py::_on_export_sql pour le choix du fichier."""
+    from ui.main_window.history_view import HistoryView
+
+    log_entries = [
+        {"t": "2026-01-01T10:00:00", "lvl": "INFO", "step_key": None, "msg": "Connexion ORACLE"},
+        {"t": "2026-01-01T10:00:01", "lvl": "ERROR", "step_key": None, "msg": "ERREUR : échec"},
+    ]
+    pipeline, run = _make_run("hist-panel-log-export", "FAILED", error_message="échec",
+                              log_json=json.dumps(log_entries))
+
+    view = HistoryView()
+    content = view._build_run_panel_content(pipeline, db.get_run(run.id))
+
+    btn_errors = next(b for b in content.findChildren(QPushButton) if b.text() == "Erreurs")
+    btn_errors.click()
+
+    out_file = tmp_path / "journal.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **kw: (str(out_file), ""))
+
+    btn_export = next(b for b in content.findChildren(QPushButton) if b.text() == "Exporter le journal")
+    btn_export.click()
+
+    written = out_file.read_text(encoding="utf-8")
+    assert "ERREUR" in written
+    assert "Connexion" not in written
 
 
 def test_running_run_panel_live_refreshes_until_terminal_status(qapp, test_db):

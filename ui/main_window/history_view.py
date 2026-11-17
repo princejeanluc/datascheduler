@@ -8,7 +8,7 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedLayout,
-    QTextEdit,
+    QTextEdit, QLineEdit, QFileDialog, QMessageBox, QApplication,
 )
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
@@ -257,24 +257,46 @@ def _log_entries_for_render(run) -> list[dict]:
 _LOG_LEVEL_COLOR = {"ERROR": "danger", "WARN": "warning", "OK": "success", "INFO": "text_main"}
 
 
-def _render_log_entries(log_box: QTextEdit, entries: list[dict], errors_only: bool) -> None:
+def _log_entry_text(entry: dict) -> str:
+    prefix = f"[{entry['time_s']}] " if entry["time_s"] else ""
+    return prefix + entry["msg"]
+
+
+def _log_entries_to_text(entries: list[dict]) -> str:
+    """Texte brut d'une liste d'entrées déjà filtrée — utilisé par Copier et Exporter (C6/C7)
+    pour agir sur exactement ce que `_render_log_entries` vient d'afficher."""
+    return "\n".join(_log_entry_text(e) for e in entries)
+
+
+def _render_log_entries(log_box: QTextEdit, entries: list[dict], errors_only: bool,
+                         query: str = "") -> list[dict]:
     """Rendu HTML du journal, une ligne colorée par entrée (C5) — `QTextEdit` plutôt que
     `QPlainTextEdit` (A10, avant ce lot) : seul moyen Qt simple de colorer certaines lignes sans
-    widget personnalisé."""
+    widget personnalisé. `query` (C6, lot C-Historique-2) filtre par sous-chaîne sur le message,
+    insensible à la casse, appliqué après le filtre de niveau. Retourne les entrées effectivement
+    affichées (texte vide si aucune) pour que Copier/Exporter (C6/C7) agissent sur ce qui est
+    visible sans dupliquer la logique de filtre."""
     import html as _html
     if not entries:
         log_box.setHtml(f'<div style="color:{COLORS["text_dim"]};">(aucun log enregistré)</div>')
-        return
-    shown = [e for e in entries if not errors_only or e["lvl"] == "ERROR"]
-    if not shown:
+        return []
+    by_level = [e for e in entries if not errors_only or e["lvl"] == "ERROR"]
+    if not by_level:
         log_box.setHtml(f'<div style="color:{COLORS["text_dim"]};">Aucune erreur dans ce journal.</div>')
-        return
+        return []
+    q = query.strip().lower()
+    shown = [e for e in by_level if q in e["msg"].lower()] if q else by_level
+    if not shown:
+        log_box.setHtml(
+            f'<div style="color:{COLORS["text_dim"]};">Aucune ligne ne correspond à la recherche.</div>'
+        )
+        return []
     lines = []
     for e in shown:
         color = COLORS[_LOG_LEVEL_COLOR.get(e["lvl"], "text_main")]
-        prefix = f"[{e['time_s']}] " if e["time_s"] else ""
-        lines.append(f'<div style="color:{color};">{_html.escape(prefix + e["msg"])}</div>')
+        lines.append(f'<div style="color:{color};">{_html.escape(_log_entry_text(e))}</div>')
     log_box.setHtml("".join(lines))
+    return shown
 
 
 # A11 (refonte, lot A-Historique) : traduction/couleur du journal des modifications, locale à cet
@@ -852,8 +874,17 @@ class HistoryView(QWidget):
 
         # C5 : filtre Tout/Erreurs — mêmes couleurs de bascule que les segments de statut
         # (_set_active_status), état purement local à ce panneau (log_filter_state).
+        # C6 (lot C-Historique-2) : recherche par sous-chaîne, même ligne, avant le bascule —
+        # placement de la maquette (Historique-run.html).
         log_filter_row = QHBoxLayout(); log_filter_row.setSpacing(6)
-        log_filter_state = {"errors_only": False}
+        log_filter_state = {"errors_only": False, "query": ""}
+
+        inp_log_search = QLineEdit()
+        inp_log_search.setPlaceholderText("Chercher dans le journal")
+        inp_log_search.setFixedHeight(30)
+        inp_log_search.setClearButtonEnabled(True)
+        log_filter_row.addWidget(inp_log_search, stretch=1)
+
         btn_log_all = QPushButton("Tout")
         btn_log_errors = QPushButton("Erreurs")
 
@@ -868,18 +899,34 @@ class HistoryView(QWidget):
         def _apply_log_filter():
             _style_log_filter_btn(btn_log_all, not log_filter_state["errors_only"])
             _style_log_filter_btn(btn_log_errors, log_filter_state["errors_only"])
-            _render_log_entries(log_box, log_entries_box["entries"], log_filter_state["errors_only"])
+            log_entries_box["shown"] = _render_log_entries(
+                log_box, log_entries_box["entries"],
+                log_filter_state["errors_only"], log_filter_state["query"],
+            )
 
         def _set_log_filter(errors_only):
             log_filter_state["errors_only"] = errors_only
             _apply_log_filter()
+
+        def _set_log_search(text):
+            log_filter_state["query"] = text
+            _apply_log_filter()
+
+        inp_log_search.textChanged.connect(_set_log_search)
 
         for btn, errors_only in ((btn_log_all, False), (btn_log_errors, True)):
             btn.setFixedHeight(24)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _, v=errors_only: _set_log_filter(v))
             log_filter_row.addWidget(btn)
-        log_filter_row.addStretch()
+
+        btn_log_copy = self._panel_action_button("Copier")
+
+        def _on_copy_log():
+            QApplication.clipboard().setText(_log_entries_to_text(log_entries_box["shown"]))
+
+        btn_log_copy.clicked.connect(_on_copy_log)
+        log_filter_row.addWidget(btn_log_copy)
         layout.addLayout(log_filter_row)
 
         log_box = QTextEdit()
@@ -893,7 +940,8 @@ class HistoryView(QWidget):
 
         # Boîte mutable (pas une variable locale simple) pour que _apply_log_filter() voie les
         # entrées rafraîchies par le polling ci-dessous sans dépendre de l'ordre de définition.
-        log_entries_box = {"entries": _log_entries_for_render(run)}
+        # "shown" (C6/C7) : dernières entrées effectivement affichées, lues par Copier/Exporter.
+        log_entries_box = {"entries": _log_entries_for_render(run), "shown": []}
         _apply_log_filter()
 
         footer = QHBoxLayout(); footer.setSpacing(8)
@@ -910,6 +958,26 @@ class HistoryView(QWidget):
         )
         footer.addWidget(btn_graph)
         footer.addStretch()
+
+        # C7 (lot C-Historique-2) : exporte le texte actuellement affiché (déjà filtré par niveau
+        # et par recherche) — même patron que queries_view.py::_on_export_sql.
+        btn_log_export = self._panel_action_button("Exporter le journal")
+
+        def _on_export_log():
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Exporter le journal", f"run-{run.id}-journal.txt",
+                "Fichiers texte (*.txt);;Tous les fichiers (*)",
+            )
+            if not path:
+                return
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(_log_entries_to_text(log_entries_box["shown"]))
+            except OSError as e:
+                QMessageBox.warning(self, "Export impossible", f"Impossible d'écrire ce fichier : {e}")
+
+        btn_log_export.clicked.connect(_on_export_log)
+        footer.addWidget(btn_log_export)
         layout.addLayout(footer)
 
         _update_eyebrow(_status_str(run.status), run.trigger_origin, run.triggered_by_run_id)

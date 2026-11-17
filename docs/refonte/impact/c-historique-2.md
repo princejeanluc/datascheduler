@@ -61,13 +61,14 @@ Aucun. `_render_log_entries` et `_apply_log_filter` restent des fonctions/fermet
 module, déjà non publiques.
 
 ## Tests
-- Tests existants concernés : `tests/test_history_run_panel.py` (doit rester vert, aucune
-  assertion existante modifiée).
-- Tests ajoutés : recherche seule, recherche + filtre Erreurs combinés, recherche sans résultat
-  (message dédié ou liste vide à définir pendant l'implémentation), Copier (mock du presse-papiers
-  Qt ou lecture de `QApplication.clipboard().text()`), Exporter (mock de
-  `QFileDialog.getSaveFileName` pour pointer vers un fichier temporaire, puis lecture de son
-  contenu).
+- Tests existants concernés : `tests/test_history_run_panel.py` (vert sans modification) ;
+  `tests/test_history_status_filter_and_navigation.py::test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_failure`
+  (T1 — asserte depuis C-Historique-1 que « Exporter le journal » est **absent** du pied du
+  panneau ; ce lot le rend présent et inconditionnel, l'assertion est mise à jour en conséquence).
+- Tests ajoutés (`tests/test_history_run_panel.py`) : recherche seule, recherche + filtre Erreurs
+  combinés, recherche sans résultat (message dédié), Copier (lecture de
+  `QApplication.clipboard().text()`), Exporter (mock de `QFileDialog.getSaveFileName` vers un
+  fichier temporaire, puis lecture de son contenu).
 
 ## Dépendances et build
 Aucune dépendance ajoutée. `QApplication.clipboard()` et `QFileDialog` sont déjà importés ailleurs

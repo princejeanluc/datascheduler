@@ -914,6 +914,10 @@ def _history_view_run():
     QApplication.instance().processEvents()
     view._open_run_panel(run.id)
     QApplication.instance().processEvents()
+    # Panneau resté à sa position de départ (hors écran) sans ceci (lot C-Historique-2, gap
+    # préexistant de cette fonction — les autres états à SidePanel appellent déjà
+    # _settle_side_panel).
+    _settle_side_panel(view)
     return view
 
 
