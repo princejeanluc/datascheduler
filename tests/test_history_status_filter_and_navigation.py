@@ -263,8 +263,9 @@ def test_convert_log_text_times_handles_empty_input():
 
 def test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_failure(qapp, test_db):
     """A10 : le pied du panneau propose "Reprendre depuis l'échec" (état de reprise persisté) et
-    "Voir dans le graphe" (échec avec un nœud fautif identifié) — jamais "Exporter le journal"
-    (C7, gated)."""
+    "Voir dans le graphe" (échec avec un nœud fautif identifié), ainsi que "Exporter le journal"
+    (C7, lot C-Historique-2, inconditionnel — mis à jour depuis l'assertion d'absence d'avant ce
+    lot, où C7 était encore hors périmètre)."""
     from ui.main_window.history_view import HistoryView
 
     p = db.create_pipeline(name="hist-panel-buttons")
@@ -281,7 +282,7 @@ def test_history_view_run_panel_shows_resume_and_graph_buttons_for_a_resumable_f
     texts = {b.text() for b in buttons}
     assert "Reprendre depuis l'échec" in texts
     assert "Voir dans le graphe" in texts
-    assert "Exporter le journal" not in texts
+    assert "Exporter le journal" in texts
 
 
 def test_history_view_run_panel_graph_button_emits_open_atelier_run_requested(qapp, test_db):

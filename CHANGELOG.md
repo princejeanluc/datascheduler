@@ -29,6 +29,14 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.62.0] - 2026-11-17
+
+### Ajouté
+- **Refonte, lot C-Historique-2** — le panneau latéral d'une exécution (lot C-Historique-1) gagne
+  un champ de recherche dans le journal (filtre par sous-chaîne, combiné au filtre Tout/Erreurs)
+  et deux boutons, Copier et Exporter le journal, qui agissent tous les deux sur le texte
+  actuellement affiché (déjà filtré).
+
 ## [0.61.0] - 2026-11-16
 
 ### Modifié
