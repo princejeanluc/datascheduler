@@ -8,7 +8,7 @@ import re
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QFrame, QScrollArea,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QStackedLayout,
-    QTextEdit, QLineEdit, QFileDialog, QMessageBox, QApplication,
+    QTextEdit, QLineEdit, QFileDialog, QMessageBox, QApplication, QMenu,
 )
 from PySide6.QtCore import Qt, QSize, QTimer, Signal
 from PySide6.QtGui import QFont, QColor
@@ -409,6 +409,51 @@ class HistoryView(QWidget):
             btn.clicked.connect(lambda _, v=value: self._set_active_status(v))
             self._status_buttons[value] = btn
             filters_row.addWidget(btn)
+
+        # C8 (lot C-Historique-3) : filtre pipeline — bouton "Tous les pipelines ▾" (menu) ou puce
+        # "Pipeline : <nom> ×" selon qu'un filtre est actif, un seul des deux visible à la fois.
+        self._pipeline_filter_id = None
+        self._btn_pipeline_filter = QPushButton("Tous les pipelines ▾")
+        self._btn_pipeline_filter.setFixedHeight(30)
+        self._btn_pipeline_filter.setCursor(Qt.PointingHandCursor)
+        self._btn_pipeline_filter.setStyleSheet(
+            f"QPushButton {{ border-radius: 6px; padding: 0 10px; font-size: 12.5px; "
+            f"background: transparent; color: {COLORS['text_dim']}; "
+            f"border: 1px solid {COLORS['border']}; }}"
+            f"QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['text_main']}; }}"
+        )
+        pipeline_menu = QMenu(self._btn_pipeline_filter)
+        pipeline_menu.aboutToShow.connect(lambda: self._populate_pipeline_filter_menu(pipeline_menu))
+        self._btn_pipeline_filter.setMenu(pipeline_menu)
+        filters_row.addWidget(self._btn_pipeline_filter)
+
+        self._chip_pipeline_filter = QWidget()
+        chip_layout = QHBoxLayout(self._chip_pipeline_filter)
+        chip_layout.setContentsMargins(10, 0, 6, 0)
+        chip_layout.setSpacing(8)
+        self._chip_pipeline_filter.setFixedHeight(30)
+        self._chip_pipeline_filter.setStyleSheet(
+            f"QWidget {{ border-radius: 6px; background: {COLORS['bg_active']}; "
+            f"border: 1px solid {COLORS['border_strong']}; }}"
+        )
+        self._lbl_pipeline_filter = QLabel("")
+        self._lbl_pipeline_filter.setStyleSheet(
+            f"color: {COLORS['text_main']}; font-size: 12.5px; background: transparent; border: none;"
+        )
+        chip_layout.addWidget(self._lbl_pipeline_filter)
+        btn_clear_pipeline_filter = QPushButton("×")
+        btn_clear_pipeline_filter.setCursor(Qt.PointingHandCursor)
+        btn_clear_pipeline_filter.setFixedSize(16, 16)
+        btn_clear_pipeline_filter.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; color: {COLORS['text_dim']}; "
+            f"font-size: 13px; padding: 0; }}"
+            f"QPushButton:hover {{ color: {COLORS['text_main']}; }}"
+        )
+        btn_clear_pipeline_filter.clicked.connect(self._clear_pipeline_filter)
+        chip_layout.addWidget(btn_clear_pipeline_filter)
+        self._chip_pipeline_filter.setVisible(False)
+        filters_row.addWidget(self._chip_pipeline_filter)
+
         filters_row.addStretch()
         self.inp_search = _make_search_input("Rechercher…")
         self.inp_search.textChanged.connect(self._on_search_changed)
@@ -551,15 +596,43 @@ class HistoryView(QWidget):
             )
         self._apply_filters()
 
+    def _populate_pipeline_filter_menu(self, menu: QMenu) -> None:
+        """Reconstruit le menu à chaque ouverture (`aboutToShow`) plutôt qu'une fois à la
+        construction — même patron que le menu "⋯" de pipelines_view.py — pour refléter un
+        pipeline créé/renommé depuis l'ouverture de cet écran."""
+        from database import db_manager as db
+
+        menu.clear()
+        for p in db.get_pipelines():
+            act = menu.addAction(p.name)
+            act.triggered.connect(lambda _, i=p.id, n=p.name: self._set_pipeline_filter(i, n))
+
+    def _set_pipeline_filter(self, pipeline_id: int, pipeline_name: str) -> None:
+        """C8 : la puce remplace le bouton "Tous les pipelines ▾" (un seul des deux visible),
+        comme sur la maquette Historique-pipeline.html."""
+        self._pipeline_filter_id = pipeline_id
+        self._lbl_pipeline_filter.setText(f"Pipeline : {pipeline_name}")
+        self._btn_pipeline_filter.setVisible(False)
+        self._chip_pipeline_filter.setVisible(True)
+        self._apply_filters()
+
+    def _clear_pipeline_filter(self) -> None:
+        self._pipeline_filter_id = None
+        self._chip_pipeline_filter.setVisible(False)
+        self._btn_pipeline_filter.setVisible(True)
+        self._apply_filters()
+
     def _apply_filters(self, *_args):
         """Combine le filtre de statut (propriété `status_code` posée sur le badge à la
-        construction — pas badge.text(), qui affiche désormais un libellé français, A7) et la
-        recherche libre (sous-chaîne insensible à la casse, colonnes Heure/Pipeline/Durée/Lignes/
-        Statut/Fichier déposé + message d'erreur — A2) — une ligne doit satisfaire les deux pour
-        rester visible. `self._run_ids[row] is None` identifie une ligne d'en-tête de groupe de
-        jour (A5) : jamais filtrée directement, sa visibilité suit celle des runs qu'elle
-        introduit (calculé après coup ci-dessous, une ligne d'en-tête ne connaît pas son groupe)."""
+        construction — pas badge.text(), qui affiche désormais un libellé français, A7), le
+        filtre pipeline (C8, lot C-Historique-3) et la recherche libre (sous-chaîne insensible à
+        la casse, colonnes Heure/Pipeline/Durée/Lignes/Statut/Fichier déposé + message d'erreur —
+        A2) — une ligne doit satisfaire les trois pour rester visible. `self._run_ids[row] is
+        None` identifie une ligne d'en-tête de groupe de jour (A5) : jamais filtrée directement,
+        sa visibilité suit celle des runs qu'elle introduit (calculé après coup ci-dessous, une
+        ligne d'en-tête ne connaît pas son groupe)."""
         status = self._status_filter
+        pipeline_filter = self._pipeline_filter_id
         needle = self.inp_search.text().strip().lower()
         # Déclenchement (colonne 5, C3) volontairement absent : A2 ne liste que Heure/Pipeline/
         # Durée/Lignes/Statut/Fichier déposé + erreur comme cherchés par la recherche libre.
@@ -572,6 +645,9 @@ class HistoryView(QWidget):
             badge = self.table.cellWidget(row, 4)
             status_code = badge.property("status_code") if badge is not None else None
             if status is not None and status_code != status:
+                self.table.setRowHidden(row, True)
+                continue
+            if pipeline_filter is not None and self._run_pipeline_ids.get(row) != pipeline_filter:
                 self.table.setRowHidden(row, True)
                 continue
             error_s = (self._run_errors.get(row) or "").lower()
@@ -1092,6 +1168,7 @@ class HistoryView(QWidget):
 
         self._run_ids = []       # index ligne → run_id (None pour une ligne d'en-tête de groupe)
         self._run_errors = {}    # index ligne → run.error_message (A2, recherche étendue)
+        self._run_pipeline_ids = {}   # index ligne → run.pipeline_id (C8, filtre pipeline)
         self.table.setRowCount(len(display_rows))
         for r_idx, (run, header_label) in enumerate(display_rows):
             if run is None:
@@ -1107,6 +1184,7 @@ class HistoryView(QWidget):
 
             self._run_ids.append(run.id)
             self._run_errors[r_idx] = run.error_message or ""
+            self._run_pipeline_ids[r_idx] = run.pipeline_id
             pname  = run.pipeline.name if run.pipeline else str(run.pipeline_id)
             st     = _status_str(run.status)
             time_s = fmt_time(run.started_at)

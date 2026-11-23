@@ -124,6 +124,60 @@ def test_status_filter_all_shows_every_row(qapp, test_db):
     assert all(not view.table.isRowHidden(r) for r in range(view.table.rowCount()))
 
 
+def test_pipeline_filter_shows_only_that_pipelines_runs(qapp, test_db):
+    """C8 (lot C-Historique-3) : sélectionner un pipeline dans le menu "Tous les pipelines ▾"
+    filtre le tableau à ses seuls runs."""
+    from ui.main_window.history_view import HistoryView
+
+    run_a = _make_run("hist-pipefilter-alpha", "SUCCESS")
+    _make_run("hist-pipefilter-beta", "SUCCESS")
+
+    view = HistoryView()
+    assert not view._btn_pipeline_filter.isHidden()
+    assert view._chip_pipeline_filter.isHidden()
+
+    view._set_pipeline_filter(run_a.pipeline_id, "hist-pipefilter-alpha")
+
+    assert _visible_pipeline_names(view) == ["hist-pipefilter-alpha"]
+    assert view._btn_pipeline_filter.isHidden()
+    assert not view._chip_pipeline_filter.isHidden()
+    assert view._lbl_pipeline_filter.text() == "Pipeline : hist-pipefilter-alpha"
+
+
+def test_pipeline_filter_combines_with_status_filter(qapp, test_db):
+    """Une ligne doit satisfaire le filtre pipeline ET le filtre de statut : le run FAILED du
+    pipeline filtré reste visible, son run SUCCESS et l'autre pipeline disparaissent."""
+    from ui.main_window.history_view import HistoryView
+
+    pipeline = db.create_pipeline(name="hist-pipefilter-combo")
+    db.finish_run(db.create_run(pipeline.id).id, status="SUCCESS")
+    db.finish_run(db.create_run(pipeline.id).id, status="FAILED")
+    _make_run("hist-pipefilter-other", "FAILED")
+
+    view = HistoryView()
+    view._set_pipeline_filter(pipeline.id, "hist-pipefilter-combo")
+    view.set_status_filter("FAILED")
+
+    assert _visible_pipeline_names(view) == ["hist-pipefilter-combo"]
+
+
+def test_pipeline_filter_clear_restores_all_pipelines_and_the_dropdown_button(qapp, test_db):
+    from ui.main_window.history_view import HistoryView
+
+    run_a = _make_run("hist-pipefilter-clear-a", "SUCCESS")
+    _make_run("hist-pipefilter-clear-b", "SUCCESS")
+
+    view = HistoryView()
+    view._set_pipeline_filter(run_a.pipeline_id, "hist-pipefilter-clear-a")
+    view._clear_pipeline_filter()
+
+    assert sorted(_visible_pipeline_names(view)) == [
+        "hist-pipefilter-clear-a", "hist-pipefilter-clear-b",
+    ]
+    assert not view._btn_pipeline_filter.isHidden()
+    assert view._chip_pipeline_filter.isHidden()
+
+
 def test_history_view_tabs_switch_between_executions_and_modifications(qapp, test_db):
     from ui.main_window.history_view import HistoryView
 

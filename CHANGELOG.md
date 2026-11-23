@@ -29,6 +29,15 @@ bas pour son introduction).
 
 ## [Non publié]
 
+## [0.63.0] - 2026-11-23
+
+### Ajouté
+- **Refonte, lot C-Historique-3** — un bouton « Tous les pipelines ▾ » dans les filtres de
+  l'Historique ouvre un menu de tous les pipelines ; en choisir un filtre le tableau à ses seuls
+  runs et remplace le bouton par une puce « Pipeline : *Nom* × », qui revient à « Tous les
+  pipelines » en un clic. Se combine avec le filtre de statut et la recherche libre déjà
+  existants.
+
 ## [0.62.0] - 2026-11-17
 
 ### Ajouté
